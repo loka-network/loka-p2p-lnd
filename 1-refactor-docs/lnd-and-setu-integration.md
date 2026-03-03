@@ -10,7 +10,7 @@
 
 改造策略：**零侵入适配器模式（Adapter Pattern）** 。不新增抽象层、不改现有接口签名，而是在接口实现层做 Setu 适配器 —— Setu 适配器内部复用 Bitcoin 类型（如 `wire.OutPoint.Hash` 存储 ObjectID、`btcutil.Amount` 做单位映射、`wire.MsgTx` 承载 Setu Event 序列化字节），在实现边界做语义转换。现有 Bitcoin 代码路径完全不受影响，Setu 作为新的 `ChainControl` 实现插入，通过 `lncli --chain=setu` 选择。
 
-核心改造工作量分布：**Setu 后端适配器实现（35%）→ Setu 链侧 Lightning 原语硬编码（20%）→ 上层模块扩展（25%）→ 配置/启动/测试集成（20%）**。
+核心改造工作量分布：**lnd 针对 Setu 的后端适配器实现（35%）→ Setu 链侧 Lightning 原语硬编码（20%）→ 上层模块扩展（25%）→ 配置/启动/测试集成（20%）**。
 
 ---
 
