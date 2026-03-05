@@ -42,6 +42,14 @@ type Config struct {
 	// Bitcoin defines settings for the Bitcoin chain.
 	Bitcoin *lncfg.Chain
 
+	// Setu defines per-channel routing parameters for the Setu DAG chain.
+	// It is populated when --chain=setu is specified on the command line.
+	Setu *lncfg.Chain
+
+	// SetuMode holds the Setu validator node connection parameters used
+	// when the Setu chain backend is active.
+	SetuMode *lncfg.SetuNode
+
 	// HeightHintCacheQueryDisable is a boolean that disables height hint
 	// queries if true.
 	HeightHintCacheQueryDisable bool
@@ -224,6 +232,15 @@ type ChainControl struct {
 //
 //nolint:ll
 func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
+	// When Setu mode is explicitly enabled via --setunode.active, delegate
+	// entirely to the Setu-specific constructor rather than executing the
+	// Bitcoin code paths below.
+	if cfg.SetuMode != nil && cfg.SetuMode.Active {
+		log.Infof("Initializing Setu chain backend (node: %s)",
+			cfg.SetuMode.RPCAddr())
+		return newSetuPartialChainControl(cfg)
+	}
+
 	cc := &PartialChainControl{
 		Cfg: cfg,
 		RoutingPolicy: models.ForwardingPolicy{

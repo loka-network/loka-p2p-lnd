@@ -618,6 +618,8 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	// replicated, so we'll pass in the remote channel DB instance.
 	chainControlCfg := &chainreg.Config{
 		Bitcoin:                     d.cfg.Bitcoin,
+		Setu:                        d.cfg.Setu,
+		SetuMode:                    d.cfg.SetuMode,
 		HeightHintCacheQueryDisable: d.cfg.HeightHintCacheQueryDisable,
 		NeutrinoMode:                d.cfg.NeutrinoMode,
 		BitcoindMode:                d.cfg.BitcoindMode,
@@ -757,6 +759,12 @@ func (w *walletReBroadcaster) Started() bool {
 func (d *DefaultWalletImpl) BuildChainControl(
 	partialChainControl *chainreg.PartialChainControl,
 	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+
+	// When the Setu chain backend is explicitly enabled via
+	// --setunode.active we bypass the Bitcoin wallet stack entirely.
+	if partialChainControl.Cfg.SetuMode != nil && partialChainControl.Cfg.SetuMode.Active {
+		return buildSetuChainControl(partialChainControl)
+	}
 
 	walletController, err := btcwallet.New(
 		*walletConfig, partialChainControl.Cfg.BlockCache,

@@ -246,6 +246,11 @@ const (
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
 	BitcoinChainName = "bitcoin"
 
+	// SetuChainName is a string that represents the Setu DAG blockchain.
+	// When --chain=setu is passed on the command line, LND will use the
+	// Setu chain backend adapters instead of the Bitcoin ones.
+	SetuChainName = "setu"
+
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
@@ -379,6 +384,12 @@ type Config struct {
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
+
+	// Setu holds per-channel routing parameters for Setu channels, mirroring
+	// the Bitcoin field.  It is active when --chain=setu is specified.
+	Setu     *lncfg.Chain    `group:"Setu" namespace:"setu"`
+	// SetuMode holds the Setu DAG validator node connection parameters.
+	SetuMode *lncfg.SetuNode `group:"setunode" namespace:"setunode"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
@@ -604,6 +615,16 @@ func DefaultConfig() Config {
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
 			Node:          btcdBackendName,
 		},
+		Setu: &lncfg.Chain{
+			MinHTLCIn:     chainreg.DefaultSetuMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultSetuMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultSetuBaseFeeMSat,
+			FeeRate:       chainreg.DefaultSetuFeeRate,
+			TimeLockDelta: chainreg.DefaultSetuTimeLockDelta,
+			MaxLocalDelay: defaultMaxLocalCSVDelay,
+			Node:          "setu",
+		},
+		SetuMode: lncfg.DefaultSetuNode(),
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
