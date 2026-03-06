@@ -1,101 +1,164 @@
-## Lightning Network Daemon
+# Loka AI Agentic Payment P2P Lightning Node
 
-[![Release build](https://github.com/lightningnetwork/lnd/actions/workflows/release.yaml/badge.svg)](https://github.com/lightningnetwork/lnd/actions/workflows/release.yaml)
+[![Website](https://img.shields.io/badge/website-lokachain.org-blue.svg)](https://lokachain.org/)
+[![Twitter](https://img.shields.io/badge/twitter-@lokachain-1DA1F2.svg)](https://x.com/lokachain)
+[![Architecture](https://img.shields.io/badge/architecture-P2P%20Agentic-orange.svg)](https://github.com/loka-network/loka-p2p-lnd)
+[![Status](https://img.shields.io/badge/status-Active-success.svg)](https://github.com/loka-network)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
-[![Irc](https://img.shields.io/badge/chat-on%20libera-brightgreen.svg)](https://web.libera.chat/#lnd)
-[![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)](https://godoc.org/github.com/lightningnetwork/lnd)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lightningnetwork/lnd)](https://goreportcard.com/report/github.com/lightningnetwork/lnd)
 
-<img src="logo.png">
+**This repository is a fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** that preserves full Bitcoin Lightning Network functionality while integrating **Setu** (a DAG-BFT high-performance distributed ledger from the Hetu Project) via a zero-intrusion adapter pattern, delivering a unified dual-chain Lightning Network payment node.
 
-The Lightning Network Daemon (`lnd`) - is a complete implementation of a
-[Lightning Network](https://lightning.network) node.  `lnd` has several pluggable back-end
-chain services including [`btcd`](https://github.com/btcsuite/btcd) (a
-full-node), [`bitcoind`](https://github.com/bitcoin/bitcoin), and
-[`neutrino`](https://github.com/lightninglabs/neutrino) (a new experimental light client). The project's codebase uses the
-[btcsuite](https://github.com/btcsuite/) set of Bitcoin libraries, and also
-exports a large set of isolated re-usable Lightning Network related libraries
-within it.  In the current state `lnd` is capable of:
-* Creating channels.
-* Closing channels.
-* Completely managing all channel states (including the exceptional ones!).
-* Maintaining a fully authenticated+validated channel graph.
-* Performing path finding within the network, passively forwarding incoming payments.
-* Sending outgoing [onion-encrypted payments](https://github.com/lightningnetwork/lightning-onion)
-through the network.
-* Updating advertised fee schedules.
-* Automatic channel management ([`autopilot`](https://github.com/lightningnetwork/lnd/tree/master/autopilot)).
+---
+
+## Project Overview
+
+`lnd` (Lightning Network Daemon) is a full Go implementation of a Lightning Network node, supporting channel creation, HTLC forwarding, pathfinding, and the complete feature set. This fork adds native support for the **Setu chain** on top of that foundation:
+
+- **Bitcoin path**: Fully preserved, connected via `btcd` / `bitcoind` / `neutrino` backends
+- **Setu path**: Connected via newly added adapter modules (`setunotify/`, `setuwallet/`, etc.), selected with `--chain=setu`
+
+Both chains share the same RPC interface, routing engine, HTLC Switch, and channel state machine — **one codebase, two chains**.
+
+---
+
+## What is Setu?
+
+**Setu** is the next-generation distributed consensus network designed by the Hetu Project for high-throughput payment workloads. Key features:
+
+| Feature                     | Description                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **DAG-BFT Consensus**       | Byzantine fault-tolerant protocol based on a directed acyclic graph; confirmation latency < 1 second |
+| **VLC Hybrid Clock**        | Vector Logic Clock (VLCSnapshot) for causal ordering of distributed events                           |
+| **TEE Trusted Execution**   | Secure on-chain computation backed by AWS Nitro Enclaves                                             |
+| **Object-Account Model**    | Sui-style object-oriented state management; channels identified by a 32-byte `ObjectID`              |
+| **Merkle State Commitment** | Binary + Sparse Merkle Trees for verifiable state                                                    |
+
+The network consists of **Validator nodes** (verification + consensus) and **Solver nodes** (TEE execution + state transitions). Lightning channel primitives (`ChannelOpen`, `ChannelClose`, `ChannelForceClose`, `HTLCAdd`, `HTLCClaim`, `HTLCTimeout`, `ChannelPenalize`) are natively implemented in the Setu Runtime as **hardcoded EventTypes** — no general-purpose VM required.
+
+---
+
+## Architecture: Zero-Intrusion Adapter Pattern
+
+```
+┌─────────────────────────────────────────────────────┐
+│          LND Application Layer (unchanged)           │
+│  RPC Server · Routing Engine · HTLC Switch · FSM    │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│          Chain Abstraction Interfaces (never modify) │
+│  ChainNotifier · WalletController · Signer          │
+│  BlockChainIO  · ChainControl                       │
+└────────┬──────────────────────────────┬─────────────┘
+         │ chain=bitcoin                 │ chain=setu
+┌────────▼───────────┐       ┌──────────▼────────────┐
+│  Bitcoin Backends   │       │  Setu Adapters (new)  │
+│  bitcoindnotify/   │       │  setunotify/           │
+│  btcdnotify/       │       │  setuwallet/           │
+│  neutrinonotify/   │       │  input/setu_channel.go │
+│  lnwallet/btcwallet│       │  chainfee/setu_estimator│
+└────────────────────┘       └────────────────────────┘
+```
+
+### Type Mapping Conventions
+
+Setu adapters reuse Bitcoin/LND types internally, performing semantic translation at the boundary:
+
+| LND Type              | Setu Semantic          | Notes                    |
+| --------------------- | ---------------------- | ------------------------ |
+| `wire.OutPoint.Hash`  | `ObjectID`             | Direct 32-byte mapping   |
+| `wire.OutPoint.Index` | `0`                    | Setu has no UTXO index   |
+| `btcutil.Amount`      | `u64`                  | Setu base unit           |
+| `wire.MsgTx`          | Setu Event bytes       | Carries serialized Event |
+| `chainhash.Hash`      | `EventId` / `AnchorId` | 32 bytes                 |
+
+---
+
+## Core Features
+
+- Channel open and close (cooperative / force-close / breach penalty)
+- Full channel state machine management
+- Multi-hop HTLC payment forwarding (including timeout and claim)
+- Gossip network topology discovery and maintenance
+- Dijkstra pathfinding + Mission Control
+- Invoice management (BOLT-11)
+- Automated channel management (`autopilot`)
+- Watchtower (offline penalty broadcasting)
+- Setu chain: DAG finality replaces block confirmations (< 1 second)
+
+---
 
 ## Lightning Network Specification Compliance
-`lnd` _fully_ conforms to the [Lightning Network specification
-(BOLTs)](https://github.com/lightningnetwork/lightning-rfc). BOLT stands for:
-Basis of Lightning Technology. The specifications are currently being drafted
-by several groups of implementers based around the world including the
-developers of `lnd`. The set of specification documents as well as our
-implementation of the specification are still a work-in-progress. With that
-said, the current status of `lnd`'s BOLT compliance is:
 
-  - [X] BOLT 1: Base Protocol
-  - [X] BOLT 2: Peer Protocol for Channel Management
-  - [X] BOLT 3: Bitcoin Transaction and Script Formats
-  - [X] BOLT 4: Onion Routing Protocol
-  - [X] BOLT 5: Recommendations for On-chain Transaction Handling
-  - [X] BOLT 7: P2P Node and Channel Discovery
-  - [X] BOLT 8: Encrypted and Authenticated Transport
-  - [X] BOLT 9: Assigned Feature Flags
-  - [X] BOLT 10: DNS Bootstrap and Assisted Node Location
-  - [X] BOLT 11: Invoice Protocol for Lightning Payments
+`lnd` fully implements the following BOLT specifications:
 
-## Developer Resources
+- [x] BOLT 1: Base Protocol
+- [x] BOLT 2: Peer Protocol for Channel Management
+- [x] BOLT 3: Bitcoin Transaction and Script Formats
+- [x] BOLT 4: Onion Routing Protocol
+- [x] BOLT 5: Recommendations for On-chain Transaction Handling
+- [x] BOLT 7: P2P Node and Channel Discovery
+- [x] BOLT 8: Encrypted and Authenticated Transport
+- [x] BOLT 9: Assigned Feature Flags
+- [x] BOLT 10: DNS Bootstrap and Assisted Node Location
+- [x] BOLT 11: Invoice Protocol for Lightning Payments
 
-The daemon has been designed to be as developer friendly as possible in order
-to facilitate application development on top of `lnd`. Two primary RPC
-interfaces are exported: an HTTP REST API, and a [gRPC](https://grpc.io/)
-service. The exported APIs are not yet stable, so be warned: they may change
-drastically in the near future.
+---
 
-An automatically generated set of documentation for the RPC APIs can be found
-at [api.lightning.community](https://api.lightning.community). A set of developer
-resources including guides, articles, example applications and community resources can be found at:
-[docs.lightning.engineering](https://docs.lightning.engineering).
+## Build & Run
 
-Finally, we also have an active
-[Slack](https://lightning.engineering/slack.html) where protocol developers, application developers, testers and users gather to
-discuss various aspects of `lnd` and also Lightning in general.
+```sh
+# Build debug binaries (lnd-debug, lncli-debug)
+make build
 
-First-time contributors are [highly encouraged to start with code review
-first](docs/review.md), before creating their own Pull Requests.
+# Install to $GOPATH/bin
+make install
 
-## Installation
-  In order to build from source, please see [the installation
-  instructions](docs/INSTALL.md).
+# Unit tests (requires btcd binary)
+make unit
 
-## Docker
-  To run lnd from Docker, please see the main [Docker instructions](docs/DOCKER.md)
+# Unit tests for all submodules (actor/, fn/, etc.)
+make unit-module
 
-## IRC
-  * irc.libera.chat
-  * channel #lnd
-  * [webchat](https://web.libera.chat/#lnd)
+# Integration tests (builds binaries first; postgres backend requires Docker)
+make itest
 
-## Safety
+# Lint (runs golangci-lint via Docker)
+make lint
+```
 
-When operating a mainnet `lnd` node, please refer to our [operational safety
-guidelines](docs/safety.md). It is important to note that `lnd` is still
-**beta** software and that ignoring these operational guidelines can lead to
-loss of funds.
+> Required Go version: **1.25.5+** (see `GO_VERSION` in Makefile)
+
+Start a node with the Setu backend:
+
+```sh
+lnd --chain=setu --setu.rpc=<setu-node-endpoint> ...
+```
+
+---
+
+## Key Reference Documents
+
+| Topic                                 | File                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Setu adaptation & integration plan    | [1-refactor-docs/lnd-and-setu-integration.md](1-refactor-docs/lnd-and-setu-integration.md) |
+| Setu chain architecture               | [1-refactor-docs/setu-architecture.md](1-refactor-docs/setu-architecture.md)               |
+| LND refactor plan                     | [1-refactor-docs/lnd-setu-refactor-plan.md](1-refactor-docs/lnd-setu-refactor-plan.md)     |
+| LND engineering architecture overview | [1-refactor-docs/lnd-architecture.md](1-refactor-docs/lnd-architecture.md)                 |
+| Setu ↔ LND interaction interface spec | [1-refactor-docs/setu-ln-interaction-spec.md](1-refactor-docs/setu-ln-interaction-spec.md) |
+
+---
 
 ## Security
 
-The developers of `lnd` take security _very_ seriously. The disclosure of
-security vulnerabilities helps us secure the health of `lnd`, privacy of our
-users, and also the health of the Lightning Network as a whole.  If you find
-any issues regarding security or privacy, please disclose the information
-responsibly by sending an email to security at lightning dot engineering,
-preferably encrypted using our designated PGP key
-(`91FE464CD75101DA6B6BAB60555C6465E5BCB3AF`) which can be found
-[here](https://gist.githubusercontent.com/Roasbeef/6fb5b52886183239e4aa558f83d085d3/raw/1ecb328bbcf36f76ead67f08008f8db1da07e60e/security@lightning.engineering).
+This node is still in **beta**. For mainnet operation, please refer to the [Safe Operating Guide](docs/safety.md).
 
-## Further reading
-* [Step-by-step send payment guide with docker](https://github.com/lightningnetwork/lnd/tree/master/docker)
-* [Contribution guide](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md)
+If you discover a security vulnerability, please issue [a GitHub issue](https://github.com/loka-network/loka-p2p-lnd/issues).
+
+---
+
+## Further Reading
+
+- [Contribution Guide](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md)
+- [Docker Deployment Guide](docs/DOCKER.md)
+- [Installation Instructions](docs/INSTALL.md)
