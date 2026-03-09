@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] — 2026-03-09
+
+### Changed
+
+- **`lncfg/setu.go`** — Added network selection flags to `SetuNode`: `--setunode.mainnet`, `--setunode.testnet`, `--setunode.devnet`, `--setunode.simnet`. `Validate()` now enforces that at most one network flag is set.
+- **`config.go` (`ValidateConfig`)** — When `--setunode.active` is set, bitcoin network flags (`--bitcoin.mainnet` etc.) are no longer required. The Bitcoin chain validation block is skipped; a Setu-specific branch selects the active Setu network (defaulting to devnet), uses `BitcoinRegTestNetParams` as a structural placeholder for `ActiveNetParams`, and sets `activeChainName = "setu"` for all directory construction. Directory paths (`networkDir`, `towerDir`, `LogDir`) are now derived from `activeChainName`/`activeNetworkName` variables so they are namespaced under `setu/<network>/` when Setu is active.
+
+---
+
 ## [Unreleased] — 2026-03-05
 
 ### Overview

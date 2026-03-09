@@ -3,7 +3,7 @@
 ## Project Overview
 
 This is a **fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** — a full Lightning Network node implementation in Go — being adapted to support **Setu** (a DAG-BFT distributed ledger
- with an object-account model) alongside Bitcoin, under the `loka-agentic-payment` project.
+with an object-account model) alongside Bitcoin, under the `loka-agentic-payment` project.
 
 See `1-refactor-docs/` for the full adaptation plan and architecture details.
 
@@ -84,6 +84,7 @@ Required Go version: **1.25.5** (see `GO_VERSION` in Makefile).
 - **Logging**: use `build/log.go` subsystem registration; each package gets its own `log.go` registering with `btclog`.
 - **Config**: `config.go` + `lncfg/` for validation; `config_builder.go` for `ImplementationCfg` / `ChainControlBuilder`.
 - **HD key derivation**: `m/1017'/coinType'/keyFamily'/0/index` — see `keychain/`.
+- **Changelog**: after any code change, update `CHANGELOG.md`.
 
 ---
 
