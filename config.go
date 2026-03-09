@@ -387,7 +387,7 @@ type Config struct {
 
 	// Setu holds per-channel routing parameters for Setu channels, mirroring
 	// the Bitcoin field.  It is active when --chain=setu is specified.
-	Setu     *lncfg.Chain    `group:"Setu" namespace:"setu"`
+	Setu *lncfg.Chain `group:"Setu" namespace:"setu"`
 	// SetuMode holds the Setu DAG validator node connection parameters.
 	SetuMode *lncfg.SetuNode `group:"setunode" namespace:"setunode"`
 
@@ -1243,141 +1243,184 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			"mutually exclusive, only one should be selected")
 	}
 
+	// activeChainName and activeNetworkName are set in the chain-specific
+	// validation blocks below and used for all subsequent directory
+	// construction.
+	var activeChainName, activeNetworkName string
+
 	// Multiple networks can't be selected simultaneously.  Count
 	// number of network flags passed; assign active network params
 	// while we're at it.
-	numNets := 0
-	if cfg.Bitcoin.MainNet {
-		numNets++
-		cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
-	}
-	if cfg.Bitcoin.TestNet3 {
-		numNets++
-		cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
-	}
-	if cfg.Bitcoin.TestNet4 {
-		numNets++
-		cfg.ActiveNetParams = chainreg.BitcoinTestNet4Params
-	}
-	if cfg.Bitcoin.RegTest {
-		numNets++
-		cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
-	}
-	if cfg.Bitcoin.SimNet {
-		numNets++
-		cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
-
-		// For simnet, the btcsuite chain params uses a
-		// cointype of 115. However, we override this in
-		// chainreg/chainparams.go, but the raw ChainParam
-		// field is used elsewhere. To ensure everything is
-		// consistent, we'll also override the cointype within
-		// the raw params.
-		targetCoinType := chainreg.BitcoinSigNetParams.CoinType
-		cfg.ActiveNetParams.Params.HDCoinType = targetCoinType
-	}
-	if cfg.Bitcoin.SigNet {
-		numNets++
-		cfg.ActiveNetParams = chainreg.BitcoinSigNetParams
-
-		// Let the user overwrite the default signet parameters.
-		// The challenge defines the actual signet network to
-		// join and the seed nodes are needed for network
-		// discovery.
-		sigNetChallenge := chaincfg.DefaultSignetChallenge
-		sigNetSeeds := chaincfg.DefaultSignetDNSSeeds
-		if cfg.Bitcoin.SigNetChallenge != "" {
-			challenge, err := hex.DecodeString(
-				cfg.Bitcoin.SigNetChallenge,
-			)
-			if err != nil {
-				return nil, mkErr("Invalid "+
-					"signet challenge, hex decode "+
-					"failed: %v", err)
-			}
-			sigNetChallenge = challenge
+	if cfg.SetuMode.Active {
+		// --- Setu chain validation ---
+		if err := cfg.SetuMode.Validate(); err != nil {
+			return nil, mkErr("invalid setu config: %v", err)
 		}
 
-		if len(cfg.Bitcoin.SigNetSeedNode) > 0 {
-			sigNetSeeds = make([]chaincfg.DNSSeed, len(
-				cfg.Bitcoin.SigNetSeedNode,
-			))
-			for idx, seed := range cfg.Bitcoin.SigNetSeedNode {
-				sigNetSeeds[idx] = chaincfg.DNSSeed{
-					Host:         seed,
-					HasFiltering: false,
+		setuNetName := chainreg.SetuDevNetParams.Name // default
+		if cfg.SetuMode.MainNet {
+			setuNetName = chainreg.SetuMainNetParams.Name
+		}
+		if cfg.SetuMode.TestNet {
+			setuNetName = chainreg.SetuTestNetParams.Name
+		}
+		if cfg.SetuMode.DevNet {
+			setuNetName = chainreg.SetuDevNetParams.Name
+		}
+		if cfg.SetuMode.SimNet {
+			setuNetName = chainreg.SetuSimNetParams.Name
+		}
+
+		// Use Bitcoin's regtest params as a structural placeholder for
+		// ActiveNetParams.Params.  The Setu chain control does not rely
+		// on chaincfg.Params but the field must be non-nil for shared
+		// infrastructure code.
+		cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
+
+		cfg.Setu.ChainDir = filepath.Join(
+			cfg.DataDir, defaultChainSubDirname, SetuChainName,
+		)
+
+		activeChainName = SetuChainName
+		activeNetworkName = lncfg.NormalizeNetwork(setuNetName)
+	} else {
+		// --- Bitcoin chain validation ---
+		numNets := 0
+		if cfg.Bitcoin.MainNet {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
+		}
+		if cfg.Bitcoin.TestNet3 {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
+		}
+		if cfg.Bitcoin.TestNet4 {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinTestNet4Params
+		}
+		if cfg.Bitcoin.RegTest {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
+		}
+		if cfg.Bitcoin.SimNet {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
+
+			// For simnet, the btcsuite chain params uses a
+			// cointype of 115. However, we override this in
+			// chainreg/chainparams.go, but the raw ChainParam
+			// field is used elsewhere. To ensure everything is
+			// consistent, we'll also override the cointype within
+			// the raw params.
+			targetCoinType := chainreg.BitcoinSigNetParams.CoinType
+			cfg.ActiveNetParams.Params.HDCoinType = targetCoinType
+		}
+		if cfg.Bitcoin.SigNet {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinSigNetParams
+
+			// Let the user overwrite the default signet parameters.
+			// The challenge defines the actual signet network to
+			// join and the seed nodes are needed for network
+			// discovery.
+			sigNetChallenge := chaincfg.DefaultSignetChallenge
+			sigNetSeeds := chaincfg.DefaultSignetDNSSeeds
+			if cfg.Bitcoin.SigNetChallenge != "" {
+				challenge, err := hex.DecodeString(
+					cfg.Bitcoin.SigNetChallenge,
+				)
+				if err != nil {
+					return nil, mkErr("Invalid "+
+						"signet challenge, hex decode "+
+						"failed: %v", err)
+				}
+				sigNetChallenge = challenge
+			}
+
+			if len(cfg.Bitcoin.SigNetSeedNode) > 0 {
+				sigNetSeeds = make([]chaincfg.DNSSeed, len(
+					cfg.Bitcoin.SigNetSeedNode,
+				))
+				for idx, seed := range cfg.Bitcoin.SigNetSeedNode {
+					sigNetSeeds[idx] = chaincfg.DNSSeed{
+						Host:         seed,
+						HasFiltering: false,
+					}
 				}
 			}
+
+			chainParams := chaincfg.CustomSignetParams(
+				sigNetChallenge, sigNetSeeds,
+			)
+			cfg.ActiveNetParams.Params = &chainParams
+		}
+		if numNets > 1 {
+			str := "The mainnet, testnet, testnet4, regtest, simnet and " +
+				"signet params can't be used together -- choose one " +
+				"of the five"
+
+			return nil, mkErr(str)
 		}
 
-		chainParams := chaincfg.CustomSignetParams(
-			sigNetChallenge, sigNetSeeds,
-		)
-		cfg.ActiveNetParams.Params = &chainParams
-	}
-	if numNets > 1 {
-		str := "The mainnet, testnet, testnet4, regtest, simnet and " +
-			"signet params can't be used together -- choose one " +
-			"of the five"
+		// The target network must be provided, otherwise, we won't
+		// know how to initialize the daemon.
+		if numNets == 0 {
+			str := "either --bitcoin.mainnet, or --bitcoin.testnet, " +
+				"--bitcoin.testnet4, --bitcoin.simnet, " +
+				"--bitcoin.regtest or --bitcoin.signet must be " +
+				"specified"
 
-		return nil, mkErr(str)
-	}
+			return nil, mkErr(str)
+		}
 
-	// The target network must be provided, otherwise, we won't
-	// know how to initialize the daemon.
-	if numNets == 0 {
-		str := "either --bitcoin.mainnet, or --bitcoin.testnet, " +
-			"--bitcoin.testnet4, --bitcoin.simnet, " +
-			"--bitcoin.regtest or --bitcoin.signet must be " +
-			"specified"
-
-		return nil, mkErr(str)
-	}
-
-	err = cfg.Bitcoin.Validate(minTimeLockDelta, funding.MinBtcRemoteDelay)
-	if err != nil {
-		return nil, mkErr("error validating bitcoin params: %v", err)
-	}
-
-	switch cfg.Bitcoin.Node {
-	case btcdBackendName:
-		err := parseRPCParams(
-			cfg.Bitcoin, cfg.BtcdMode, cfg.ActiveNetParams,
-		)
+		err = cfg.Bitcoin.Validate(minTimeLockDelta, funding.MinBtcRemoteDelay)
 		if err != nil {
-			return nil, mkErr("unable to load RPC "+
-				"credentials for btcd: %v", err)
-		}
-	case bitcoindBackendName:
-		if cfg.Bitcoin.SimNet {
-			return nil, mkErr("bitcoind does not " +
-				"support simnet")
+			return nil, mkErr("error validating bitcoin params: %v", err)
 		}
 
-		err := parseRPCParams(
-			cfg.Bitcoin, cfg.BitcoindMode, cfg.ActiveNetParams,
+		switch cfg.Bitcoin.Node {
+		case btcdBackendName:
+			err := parseRPCParams(
+				cfg.Bitcoin, cfg.BtcdMode, cfg.ActiveNetParams,
+			)
+			if err != nil {
+				return nil, mkErr("unable to load RPC "+
+					"credentials for btcd: %v", err)
+			}
+		case bitcoindBackendName:
+			if cfg.Bitcoin.SimNet {
+				return nil, mkErr("bitcoind does not " +
+					"support simnet")
+			}
+
+			err := parseRPCParams(
+				cfg.Bitcoin, cfg.BitcoindMode, cfg.ActiveNetParams,
+			)
+			if err != nil {
+				return nil, mkErr("unable to load RPC "+
+					"credentials for bitcoind: %v", err)
+			}
+		case neutrinoBackendName:
+			// No need to get RPC parameters.
+
+		case "nochainbackend":
+			// Nothing to configure, we're running without any chain
+			// backend whatsoever (pure signing mode).
+
+		default:
+			str := "only btcd, bitcoind, and neutrino mode " +
+				"supported for bitcoin at this time"
+
+			return nil, mkErr(str)
+		}
+
+		cfg.Bitcoin.ChainDir = filepath.Join(
+			cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
 		)
-		if err != nil {
-			return nil, mkErr("unable to load RPC "+
-				"credentials for bitcoind: %v", err)
-		}
-	case neutrinoBackendName:
-		// No need to get RPC parameters.
 
-	case "nochainbackend":
-		// Nothing to configure, we're running without any chain
-		// backend whatsoever (pure signing mode).
-
-	default:
-		str := "only btcd, bitcoind, and neutrino mode " +
-			"supported for bitcoin at this time"
-
-		return nil, mkErr(str)
+		activeChainName = BitcoinChainName
+		activeNetworkName = lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name)
 	}
-
-	cfg.Bitcoin.ChainDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
-	)
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
@@ -1414,8 +1457,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
 	cfg.networkDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		cfg.DataDir, defaultChainSubDirname, activeChainName,
+		activeNetworkName,
 	)
 
 	// If a custom macaroon directory wasn't specified and the data
@@ -1438,8 +1481,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	towerDir := filepath.Join(
-		cfg.Watchtower.TowerDir, BitcoinChainName,
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		cfg.Watchtower.TowerDir, activeChainName,
+		activeNetworkName,
 	)
 
 	// Create the lnd directory and all other sub-directories if they don't
@@ -1471,8 +1514,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(
-		cfg.LogDir, BitcoinChainName,
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		cfg.LogDir, activeChainName,
+		activeNetworkName,
 	)
 
 	if err := cfg.LogConfig.Validate(); err != nil {

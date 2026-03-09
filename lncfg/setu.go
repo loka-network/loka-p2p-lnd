@@ -41,6 +41,22 @@ type SetuNode struct {
 	// deployments are not affected.
 	Active bool `long:"active" description:"Enable the Setu DAG chain backend. Must be true to use Setu instead of Bitcoin."`
 
+	// MainNet specifies that the node should connect to the Setu mainnet.
+	MainNet bool `long:"mainnet" description:"Use the Setu mainnet"`
+
+	// TestNet specifies that the node should connect to the Setu public
+	// testnet.
+	TestNet bool `long:"testnet" description:"Use the Setu testnet"`
+
+	// DevNet specifies that the node should connect to a local Setu devnet
+	// (equivalent to Bitcoin's regtest). This is the default when no
+	// network flag is given.
+	DevNet bool `long:"devnet" description:"Use a local Setu devnet (default if no network flag is given)"`
+
+	// SimNet specifies that the node should connect to the Setu simulation
+	// network, suitable for in-process or unit-test environments.
+	SimNet bool `long:"simnet" description:"Use the Setu simulation network"`
+
 	// RPCHost is the host (and optional port) of the Setu validator node's
 	// gRPC endpoint.  Example: "localhost:9000" or "setu.example.com:9000".
 	RPCHost string `long:"rpchost" description:"The host:port of the Setu validator node's gRPC endpoint"`
@@ -91,6 +107,25 @@ func DefaultSetuNode() *SetuNode {
 
 // Validate checks that the SetuNode configuration is internally consistent.
 func (s *SetuNode) Validate() error {
+	nets := 0
+	if s.MainNet {
+		nets++
+	}
+	if s.TestNet {
+		nets++
+	}
+	if s.DevNet {
+		nets++
+	}
+	if s.SimNet {
+		nets++
+	}
+	if nets > 1 {
+		return fmt.Errorf("only one of --setunode.mainnet, " +
+			"--setunode.testnet, --setunode.devnet or " +
+			"--setunode.simnet may be specified")
+	}
+
 	if s.RPCHost == "" {
 		return fmt.Errorf("setu.rpchost must not be empty")
 	}
