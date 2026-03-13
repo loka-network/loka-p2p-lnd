@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -19,10 +20,10 @@ import (
 
 // mockSuiClient is a minimal SuiClient for testing.
 type mockSuiClient struct {
-	SuiClient
+	suinotify.SuiClient
 }
 
-func (m *mockSuiClient) GetCoins(addr string) ([]SuiCoin, error) {
+func (m *mockSuiClient) GetCoins(addr string) ([]suinotify.SuiCoin, error) {
 	return nil, nil
 }
 
