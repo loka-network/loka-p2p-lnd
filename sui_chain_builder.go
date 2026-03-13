@@ -5,23 +5,27 @@ import (
 
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/setuwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/suiwallet"
 )
 
-// buildSetuChainControl assembles a fully populated ChainControl for the Setu
-// DAG backend.  It uses stub implementations of WalletController, Signer,
+// buildSuiChainControl assembles a fully populated ChainControl for the Sui
+// backend.  It uses stub implementations of WalletController, Signer,
 // BlockChainIO, and SecretKeyRing; all are wired via the zero-intrusion
-// adapter pattern described in 1-refactor-docs/lnd-and-setu-integration.md.
+// adapter pattern described in 1-refactor-docs/lnd-and-sui-integration.md.
 //
 // The function is called from DefaultWalletImpl.BuildChainControl when
-// partialChainControl.Cfg.SetuMode is non-nil.
-func buildSetuChainControl(
+// partialChainControl.Cfg.SuiMode is non-nil.
+func buildSuiChainControl(
 	pcc *chainreg.PartialChainControl) (*chainreg.ChainControl, func(), error) {
 
-	walletController := setuwallet.New()
-	keyRing := &setuwallet.SetuKeyRing{}
-	signer := &setuwallet.SetuSigner{}
-	chainIO := &setuwallet.SetuBlockChainIO{}
+	suiClient := pcc.SuiClient.(suiwallet.SuiClient)
+	walletController := suiwallet.New(suiwallet.Config{
+		SuiAddress: "0xPLACEHOLDER", // TODO: Derive from KeyRing
+		Client:     suiClient,
+	})
+	keyRing := &suiwallet.SuiKeyRing{}
+	signer := &suiwallet.SuiSigner{}
+	chainIO := &suiwallet.SuiBlockChainIO{}
 
 	lnWalletConfig := lnwallet.Config{
 		Database:         pcc.Cfg.ChanStateDB,
@@ -31,7 +35,7 @@ func buildSetuChainControl(
 		FeeEstimator:     pcc.FeeEstimator,
 		SecretKeyRing:    keyRing,
 		ChainIO:          chainIO,
-		// Use the zero Bitcoin net params as a placeholder; Setu does
+		// Use the zero Bitcoin net params as a placeholder; Sui does
 		// not rely on chaincfg.Params for channel operations.
 		NetParams:    *pcc.Cfg.ActiveNetParams.Params,
 		AuxLeafStore: pcc.Cfg.AuxLeafStore,
@@ -42,7 +46,7 @@ func buildSetuChainControl(
 		lnWalletConfig, walletController, pcc,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create Setu chain "+
+		return nil, nil, fmt.Errorf("unable to create Sui chain "+
 			"control: %w", err)
 	}
 

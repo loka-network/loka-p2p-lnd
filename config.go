@@ -246,10 +246,10 @@ const (
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
 	BitcoinChainName = "bitcoin"
 
-	// SetuChainName is a string that represents the Setu DAG blockchain.
-	// When --chain=setu is passed on the command line, LND will use the
-	// Setu chain backend adapters instead of the Bitcoin ones.
-	SetuChainName = "setu"
+	// SuiChainName is a string that represents the Sui MoveVM blockchain.
+	// When --chain=sui is passed on the command line, LND will use the
+	// Sui chain backend adapters instead of the Bitcoin ones.
+	SuiChainName = "sui"
 
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
@@ -385,11 +385,11 @@ type Config struct {
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
 
-	// Setu holds per-channel routing parameters for Setu channels, mirroring
-	// the Bitcoin field.  It is active when --chain=setu is specified.
-	Setu *lncfg.Chain `group:"Setu" namespace:"setu"`
-	// SetuMode holds the Setu DAG validator node connection parameters.
-	SetuMode *lncfg.SetuNode `group:"setunode" namespace:"setunode"`
+	// Sui holds per-channel routing parameters for Sui channels, mirroring
+	// the Bitcoin field.  It is active when --chain=sui is specified.
+	Sui *lncfg.Chain `group:"Sui" namespace:"sui"`
+	// SuiMode holds the Sui node connection parameters.
+	SuiMode *lncfg.SuiNode `group:"suinode" namespace:"suinode"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
@@ -615,16 +615,16 @@ func DefaultConfig() Config {
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
 			Node:          btcdBackendName,
 		},
-		Setu: &lncfg.Chain{
-			MinHTLCIn:     chainreg.DefaultSetuMinHTLCInMSat,
-			MinHTLCOut:    chainreg.DefaultSetuMinHTLCOutMSat,
-			BaseFee:       chainreg.DefaultSetuBaseFeeMSat,
-			FeeRate:       chainreg.DefaultSetuFeeRate,
-			TimeLockDelta: chainreg.DefaultSetuTimeLockDelta,
+		Sui: &lncfg.Chain{
+			MinHTLCIn:     chainreg.DefaultSuiMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultSuiMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultSuiBaseFeeMSat,
+			FeeRate:       chainreg.DefaultSuiFeeRate,
+			TimeLockDelta: chainreg.DefaultSuiTimeLockDelta,
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
-			Node:          "setu",
+			Node:          "sui",
 		},
-		SetuMode: lncfg.DefaultSetuNode(),
+		SuiMode: lncfg.DefaultSuiNode(),
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
@@ -1251,38 +1251,38 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Multiple networks can't be selected simultaneously.  Count
 	// number of network flags passed; assign active network params
 	// while we're at it.
-	if cfg.SetuMode.Active {
-		// --- Setu chain validation ---
-		if err := cfg.SetuMode.Validate(); err != nil {
-			return nil, mkErr("invalid setu config: %v", err)
+	if cfg.SuiMode.Active {
+		// --- Sui chain validation ---
+		if err := cfg.SuiMode.Validate(); err != nil {
+			return nil, mkErr("invalid sui config: %v", err)
 		}
 
-		setuNetName := chainreg.SetuDevNetParams.Name // default
-		if cfg.SetuMode.MainNet {
-			setuNetName = chainreg.SetuMainNetParams.Name
+		suiNetName := chainreg.SuiDevNetParams.Name // default
+		if cfg.SuiMode.MainNet {
+			suiNetName = chainreg.SuiMainNetParams.Name
 		}
-		if cfg.SetuMode.TestNet {
-			setuNetName = chainreg.SetuTestNetParams.Name
+		if cfg.SuiMode.TestNet {
+			suiNetName = chainreg.SuiTestNetParams.Name
 		}
-		if cfg.SetuMode.DevNet {
-			setuNetName = chainreg.SetuDevNetParams.Name
+		if cfg.SuiMode.DevNet {
+			suiNetName = chainreg.SuiDevNetParams.Name
 		}
-		if cfg.SetuMode.SimNet {
-			setuNetName = chainreg.SetuSimNetParams.Name
+		if cfg.SuiMode.SimNet {
+			suiNetName = chainreg.SuiSimNetParams.Name
 		}
 
 		// Use Bitcoin's regtest params as a structural placeholder for
-		// ActiveNetParams.Params.  The Setu chain control does not rely
+		// ActiveNetParams.Params.  The Sui chain control does not rely
 		// on chaincfg.Params but the field must be non-nil for shared
 		// infrastructure code.
 		cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
 
-		cfg.Setu.ChainDir = filepath.Join(
-			cfg.DataDir, defaultChainSubDirname, SetuChainName,
+		cfg.Sui.ChainDir = filepath.Join(
+			cfg.DataDir, defaultChainSubDirname, SuiChainName,
 		)
 
-		activeChainName = SetuChainName
-		activeNetworkName = lncfg.NormalizeNetwork(setuNetName)
+		activeChainName = SuiChainName
+		activeNetworkName = lncfg.NormalizeNetwork(suiNetName)
 	} else {
 		// --- Bitcoin chain validation ---
 		numNets := 0

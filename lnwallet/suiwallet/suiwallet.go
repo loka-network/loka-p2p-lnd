@@ -1,4 +1,4 @@
-package setuwallet
+package suiwallet
 
 import (
 	"errors"
@@ -19,20 +19,45 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
-// ErrUnsupported is returned for Setu wallet operations that are not yet
-// implemented. The Setu adapter currently acts as a stub until the
-// blockchain-facing pieces are wired in.
-var ErrUnsupported = errors.New("setuwallet: operation not implemented")
+// ErrUnsupported is returned for Sui wallet operations that are not yet
+// implemented.
+var ErrUnsupported = errors.New("suiwallet: operation not implemented")
 
-// Wallet is a stub WalletController implementation for the Setu backend.
-// It satisfies the interface to allow incremental wiring without touching
-// Bitcoin paths. All operations currently return ErrUnsupported unless
-// otherwise noted.
-type Wallet struct{}
+// SuiClient is an interface that provides the wallet with connectivity to
+// the Sui network. It is implemented by the SuiRPCClient.
+type SuiClient interface {
+	GetBestEpoch() (uint32, chainhash.Hash, error)
 
-// New creates a new stub Setu wallet instance.
-func New() *Wallet {
-	return &Wallet{}
+	// GetCoins returns the list of SUI coins owned by the given address.
+	GetCoins(address string) ([]SuiCoin, error)
+}
+
+// SuiCoin represents a Sui Coin object.
+type SuiCoin struct {
+	ObjectID chainhash.Hash
+	Balance  uint64
+}
+
+// Config holds configuration parameters for the Sui adapter wallet.
+type Config struct {
+	// SuiAddress is the Sui address owned by this wallet.
+	SuiAddress string
+
+	// Client provides connectivity to the Sui network.
+	Client SuiClient
+}
+
+// Wallet is an adapter that implements the lnwallet.WalletController interface
+// for the Sui MoveVM network.
+type Wallet struct {
+	cfg Config
+}
+
+// New creates a new Sui wallet instance backed by the given configuration.
+func New(cfg Config) *Wallet {
+	return &Wallet{
+		cfg: cfg,
+	}
 }
 
 // FetchOutpointInfo reports no ownership for now.
@@ -40,27 +65,37 @@ func (w *Wallet) FetchOutpointInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, erro
 	return nil, lnwallet.ErrNotMine
 }
 
-// FetchDerivationInfo is not implemented for Setu yet.
+// FetchDerivationInfo is not implemented for Sui yet.
 func (w *Wallet) FetchDerivationInfo(pkScript []byte) (*psbt.Bip32Derivation, error) {
 	return nil, ErrUnsupported
 }
 
-// ScriptForOutput is not implemented for Setu yet.
+// ScriptForOutput is not implemented for Sui yet.
 func (w *Wallet) ScriptForOutput(output *wire.TxOut) (waddrmgr.ManagedPubKeyAddress, []byte, []byte, error) {
 	return nil, nil, nil, ErrUnsupported
 }
 
-// ConfirmedBalance is not implemented for Setu yet.
+// ConfirmedBalance returns the sum of all confirmed unspent outputs.
 func (w *Wallet) ConfirmedBalance(confs int32, accountFilter string) (btcutil.Amount, error) {
-	return 0, ErrUnsupported
+	utxos, err := w.ListUnspentWitness(confs, 1000000, accountFilter)
+	if err != nil {
+		return 0, err
+	}
+
+	var balance btcutil.Amount
+	for _, utxo := range utxos {
+		balance += utxo.Value
+	}
+
+	return balance, nil
 }
 
-// NewAddress is not implemented for Setu yet.
+// NewAddress is not implemented for Sui yet.
 func (w *Wallet) NewAddress(addrType lnwallet.AddressType, change bool, account string) (btcutil.Address, error) {
 	return nil, ErrUnsupported
 }
 
-// LastUnusedAddress is not implemented for Setu yet.
+// LastUnusedAddress is not implemented for Sui yet.
 func (w *Wallet) LastUnusedAddress(addrType lnwallet.AddressType, account string) (btcutil.Address, error) {
 	return nil, ErrUnsupported
 }
@@ -70,122 +105,142 @@ func (w *Wallet) IsOurAddress(a btcutil.Address) bool {
 	return false
 }
 
-// AddressInfo is not implemented for Setu yet.
+// AddressInfo is not implemented for Sui yet.
 func (w *Wallet) AddressInfo(a btcutil.Address) (waddrmgr.ManagedAddress, error) {
 	return nil, ErrUnsupported
 }
 
-// ListAccounts is not implemented for Setu yet.
+// ListAccounts is not implemented for Sui yet.
 func (w *Wallet) ListAccounts(name string, scope *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
 	return nil, ErrUnsupported
 }
 
-// RequiredReserve returns zero until Setu fee bumping is defined.
+// RequiredReserve returns zero.
 func (w *Wallet) RequiredReserve(numAnchorChans uint32) btcutil.Amount {
 	return 0
 }
 
-// ListAddresses is not implemented for Setu yet.
+// ListAddresses is not implemented for Sui yet.
 func (w *Wallet) ListAddresses(account string, showCustom bool) (lnwallet.AccountAddressMap, error) {
 	return nil, ErrUnsupported
 }
 
-// ImportAccount is not implemented for Setu yet.
+// ImportAccount is not implemented for Sui yet.
 func (w *Wallet) ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey, masterKeyFingerprint uint32, addrType *waddrmgr.AddressType, dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address, []btcutil.Address, error) {
 	return nil, nil, nil, ErrUnsupported
 }
 
-// ImportPublicKey is not implemented for Setu yet.
+// ImportPublicKey is not implemented for Sui yet.
 func (w *Wallet) ImportPublicKey(pubKey *btcec.PublicKey, addrType waddrmgr.AddressType) error {
 	return ErrUnsupported
 }
 
-// ImportTaprootScript is not implemented for Setu yet.
+// ImportTaprootScript is not implemented for Sui yet.
 func (w *Wallet) ImportTaprootScript(scope waddrmgr.KeyScope, tapscript *waddrmgr.Tapscript) (waddrmgr.ManagedAddress, error) {
 	return nil, ErrUnsupported
 }
 
-// SendOutputs is not implemented for Setu yet.
+// SendOutputs is not implemented for Sui yet.
 func (w *Wallet) SendOutputs(inputs fn.Set[wire.OutPoint], outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32, label string, strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
 	return nil, ErrUnsupported
 }
 
-// CreateSimpleTx is not implemented for Setu yet.
+// CreateSimpleTx is not implemented for Sui yet.
 func (w *Wallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint], outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32, strategy base.CoinSelectionStrategy, dryRun bool) (*txauthor.AuthoredTx, error) {
 	return nil, ErrUnsupported
 }
 
-// GetTransactionDetails is not implemented for Setu yet.
+// GetTransactionDetails is not implemented for Sui yet.
 func (w *Wallet) GetTransactionDetails(txHash *chainhash.Hash) (*lnwallet.TransactionDetail, error) {
 	return nil, ErrUnsupported
 }
 
-// ListUnspentWitness is not implemented for Setu yet.
+// ListUnspentWitness returns all unspent outputs (SUI coins) that are
+// available for spending.
 func (w *Wallet) ListUnspentWitness(minConfs, maxConfs int32, accountFilter string) ([]*lnwallet.Utxo, error) {
-	return nil, ErrUnsupported
+	coins, err := w.cfg.Client.GetCoins(w.cfg.SuiAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	var utxos []*lnwallet.Utxo
+	for _, c := range coins {
+		utxos = append(utxos, &lnwallet.Utxo{
+			AddressType: lnwallet.UnknownAddressType,
+			Value:       btcutil.Amount(c.Balance),
+			OutPoint: wire.OutPoint{
+				Hash:  c.ObjectID,
+				Index: 0,
+			},
+			// Placeholder script.
+			PkScript: []byte{0x51},
+		})
+	}
+
+	return utxos, nil
 }
 
-// ListTransactionDetails is not implemented for Setu yet.
+// ListTransactionDetails is not implemented for Sui yet.
 func (w *Wallet) ListTransactionDetails(startHeight, endHeight int32, accountFilter string, indexOffset uint32, maxTransactions uint32) ([]*lnwallet.TransactionDetail, uint64, uint64, error) {
 	return nil, 0, 0, ErrUnsupported
 }
 
-// LeaseOutput is not implemented for Setu yet.
+// LeaseOutput is not implemented for Sui yet.
 func (w *Wallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint, duration time.Duration) (time.Time, error) {
 	return time.Now(), ErrUnsupported
 }
 
-// ReleaseOutput is not implemented for Setu yet.
+// ReleaseOutput is not implemented for Sui yet.
 func (w *Wallet) ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error {
 	return ErrUnsupported
 }
 
-// ListLeasedOutputs is not implemented for Setu yet.
+// ListLeasedOutputs is not implemented for Sui yet.
 func (w *Wallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, error) {
 	return nil, ErrUnsupported
 }
 
-// PublishTransaction is not implemented for Setu yet.
+// PublishTransaction is not implemented for Sui yet.
 func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	return ErrUnsupported
 }
 
-// LabelTransaction is not implemented for Setu yet.
+// LabelTransaction is not implemented for Sui yet.
 func (w *Wallet) LabelTransaction(hash chainhash.Hash, label string, overwrite bool) error {
 	return ErrUnsupported
 }
 
-// FetchTx is not implemented for Setu yet.
+// FetchTx is not implemented for Sui yet.
 func (w *Wallet) FetchTx(hash chainhash.Hash) (*wire.MsgTx, error) {
 	return nil, ErrUnsupported
 }
 
-// RemoveDescendants is not implemented for Setu yet.
+// RemoveDescendants is not implemented for Sui yet.
 func (w *Wallet) RemoveDescendants(tx *wire.MsgTx) error {
 	return ErrUnsupported
 }
 
-// FundPsbt is not implemented for Setu yet.
+// FundPsbt is not implemented for Sui yet.
 func (w *Wallet) FundPsbt(packet *psbt.Packet, minConfs int32, feeRate chainfee.SatPerKWeight, account string, changeScope *waddrmgr.KeyScope, strategy base.CoinSelectionStrategy, allowUtxo func(wtxmgr.Credit) bool) (int32, error) {
 	return 0, ErrUnsupported
 }
 
-// SignPsbt is not implemented for Setu yet.
+// SignPsbt is not implemented for Sui yet.
 func (w *Wallet) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 	return nil, ErrUnsupported
 }
 
-// FinalizePsbt is not implemented for Setu yet.
+// FinalizePsbt is not implemented for Sui yet.
 func (w *Wallet) FinalizePsbt(packet *psbt.Packet, account string) error {
 	return ErrUnsupported
 }
 
-// DecorateInputs is not implemented for Setu yet.
+// DecorateInputs is not implemented for Sui yet.
 func (w *Wallet) DecorateInputs(packet *psbt.Packet, failOnUnknown bool) error {
 	return ErrUnsupported
 }
 
-// SubscribeTransactions is not implemented for Setu yet.
+// SubscribeTransactions is not implemented for Sui yet.
 func (w *Wallet) SubscribeTransactions() (lnwallet.TransactionSubscription, error) {
 	return nil, ErrUnsupported
 }
@@ -212,10 +267,10 @@ func (w *Wallet) Stop() error {
 
 // BackEnd reports the backing service name.
 func (w *Wallet) BackEnd() string {
-	return "setu"
+	return "sui"
 }
 
-// CheckMempoolAcceptance is not implemented for Setu yet.
+// CheckMempoolAcceptance is not implemented for Sui yet.
 func (w *Wallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	return ErrUnsupported
 }

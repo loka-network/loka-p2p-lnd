@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** — a full Lightning Network node implementation in Go — being adapted to support **Setu** (a DAG-BFT distributed ledger
+This is a **fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** — a full Lightning Network node implementation in Go — being adapted to support **Sui** (a DAG-BFT distributed ledger
 with an object-account model) alongside Bitcoin, under the `loka-agentic-payment` project.
 
 See `1-refactor-docs/` for the full adaptation plan and architecture details.
@@ -11,7 +11,7 @@ See `1-refactor-docs/` for the full adaptation plan and architecture details.
 
 ## Architecture
 
-The codebase uses a **zero-intrusion adapter pattern**: Bitcoin code paths are untouched; Setu is added as a new `ChainControl` implementation.
+The codebase uses a **zero-intrusion adapter pattern**: Bitcoin code paths are untouched; Sui is added as a new `ChainControl` implementation.
 
 Key layering (top → bottom):
 
@@ -23,15 +23,15 @@ Key layering (top → bottom):
   - `input/signer.go` — `Signer`
   - `chainreg/chainregistry.go` — `ChainControl`
 - **Bitcoin backends**: `chainntnfs/bitcoindnotify/`, `btcdnotify/`, `neutrinonotify/` — do not modify
-- **Setu adapters (new)**: `setunotify/`, `setuwallet/`, `input/setu_channel.go`, `chainfee/setu_estimator`
+- **Sui adapters (new)**: `suinotify/`, `suiwallet/`, `input/sui_channel.go`, `chainfee/sui_estimator`
 
-Type mapping convention for Setu adapters:
+Type mapping convention for Sui adapters:
 
-- `wire.OutPoint.Hash` ← Setu `ObjectID`
-- `btcutil.Amount` ← Setu unit (mapped)
-- `wire.MsgTx` ← Setu Event serialized bytes
+- `wire.OutPoint.Hash` ← Sui `ObjectID`
+- `btcutil.Amount` ← Sui unit (mapped)
+- `wire.MsgTx` ← Sui Event serialized bytes
 
-Selected via `lncli --chain=setu`.
+Selected via `lncli --chain=sui`.
 
 ---
 
@@ -90,7 +90,7 @@ Required Go version: **1.25.5** (see `GO_VERSION` in Makefile).
 
 ## Integration Points
 
-- **Setu chain**: DAG-BFT, object-account model, no general VM — only hardcoded EventTypes (`ChannelOpen`, `ChannelClose`, `HTLCClaim`, etc.) in `setu-runtime`. Do **not** design around a general programmable VM.
+- **Sui chain**: DAG-BFT, object-account model, no general VM — only hardcoded EventTypes (`ChannelOpen`, `ChannelClose`, `HTLCClaim`, etc.) in `sui-runtime`. Do **not** design around a general programmable VM.
 - **Bitcoin backends**: `btcd` (full node), `bitcoind` (RPC+ZMQ), `neutrino` (light client, BIP-158).
 - **Database**: `kvdb/` abstraction over bbolt / etcd / SQL; `sqldb/` for PostgreSQL and SQLite backends.
 - **RPC**: gRPC primary + HTTP REST gateway via `grpc-gateway`; proto definitions in `lnrpc/`.
@@ -106,6 +106,6 @@ Required Go version: **1.25.5** (see `GO_VERSION` in Makefile).
 | Chain interface contracts | `chainntnfs/interface.go`, `lnwallet/interface.go` |
 | Channel state machine     | `lnwallet/channel.go`                              |
 | HTLC forwarding           | `htlcswitch/switch.go`                             |
-| Setu adaptation plan      | `1-refactor-docs/lnd-and-setu-integration.md`      |
-| Setu chain architecture   | `1-refactor-docs/setu-architecture.md`             |
+| Sui adaptation plan      | `1-refactor-docs/lnd-and-sui-integration.md`      |
+| Sui chain architecture   | `1-refactor-docs/sui-architecture.md`             |
 | LND architecture overview | `1-refactor-docs/lnd-architecture.md`              |

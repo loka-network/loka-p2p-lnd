@@ -1,4 +1,4 @@
-package setuwallet
+package suiwallet
 
 import (
 	"crypto/sha256"
@@ -11,23 +11,23 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// SetuSigner is a stub implementation of the input.Signer interface for the
-// Setu DAG backend.
+// SuiSigner is a stub implementation of the input.Signer interface for the
+// Sui DAG backend.
 //
-// Setu channels use secp256k1 ECDSA signatures (same curve as Bitcoin), so
+// Sui channels use secp256k1 ECDSA signatures (same curve as Bitcoin), so
 // the signing interface can be re-used almost unchanged.  All methods here
 // return ErrUnsupported until the real key-management layer is wired in.
-type SetuSigner struct{}
+type SuiSigner struct{}
 
-// Compile-time assertion that SetuSigner satisfies the Signer interface.
-var _ input.Signer = (*SetuSigner)(nil)
+// Compile-time assertion that SuiSigner satisfies the Signer interface.
+var _ input.Signer = (*SuiSigner)(nil)
 
 // SignOutputRaw generates a signature for the passed transaction according to
 // the data within the passed SignDescriptor.
 //
-// NOTE: For Setu, tx.Payload carries the serialised Setu Event bytes.
+// NOTE: For Sui, tx.Payload carries the serialised Sui Event bytes.
 // Stub — returns ErrUnsupported.
-func (s *SetuSigner) SignOutputRaw(
+func (s *SuiSigner) SignOutputRaw(
 	_ *wire.MsgTx,
 	_ *input.SignDescriptor) (input.Signature, error) {
 
@@ -38,7 +38,7 @@ func (s *SetuSigner) SignOutputRaw(
 // transaction.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) ComputeInputScript(
+func (s *SuiSigner) ComputeInputScript(
 	_ *wire.MsgTx,
 	_ *input.SignDescriptor) (*input.Script, error) {
 
@@ -50,7 +50,7 @@ func (s *SetuSigner) ComputeInputScript(
 // MuSig2CreateSession creates a new MuSig2 signing session.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2CreateSession(
+func (s *SuiSigner) MuSig2CreateSession(
 	_ input.MuSig2Version,
 	_ keychain.KeyLocator,
 	_ []*btcec.PublicKey,
@@ -64,7 +64,7 @@ func (s *SetuSigner) MuSig2CreateSession(
 // MuSig2RegisterNonces registers public nonces for a MuSig2 session.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2RegisterNonces(
+func (s *SuiSigner) MuSig2RegisterNonces(
 	_ input.MuSig2SessionID,
 	_ [][musig2.PubNonceSize]byte) (bool, error) {
 
@@ -74,7 +74,7 @@ func (s *SetuSigner) MuSig2RegisterNonces(
 // MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2RegisterCombinedNonce(
+func (s *SuiSigner) MuSig2RegisterCombinedNonce(
 	_ input.MuSig2SessionID,
 	_ [musig2.PubNonceSize]byte) error {
 
@@ -84,7 +84,7 @@ func (s *SetuSigner) MuSig2RegisterCombinedNonce(
 // MuSig2GetCombinedNonce retrieves the combined nonce for a session.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2GetCombinedNonce(
+func (s *SuiSigner) MuSig2GetCombinedNonce(
 	_ input.MuSig2SessionID) ([musig2.PubNonceSize]byte, error) {
 
 	return [musig2.PubNonceSize]byte{}, ErrUnsupported
@@ -93,7 +93,7 @@ func (s *SetuSigner) MuSig2GetCombinedNonce(
 // MuSig2Sign creates a partial signature.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2Sign(
+func (s *SuiSigner) MuSig2Sign(
 	_ input.MuSig2SessionID,
 	_ [sha256.Size]byte,
 	_ bool) (*musig2.PartialSignature, error) {
@@ -104,7 +104,7 @@ func (s *SetuSigner) MuSig2Sign(
 // MuSig2CombineSig combines partial signatures.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2CombineSig(
+func (s *SuiSigner) MuSig2CombineSig(
 	_ input.MuSig2SessionID,
 	_ []*musig2.PartialSignature) (*schnorr.Signature, bool, error) {
 
@@ -114,6 +114,6 @@ func (s *SetuSigner) MuSig2CombineSig(
 // MuSig2Cleanup removes a MuSig2 session from memory.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (s *SetuSigner) MuSig2Cleanup(_ input.MuSig2SessionID) error {
+func (s *SuiSigner) MuSig2Cleanup(_ input.MuSig2SessionID) error {
 	return ErrUnsupported
 }

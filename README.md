@@ -6,24 +6,24 @@
 [![Status](https://img.shields.io/badge/status-Active-success.svg)](https://github.com/loka-network)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
 
-**This repository is a fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** that preserves full Bitcoin Lightning Network functionality while integrating **Setu** (a DAG-BFT high-performance distributed ledger from the Hetu Project) via a zero-intrusion adapter pattern, delivering a unified dual-chain Lightning Network payment node.
+**This repository is a fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** that preserves full Bitcoin Lightning Network functionality while integrating **Sui** (a DAG-BFT high-performance distributed ledger from the Hetu Project) via a zero-intrusion adapter pattern, delivering a unified dual-chain Lightning Network payment node.
 
 ---
 
 ## Project Overview
 
-`lnd` (Lightning Network Daemon) is a full Go implementation of a Lightning Network node, supporting channel creation, HTLC forwarding, pathfinding, and the complete feature set. This fork adds native support for the **Setu chain** on top of that foundation:
+`lnd` (Lightning Network Daemon) is a full Go implementation of a Lightning Network node, supporting channel creation, HTLC forwarding, pathfinding, and the complete feature set. This fork adds native support for the **Sui chain** on top of that foundation:
 
 - **Bitcoin path**: Fully preserved, connected via `btcd` / `bitcoind` / `neutrino` backends
-- **Setu path**: Connected via newly added adapter modules (`setunotify/`, `setuwallet/`, etc.), selected with `--chain=setu`
+- **Sui path**: Connected via newly added adapter modules (`suinotify/`, `suiwallet/`, etc.), selected with `--chain=sui`
 
 Both chains share the same RPC interface, routing engine, HTLC Switch, and channel state machine — **one codebase, two chains**.
 
 ---
 
-## What is Setu?
+## What is Sui?
 
-**Setu** is the next-generation distributed consensus network designed by the Hetu Project for high-throughput payment workloads. Key features:
+**Sui** is the next-generation distributed consensus network designed by the Hetu Project for high-throughput payment workloads. Key features:
 
 | Feature                     | Description                                                                                          |
 | --------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ Both chains share the same RPC interface, routing engine, HTLC Switch, and chann
 | **Object-Account Model**    | Sui-style object-oriented state management; channels identified by a 32-byte `ObjectID`              |
 | **Merkle State Commitment** | Binary + Sparse Merkle Trees for verifiable state                                                    |
 
-The network consists of **Validator nodes** (verification + consensus) and **Solver nodes** (TEE execution + state transitions). Lightning channel primitives (`ChannelOpen`, `ChannelClose`, `ChannelForceClose`, `HTLCAdd`, `HTLCClaim`, `HTLCTimeout`, `ChannelPenalize`) are natively implemented in the Setu Runtime as **hardcoded EventTypes** — no general-purpose VM required.
+The network consists of **Validator nodes** (verification + consensus) and **Solver nodes** (TEE execution + state transitions). Lightning channel primitives (`ChannelOpen`, `ChannelClose`, `ChannelForceClose`, `HTLCAdd`, `HTLCClaim`, `HTLCTimeout`, `ChannelPenalize`) are natively implemented in the Sui Runtime as **hardcoded EventTypes** — no general-purpose VM required.
 
 ---
 
@@ -50,26 +50,26 @@ The network consists of **Validator nodes** (verification + consensus) and **Sol
 │  ChainNotifier · WalletController · Signer          │
 │  BlockChainIO  · ChainControl                       │
 └────────┬──────────────────────────────┬─────────────┘
-         │ chain=bitcoin                 │ chain=setu
+         │ chain=bitcoin                 │ chain=sui
 ┌────────▼───────────┐       ┌──────────▼────────────┐
-│  Bitcoin Backends   │       │  Setu Adapters (new)  │
-│  bitcoindnotify/   │       │  setunotify/           │
-│  btcdnotify/       │       │  setuwallet/           │
-│  neutrinonotify/   │       │  input/setu_channel.go │
-│  lnwallet/btcwallet│       │  chainfee/setu_estimator│
+│  Bitcoin Backends   │       │  Sui Adapters (new)  │
+│  bitcoindnotify/   │       │  suinotify/           │
+│  btcdnotify/       │       │  suiwallet/           │
+│  neutrinonotify/   │       │  input/sui_channel.go │
+│  lnwallet/btcwallet│       │  chainfee/sui_estimator│
 └────────────────────┘       └────────────────────────┘
 ```
 
 ### Type Mapping Conventions
 
-Setu adapters reuse Bitcoin/LND types internally, performing semantic translation at the boundary:
+Sui adapters reuse Bitcoin/LND types internally, performing semantic translation at the boundary:
 
-| LND Type              | Setu Semantic          | Notes                    |
+| LND Type              | Sui Semantic          | Notes                    |
 | --------------------- | ---------------------- | ------------------------ |
 | `wire.OutPoint.Hash`  | `ObjectID`             | Direct 32-byte mapping   |
-| `wire.OutPoint.Index` | `0`                    | Setu has no UTXO index   |
-| `btcutil.Amount`      | `u64`                  | Setu base unit           |
-| `wire.MsgTx`          | Setu Event bytes       | Carries serialized Event |
+| `wire.OutPoint.Index` | `0`                    | Sui has no UTXO index   |
+| `btcutil.Amount`      | `u64`                  | Sui base unit           |
+| `wire.MsgTx`          | Sui Event bytes       | Carries serialized Event |
 | `chainhash.Hash`      | `EventId` / `AnchorId` | 32 bytes                 |
 
 ---
@@ -84,7 +84,7 @@ Setu adapters reuse Bitcoin/LND types internally, performing semantic translatio
 - Invoice management (BOLT-11)
 - Automated channel management (`autopilot`)
 - Watchtower (offline penalty broadcasting)
-- Setu chain: DAG finality replaces block confirmations (< 1 second)
+- Sui chain: DAG finality replaces block confirmations (< 1 second)
 
 ---
 
@@ -129,10 +129,10 @@ make lint
 
 > Required Go version: **1.25.5+** (see `GO_VERSION` in Makefile)
 
-Start a node with the Setu backend:
+Start a node with the Sui backend:
 
 ```sh
-lnd --chain=setu --setu.rpc=<setu-node-endpoint> ...
+lnd --chain=sui --sui.rpc=<sui-node-endpoint> ...
 ```
 
 ---
@@ -141,11 +141,11 @@ lnd --chain=setu --setu.rpc=<setu-node-endpoint> ...
 
 | Topic                                 | File                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Setu adaptation & integration plan    | [1-refactor-docs/lnd-and-setu-integration.md](1-refactor-docs/lnd-and-setu-integration.md) |
-| Setu chain architecture               | [1-refactor-docs/setu-architecture.md](1-refactor-docs/setu-architecture.md)               |
-| LND refactor plan                     | [1-refactor-docs/lnd-setu-refactor-plan.md](1-refactor-docs/lnd-setu-refactor-plan.md)     |
+| Sui adaptation & integration plan    | [1-refactor-docs/lnd-and-sui-integration.md](1-refactor-docs/lnd-and-sui-integration.md) |
+| Sui chain architecture               | [1-refactor-docs/sui-architecture.md](1-refactor-docs/sui-architecture.md)               |
+| LND refactor plan                     | [1-refactor-docs/lnd-sui-refactor-plan.md](1-refactor-docs/lnd-sui-refactor-plan.md)     |
 | LND engineering architecture overview | [1-refactor-docs/lnd-architecture.md](1-refactor-docs/lnd-architecture.md)                 |
-| Setu ↔ LND interaction interface spec | [1-refactor-docs/setu-ln-interaction-spec.md](1-refactor-docs/setu-ln-interaction-spec.md) |
+| Sui ↔ LND interaction interface spec | [1-refactor-docs/sui-ln-interaction-spec.md](1-refactor-docs/sui-ln-interaction-spec.md) |
 
 ---
 

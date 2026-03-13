@@ -1,4 +1,4 @@
-package setuwallet
+package suiwallet
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -7,28 +7,28 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// SetuKeyRing is a stub implementation of the keychain.SecretKeyRing interface
-// for the Setu DAG backend.
+// SuiKeyRing is a stub implementation of the keychain.SecretKeyRing interface
+// for the Sui DAG backend.
 //
-// Key derivation on Setu follows the same BIP-44 derivation path as Bitcoin
+// Key derivation on Sui follows the same BIP-44 derivation path as Bitcoin
 // (m/1017'/coinType'/keyFamily'/0/index) but with coinType = 99999 as defined
-// in chainreg.CoinTypeSetu.  secp256k1 keypairs are used for compatibility
+// in chainreg.CoinTypeSui.  secp256k1 keypairs are used for compatibility
 // with the existing LND peer-to-peer protocol.
 //
 // All methods currently return ErrUnsupported. They will be replaced with real
-// HD derivation once the key management layer (wrapping the Setu SDK's
-// setu-keys crate) is implemented.
-type SetuKeyRing struct{}
+// HD derivation once the key management layer (wrapping the Sui SDK's
+// sui-keys crate) is implemented.
+type SuiKeyRing struct{}
 
-// Compile-time assertion that SetuKeyRing satisfies keychain.SecretKeyRing.
-var _ keychain.SecretKeyRing = (*SetuKeyRing)(nil)
+// Compile-time assertion that SuiKeyRing satisfies keychain.SecretKeyRing.
+var _ keychain.SecretKeyRing = (*SuiKeyRing)(nil)
 
 // --- keychain.KeyRing methods ---
 
 // DeriveNextKey derives the next external key in the given family.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) DeriveNextKey(
+func (k *SuiKeyRing) DeriveNextKey(
 	_ keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
 	return keychain.KeyDescriptor{}, ErrUnsupported
@@ -37,7 +37,7 @@ func (k *SetuKeyRing) DeriveNextKey(
 // DeriveKey derives an arbitrary key identified by the passed KeyLocator.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) DeriveKey(
+func (k *SuiKeyRing) DeriveKey(
 	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
 
 	return keychain.KeyDescriptor{}, ErrUnsupported
@@ -49,7 +49,7 @@ func (k *SetuKeyRing) DeriveKey(
 // a remote public key.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) ECDH(
+func (k *SuiKeyRing) ECDH(
 	_ keychain.KeyDescriptor, _ *btcec.PublicKey) ([32]byte, error) {
 
 	return [32]byte{}, ErrUnsupported
@@ -61,7 +61,7 @@ func (k *SetuKeyRing) ECDH(
 // key locator.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) SignMessage(
+func (k *SuiKeyRing) SignMessage(
 	_ keychain.KeyLocator, _ []byte, _ bool) (*ecdsa.Signature, error) {
 
 	return nil, ErrUnsupported
@@ -71,7 +71,7 @@ func (k *SetuKeyRing) SignMessage(
 // recoverable format.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) SignMessageCompact(
+func (k *SuiKeyRing) SignMessageCompact(
 	_ keychain.KeyLocator, _ []byte, _ bool) ([]byte, error) {
 
 	return nil, ErrUnsupported
@@ -80,7 +80,7 @@ func (k *SetuKeyRing) SignMessageCompact(
 // SignMessageSchnorr signs the given message with a Schnorr signature.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) SignMessageSchnorr(
+func (k *SuiKeyRing) SignMessageSchnorr(
 	_ keychain.KeyLocator, _ []byte, _ bool,
 	_ []byte, _ []byte) (*schnorr.Signature, error) {
 
@@ -92,7 +92,7 @@ func (k *SetuKeyRing) SignMessageSchnorr(
 // DerivePrivKey derives the private key corresponding to the given descriptor.
 //
 // NOTE: Stub — returns ErrUnsupported.
-func (k *SetuKeyRing) DerivePrivKey(
+func (k *SuiKeyRing) DerivePrivKey(
 	_ keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
 
 	return nil, ErrUnsupported

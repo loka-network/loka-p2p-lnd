@@ -329,3 +329,7 @@ func foo(a, b, c,
   - Explain the "what" and "why" of the change.
   - Wrap text to 72 characters.
   - Use bullet points for lists.
+
+## Changelog
+
+- **Changelog**: after any code change, update `CHANGELOG.md`.

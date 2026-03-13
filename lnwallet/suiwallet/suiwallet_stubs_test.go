@@ -1,9 +1,9 @@
-// Package setuwallet provides a stub WalletController, BlockChainIO, Signer,
-// SecretKeyRing and MessageSigner implementation for the Setu DAG backend.
+// Package suiwallet provides a stub WalletController, BlockChainIO, Signer,
+// SecretKeyRing and MessageSigner implementation for the Sui DAG backend.
 // This file tests that all stub implementations compile, satisfy their
 // interfaces, and return the expected ErrUnsupported sentinel for every
 // unimplemented method.
-package setuwallet
+package suiwallet
 
 import (
 	"testing"
@@ -20,14 +20,14 @@ import (
 // Wallet (WalletController + MessageSigner)
 // ----------------------------------------------------------------------------
 
-// TestWalletBackEnd verifies BackEnd returns the canonical "setu" string.
+// TestWalletBackEnd verifies BackEnd returns the canonical "sui" string.
 func TestWalletBackEnd(t *testing.T) {
 	t.Parallel()
 	w := New()
-	require.Equal(t, "setu", w.BackEnd())
+	require.Equal(t, "sui", w.BackEnd())
 }
 
-// TestWalletIsSynced verifies that the Setu stub reports itself as always
+// TestWalletIsSynced verifies that the Sui stub reports itself as always
 // synced (the wallet is virtual and tracks no real chain state).
 func TestWalletIsSynced(t *testing.T) {
 	t.Parallel()
@@ -78,7 +78,7 @@ func TestWalletUnsupportedMethods(t *testing.T) {
 }
 
 // TestWalletSignMessage verifies that MessageSigner.SignMessage returns
-// ErrUnsupported (Setu uses its own signing layer).
+// ErrUnsupported (Sui uses its own signing layer).
 func TestWalletSignMessage(t *testing.T) {
 	t.Parallel()
 	w := New()
@@ -94,14 +94,14 @@ var (
 )
 
 // ----------------------------------------------------------------------------
-// SetuBlockChainIO
+// SuiBlockChainIO
 // ----------------------------------------------------------------------------
 
-// TestSetuBlockChainIOUnsupported verifies that all BlockChainIO methods return
+// TestSuiBlockChainIOUnsupported verifies that all BlockChainIO methods return
 // ErrUnsupported.
-func TestSetuBlockChainIOUnsupported(t *testing.T) {
+func TestSuiBlockChainIOUnsupported(t *testing.T) {
 	t.Parallel()
-	io := &SetuBlockChainIO{}
+	io := &SuiBlockChainIO{}
 
 	_, _, err := io.GetBestBlock()
 	require.ErrorIs(t, err, ErrUnsupported)
@@ -117,17 +117,17 @@ func TestSetuBlockChainIOUnsupported(t *testing.T) {
 }
 
 // Compile-time assertion.
-var _ lnwallet.BlockChainIO = (*SetuBlockChainIO)(nil)
+var _ lnwallet.BlockChainIO = (*SuiBlockChainIO)(nil)
 
 // ----------------------------------------------------------------------------
-// SetuSigner
+// SuiSigner
 // ----------------------------------------------------------------------------
 
-// TestSetuSignerUnsupported verifies that all Signer methods return
+// TestSuiSignerUnsupported verifies that all Signer methods return
 // ErrUnsupported.
-func TestSetuSignerUnsupported(t *testing.T) {
+func TestSuiSignerUnsupported(t *testing.T) {
 	t.Parallel()
-	s := &SetuSigner{}
+	s := &SuiSigner{}
 
 	_, err := s.SignOutputRaw(nil, nil)
 	require.ErrorIs(t, err, ErrUnsupported)
@@ -146,17 +146,17 @@ func TestSetuSignerUnsupported(t *testing.T) {
 }
 
 // Compile-time assertion.
-var _ input.MuSig2Signer = (*SetuSigner)(nil)
+var _ input.MuSig2Signer = (*SuiSigner)(nil)
 
 // ----------------------------------------------------------------------------
-// SetuKeyRing
+// SuiKeyRing
 // ----------------------------------------------------------------------------
 
-// TestSetuKeyRingUnsupported verifies that all SecretKeyRing methods return
+// TestSuiKeyRingUnsupported verifies that all SecretKeyRing methods return
 // ErrUnsupported.
-func TestSetuKeyRingUnsupported(t *testing.T) {
+func TestSuiKeyRingUnsupported(t *testing.T) {
 	t.Parallel()
-	kr := &SetuKeyRing{}
+	kr := &SuiKeyRing{}
 
 	_, err := kr.DeriveNextKey(keychain.KeyFamily(0))
 	require.ErrorIs(t, err, ErrUnsupported)
@@ -183,7 +183,7 @@ func TestSetuKeyRingUnsupported(t *testing.T) {
 }
 
 // Compile-time assertion.
-var _ keychain.SecretKeyRing = (*SetuKeyRing)(nil)
+var _ keychain.SecretKeyRing = (*SuiKeyRing)(nil)
 
 // ----------------------------------------------------------------------------
 // New()
@@ -197,7 +197,7 @@ func TestNewReturnsWallet(t *testing.T) {
 	require.NotNil(t, w)
 
 	// Spot-check a few well-known properties.
-	require.Equal(t, "setu", w.BackEnd())
+	require.Equal(t, "sui", w.BackEnd())
 	bal, err := w.ConfirmedBalance(0, "")
 	require.ErrorIs(t, err, ErrUnsupported)
 	require.Zero(t, bal)

@@ -4,49 +4,49 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/chainntnfs/setunotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// newSetuPartialChainControl constructs a PartialChainControl for the Setu
-// DAG backend.
+// newSuiPartialChainControl constructs a PartialChainControl for the Sui
+// backend.
 //
-// The chain notifier is initialised with a NoopSetuClient placeholder. A
-// real gRPC-backed client (wrapping the setu-validator node) will replace it
+// The chain notifier is initialised with a NoopSuiClient placeholder. A
+// real RPC-backed client (wrapping the Sui node) will replace it
 // once the connectivity layer is implemented.
 //
 // Design notes:
-//   - ChainSource and ChainView are left nil; Setu does not have a Bitcoin-
+//   - ChainSource and ChainView are left nil; Sui does not have a Bitcoin-
 //     style UTXO set or a compact filter chain-view.
-//   - FeeEstimator uses a static placeholder (SetuEstimator) since Setu
+//   - FeeEstimator uses a static placeholder (SuiEstimator) since Sui
 //     currently has no dynamic gas pricing API.
-//   - RoutingPolicy is populated from cfg.Setu when set, otherwise the Setu
+//   - RoutingPolicy is populated from cfg.Sui when set, otherwise the Sui
 //     defaults are used.
-func newSetuPartialChainControl(cfg *Config) (
+func newSuiPartialChainControl(cfg *Config) (
 	*PartialChainControl, func(), error) {
 
-	// Derive routing policy from the Setu chain config.  If cfg.Setu is
-	// nil we fall back to the Setu default constants defined in
-	// setu_params.go.
+	// Derive routing policy from the Sui chain config.  If cfg.Sui is
+	// nil we fall back to the Sui default constants defined in
+	// sui_params.go.
 	var (
-		minHTLCIn     = lnwire.MilliSatoshi(DefaultSetuMinHTLCInMSat)
-		minHTLCOut    = lnwire.MilliSatoshi(DefaultSetuMinHTLCOutMSat)
-		baseFee       = lnwire.MilliSatoshi(DefaultSetuBaseFeeMSat)
-		feeRate       = lnwire.MilliSatoshi(DefaultSetuFeeRate)
-		timeLockDelta = uint32(DefaultSetuTimeLockDelta)
+		minHTLCIn     = lnwire.MilliSatoshi(DefaultSuiMinHTLCInMSat)
+		minHTLCOut    = lnwire.MilliSatoshi(DefaultSuiMinHTLCOutMSat)
+		baseFee       = lnwire.MilliSatoshi(DefaultSuiBaseFeeMSat)
+		feeRate       = lnwire.MilliSatoshi(DefaultSuiFeeRate)
+		timeLockDelta = uint32(DefaultSuiTimeLockDelta)
 	)
 
-	if cfg.Setu != nil {
-		minHTLCIn = cfg.Setu.MinHTLCIn
-		minHTLCOut = cfg.Setu.MinHTLCOut
-		baseFee = cfg.Setu.BaseFee
-		feeRate = cfg.Setu.FeeRate
-		timeLockDelta = cfg.Setu.TimeLockDelta
+	if cfg.Sui != nil {
+		minHTLCIn = cfg.Sui.MinHTLCIn
+		minHTLCOut = cfg.Sui.MinHTLCOut
+		baseFee = cfg.Sui.BaseFee
+		feeRate = cfg.Sui.FeeRate
+		timeLockDelta = cfg.Sui.TimeLockDelta
 	}
 
-	// Build the partial chain control with Setu-specific components.
+	// Build the partial chain control with Sui-specific components.
 	cc := &PartialChainControl{
 		Cfg: cfg,
 		RoutingPolicy: models.ForwardingPolicy{
@@ -56,19 +56,21 @@ func newSetuPartialChainControl(cfg *Config) (
 			TimeLockDelta: timeLockDelta,
 		},
 		MinHtlcIn: minHTLCIn,
-		// Use the static Setu fee estimator.  When Setu exposes a
+		// Use the static Sui fee estimator.  When Sui exposes a
 		// dynamic gas API this can be swapped for a live estimator.
-		FeeEstimator: chainfee.NewSetuEstimator(),
+		FeeEstimator: chainfee.NewSuiEstimator(),
 	}
 
-	// Create the chain notifier backed by the no-op client stub.
-	notifier := setunotify.New(&setunotify.NoopSetuClient{})
+	// Create the chain notifier backed by the real RPC client.
+	suiClient := suinotify.NewSuiRPCClient(cfg.SuiMode.RPCAddr())
+	notifier := suinotify.New(suiClient)
 	cc.ChainNotifier = notifier
+	cc.SuiClient = suiClient
 
 	// Start the notifier. If startup fails we abort here so that callers
 	// do not hold a partially initialised control plane.
 	if err := notifier.Start(); err != nil {
-		return nil, nil, fmt.Errorf("setunotify: failed to start "+
+		return nil, nil, fmt.Errorf("suinotify: failed to start "+
 			"chain notifier: %w", err)
 	}
 
@@ -80,7 +82,7 @@ func newSetuPartialChainControl(cfg *Config) (
 	// control plane is considered healthy.
 	cc.HealthCheck = func() error {
 		if !notifier.Started() {
-			return fmt.Errorf("setu chain notifier is not running")
+			return fmt.Errorf("sui chain notifier is not running")
 		}
 		return nil
 	}
@@ -89,17 +91,17 @@ func newSetuPartialChainControl(cfg *Config) (
 	// no-op but we call it for interface compliance.
 	if err := cc.FeeEstimator.Start(); err != nil {
 		_ = notifier.Stop()
-		return nil, nil, fmt.Errorf("setu fee estimator: failed to "+
+		return nil, nil, fmt.Errorf("sui fee estimator: failed to "+
 			"start: %w", err)
 	}
 
 	// Cleanup function stops both the notifier and the fee estimator.
 	cleanup := func() {
 		if err := cc.FeeEstimator.Stop(); err != nil {
-			log.Errorf("Failed to stop Setu fee estimator: %v", err)
+			log.Errorf("Failed to stop Sui fee estimator: %v", err)
 		}
 		if err := notifier.Stop(); err != nil {
-			log.Errorf("Failed to stop Setu chain notifier: %v", err)
+			log.Errorf("Failed to stop Sui chain notifier: %v", err)
 		}
 	}
 
