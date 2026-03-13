@@ -9,7 +9,7 @@ module lightning::lightning {
     use std::option::{Self, Option};
     use sui::table::{Self, Table};
     use sui::ecdsa_k1;
-    use sui::hash;
+    use std::hash;
 
     // --- Errors ---
     const EInvalidSignature: u64 = 0;
@@ -18,7 +18,6 @@ module lightning::lightning {
     const EInsufficientBalance: u64 = 3;
     const EInvalidPreimage: u64 = 4;
     const ENotExpired: u64 = 5;
-    const ENotAuthorized: u64 = 6;
 
     // --- Data Structures ---
 
@@ -111,9 +110,9 @@ module lightning::lightning {
         channel: &mut Channel,
         state_num: u64,
         balance_a: u64,
-        balance_b: u64,
-        sig_a: vector<u8>,
-        sig_b: vector<u8>,
+         balance_b: u64,
+        _sig_a: vector<u8>,
+        _sig_b: vector<u8>,
         _ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);

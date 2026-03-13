@@ -796,7 +796,9 @@ type LightningChannel struct {
 
 	channelState *channeldb.OpenChannel
 
-	commitBuilder *CommitmentBuilder
+	commitBuilder CommitmentBuilder
+
+	scriptEngine ScriptEngine
 
 	// [local|remote]Log is a (mostly) append-only log storing all the HTLC
 	// updates to this channel. The log is walked backwards as HTLC updates
@@ -952,9 +954,12 @@ func NewLightningChannel(signer input.Signer,
 		currentHeight: localCommit.CommitHeight,
 		commitChains:  commitChains,
 		channelState:  state,
-		commitBuilder: NewCommitmentBuilder(
+		commitBuilder: NewBtcCommitmentBuilder(
 			state, opts.leafStore,
 		),
+		scriptEngine: &btcScriptEngine{
+			chanState: state,
+		},
 		updateLogs:           updateLogs,
 		Capacity:             state.Capacity,
 		taprootNonceProducer: taprootNonceProducer,
@@ -1001,26 +1006,39 @@ func NewLightningChannel(signer input.Signer,
 	return lc, nil
 }
 
-// createSignDesc derives the SignDescriptor for commitment transactions from
-// other fields on the LightningChannel.
-func (lc *LightningChannel) createSignDesc() error {
+// ScriptEngine is an interface that abstracts the various ways of
+// constructing and validating channel-related scripts and sign descriptors.
+type ScriptEngine interface {
+	// getSignDesc derives the funding output and sign descriptor for the
+	// commitment transaction.
+	getSignDesc() (*wire.TxOut, *input.SignDescriptor, error)
+}
 
+// btcScriptEngine is a Bitcoin-specific implementation of the ScriptEngine
+// interface.
+type btcScriptEngine struct {
+	chanState *channeldb.OpenChannel
+}
+
+var _ ScriptEngine = (*btcScriptEngine)(nil)
+
+func (b *btcScriptEngine) getSignDesc() (*wire.TxOut, *input.SignDescriptor, error) {
 	var (
 		fundingPkScript, multiSigScript []byte
 		err                             error
 	)
 
-	chanState := lc.channelState
+	chanState := b.chanState
 	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
 	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
 
 	if chanState.ChanType.IsTaproot() {
 		fundingPkScript, _, err = input.GenTaprootFundingScript(
-			localKey, remoteKey, int64(lc.channelState.Capacity),
+			localKey, remoteKey, int64(chanState.Capacity),
 			chanState.TapscriptRoot,
 		)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	} else {
 		multiSigScript, err = input.GenMultiSigScript(
@@ -1028,26 +1046,40 @@ func (lc *LightningChannel) createSignDesc() error {
 			remoteKey.SerializeCompressed(),
 		)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 
 		fundingPkScript, err = input.WitnessScriptHash(multiSigScript)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
-	lc.fundingOutput = wire.TxOut{
+	fundingOutput := &wire.TxOut{
 		PkScript: fundingPkScript,
-		Value:    int64(lc.channelState.Capacity),
+		Value:    int64(chanState.Capacity),
 	}
-	lc.signDesc = &input.SignDescriptor{
-		KeyDesc:       lc.channelState.LocalChanCfg.MultiSigKey,
+	signDesc := &input.SignDescriptor{
+		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
 		WitnessScript: multiSigScript,
-		Output:        &lc.fundingOutput,
+		Output:        fundingOutput,
 		HashType:      txscript.SigHashAll,
 		InputIndex:    0,
 	}
+
+	return fundingOutput, signDesc, nil
+}
+
+// createSignDesc derives the SignDescriptor for commitment transactions from
+// other fields on the LightningChannel.
+func (lc *LightningChannel) createSignDesc() error {
+	fundingOutput, signDesc, err := lc.scriptEngine.getSignDesc()
+	if err != nil {
+		return err
+	}
+
+	lc.fundingOutput = *fundingOutput
+	lc.signDesc = signDesc
 
 	return nil
 }

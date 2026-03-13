@@ -15,6 +15,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -25,31 +26,13 @@ import (
 // implemented.
 var ErrUnsupported = errors.New("suiwallet: operation not implemented")
 
-// SuiClient is an interface that provides the wallet with connectivity to
-// the Sui network. It is implemented by the SuiRPCClient.
-type SuiClient interface {
-	GetBestEpoch() (uint32, chainhash.Hash, error)
-
-	// GetCoins returns the list of SUI coins owned by the given address.
-	GetCoins(address string) ([]SuiCoin, error)
-
-	// ExecuteMoveCall executes a Sui Move call transaction.
-	ExecuteMoveCall(payload []byte, signature []byte) (chainhash.Hash, error)
-}
-
-// SuiCoin represents a Sui Coin object.
-type SuiCoin struct {
-	ObjectID chainhash.Hash
-	Balance  uint64
-}
-
 // Config holds configuration parameters for the Sui adapter wallet.
 type Config struct {
 	// SuiAddress is the Sui address owned by this wallet.
 	SuiAddress string
 
 	// Client provides connectivity to the Sui network.
-	Client SuiClient
+	Client suinotify.SuiClient
 }
 
 // Wallet is an adapter that implements the lnwallet.WalletController interface

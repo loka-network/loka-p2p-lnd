@@ -445,6 +445,28 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 // sweepTimeoutTx sends a second level timeout transaction to the sweeper.
 // This transaction uses the SINGLE|ANYONECANPAY flag.
 func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
+	if h.IsSui {
+		var sig []byte
+		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
+			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
+		}
+		payload := input.HTLCTimeoutPayload{
+			HtlcID:      h.htlc.HtlcIndex,
+			PaymentHash: h.htlc.RHash,
+			Sig:         sig,
+		}
+
+		tx, err := input.BuildHTLCTimeoutTx(
+			h.htlcResolution.ClaimOutpoint.Hash, payload,
+		)
+		if err != nil {
+			return err
+		}
+
+		h.log.Infof("offering Sui HTLC timeout tx to wallet")
+		return h.PublishTx(tx, "sui-htlc-timeout")
+	}
+
 	var inp input.Input
 	if h.isTaproot() {
 		inp = lnutils.Ptr(input.MakeHtlcSecondLevelTimeoutTaprootInput(
@@ -513,6 +535,28 @@ func (h *htlcTimeoutResolver) resolveSecondLevelTxLegacy() error {
 // sweep an HTLC we offered after a timeout. Only the CLTV encumbered outputs
 // are resolved via this path.
 func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
+	if h.IsSui {
+		var sig []byte
+		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
+			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
+		}
+		payload := input.HTLCTimeoutPayload{
+			HtlcID:      h.htlc.HtlcIndex,
+			PaymentHash: h.htlc.RHash,
+			Sig:         sig,
+		}
+
+		tx, err := input.BuildHTLCTimeoutTx(
+			h.htlcResolution.ClaimOutpoint.Hash, payload,
+		)
+		if err != nil {
+			return err
+		}
+
+		h.log.Infof("offering Sui direct HTLC timeout tx to wallet")
+		return h.PublishTx(tx, "sui-htlc-timeout-direct")
+	}
+
 	var htlcWitnessType input.StandardWitnessType
 	if h.isTaproot() {
 		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeout
