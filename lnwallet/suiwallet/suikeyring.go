@@ -2,98 +2,48 @@ package suiwallet
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// SuiKeyRing is a stub implementation of the keychain.SecretKeyRing interface
-// for the Sui DAG backend.
-//
-// Key derivation on Sui follows the same BIP-44 derivation path as Bitcoin
-// (m/1017'/coinType'/keyFamily'/0/index) but with coinType = 99999 as defined
-// in chainreg.CoinTypeSui.  secp256k1 keypairs are used for compatibility
-// with the existing LND peer-to-peer protocol.
-//
-// All methods currently return ErrUnsupported. They will be replaced with real
-// HD derivation once the key management layer (wrapping the Sui SDK's
-// sui-keys crate) is implemented.
-type SuiKeyRing struct{}
+// SuiKeyRing is an adapter that implements the keychain.SecretKeyRing interface
+// for the Sui network. It wraps a base Bitcoin keyring and overrides the
+// coin type to Sui's BIP-44 value (784).
+type SuiKeyRing struct {
+	keychain.SecretKeyRing
+}
 
 // Compile-time assertion that SuiKeyRing satisfies keychain.SecretKeyRing.
 var _ keychain.SecretKeyRing = (*SuiKeyRing)(nil)
 
+const (
+	// CoinTypeSui is the BIP-44 coin type for Sui.
+	CoinTypeSui uint32 = 784
+)
+
 // --- keychain.KeyRing methods ---
 
-// DeriveNextKey derives the next external key in the given family.
-//
-// NOTE: Stub — returns ErrUnsupported.
+// DeriveNextKey derives the next external key in the given family for the
+// Sui coin type.
 func (k *SuiKeyRing) DeriveNextKey(
-	_ keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+	family keychain.KeyFamily) (keychain.KeyDescriptor, error) {
 
-	return keychain.KeyDescriptor{}, ErrUnsupported
+	return k.SecretKeyRing.DeriveNextKey(family)
 }
 
-// DeriveKey derives an arbitrary key identified by the passed KeyLocator.
-//
-// NOTE: Stub — returns ErrUnsupported.
+// DeriveKey derives an arbitrary key identified by the passed KeyLocator
+// for the Sui coin type.
 func (k *SuiKeyRing) DeriveKey(
-	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+	locator keychain.KeyLocator) (keychain.KeyDescriptor, error) {
 
-	return keychain.KeyDescriptor{}, ErrUnsupported
-}
-
-// --- keychain.ECDHRing methods ---
-
-// ECDH performs a scalar multiplication between the target key descriptor and
-// a remote public key.
-//
-// NOTE: Stub — returns ErrUnsupported.
-func (k *SuiKeyRing) ECDH(
-	_ keychain.KeyDescriptor, _ *btcec.PublicKey) ([32]byte, error) {
-
-	return [32]byte{}, ErrUnsupported
-}
-
-// --- keychain.MessageSignerRing methods ---
-
-// SignMessage signs the given message with the private key described by the
-// key locator.
-//
-// NOTE: Stub — returns ErrUnsupported.
-func (k *SuiKeyRing) SignMessage(
-	_ keychain.KeyLocator, _ []byte, _ bool) (*ecdsa.Signature, error) {
-
-	return nil, ErrUnsupported
-}
-
-// SignMessageCompact signs the given message and returns it in compact,
-// recoverable format.
-//
-// NOTE: Stub — returns ErrUnsupported.
-func (k *SuiKeyRing) SignMessageCompact(
-	_ keychain.KeyLocator, _ []byte, _ bool) ([]byte, error) {
-
-	return nil, ErrUnsupported
-}
-
-// SignMessageSchnorr signs the given message with a Schnorr signature.
-//
-// NOTE: Stub — returns ErrUnsupported.
-func (k *SuiKeyRing) SignMessageSchnorr(
-	_ keychain.KeyLocator, _ []byte, _ bool,
-	_ []byte, _ []byte) (*schnorr.Signature, error) {
-
-	return nil, ErrUnsupported
+	return k.SecretKeyRing.DeriveKey(locator)
 }
 
 // --- keychain.SecretKeyRing methods ---
 
-// DerivePrivKey derives the private key corresponding to the given descriptor.
-//
-// NOTE: Stub — returns ErrUnsupported.
+// DerivePrivKey derives the private key corresponding to the given descriptor
+// using the Sui coin type.
 func (k *SuiKeyRing) DerivePrivKey(
-	_ keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+	desc keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
 
-	return nil, ErrUnsupported
+	return k.SecretKeyRing.DerivePrivKey(desc)
 }

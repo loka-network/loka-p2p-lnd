@@ -2,8 +2,10 @@ package suiwallet
 
 import (
 	"crypto/sha256"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/wire"
@@ -11,13 +13,19 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// SuiSigner is a stub implementation of the input.Signer interface for the
-// Sui DAG backend.
-//
-// Sui channels use secp256k1 ECDSA signatures (same curve as Bitcoin), so
-// the signing interface can be re-used almost unchanged.  All methods here
-// return ErrUnsupported until the real key-management layer is wired in.
-type SuiSigner struct{}
+// SuiSigner is an adapter that implements the input.Signer interface for the
+// Sui network. It uses a SecretKeyRing to derive the required private keys
+// for signing.
+type SuiSigner struct {
+	keyRing keychain.SecretKeyRing
+}
+
+// NewSuiSigner creates a new SuiSigner instance backed by the given keyring.
+func NewSuiSigner(keyRing keychain.SecretKeyRing) *SuiSigner {
+	return &SuiSigner{
+		keyRing: keyRing,
+	}
+}
 
 // Compile-time assertion that SuiSigner satisfies the Signer interface.
 var _ input.Signer = (*SuiSigner)(nil)
@@ -25,13 +33,28 @@ var _ input.Signer = (*SuiSigner)(nil)
 // SignOutputRaw generates a signature for the passed transaction according to
 // the data within the passed SignDescriptor.
 //
-// NOTE: For Sui, tx.Payload carries the serialised Sui Event bytes.
-// Stub — returns ErrUnsupported.
+// For Sui, tx is a wire.MsgTx where tx.TxIn[0].SignatureScript contains the
+// serialized Move call or event to be signed.
 func (s *SuiSigner) SignOutputRaw(
-	_ *wire.MsgTx,
-	_ *input.SignDescriptor) (input.Signature, error) {
+	tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (input.Signature, error) {
 
-	return nil, ErrUnsupported
+	// Derive the private key for the given key descriptor.
+	privKey, err := s.keyRing.DerivePrivKey(signDesc.KeyDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sui signatures are over the SHA256 digest of the serialized data.
+	// In our adapter, this data is stored in the first input's SignatureScript.
+	if len(tx.TxIn) == 0 {
+		return nil, fmt.Errorf("sui_signer: tx has no inputs")
+	}
+	digest := sha256.Sum256(tx.TxIn[0].SignatureScript)
+
+	sig := ecdsa.Sign(privKey, digest[:])
+
+	return sig, nil
 }
 
 // ComputeInputScript generates a complete InputScript for the passed

@@ -183,6 +183,10 @@ type PartialChainControl struct {
 	// It is only populated when the Sui chain backend is active.
 	SuiClient interface{}
 
+	// SecretKeyRing is the keyring that contains the private keys for
+	// this chain.
+	SecretKeyRing keychain.SecretKeyRing
+
 	// ChainView is used in the router for maintaining an up-to-date graph.
 	ChainView chainview.FilteredChainView
 

@@ -77,6 +77,14 @@ func (m *mockSuiClient) SubscribeObjectSpend(
 	return ch, nil
 }
 
+func (m *mockSuiClient) GetCoins(address string) ([]SuiCoin, error) {
+	return nil, nil
+}
+
+func (m *mockSuiClient) ExecuteMoveCall(payload []byte, signature []byte) (chainhash.Hash, error) {
+	return chainhash.Hash{}, nil
+}
+
 // sendEpoch fires a mock checkpoint event.
 func (m *mockSuiClient) sendEpoch(height uint32) {
 	hash := heightToHash(height)

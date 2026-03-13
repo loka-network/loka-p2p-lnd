@@ -47,6 +47,9 @@ type SuiClient interface {
 	// GetCoins returns the list of SUI coins owned by the given address.
 	GetCoins(address string) ([]SuiCoin, error)
 
+	// ExecuteMoveCall executes a Sui Move call transaction.
+	ExecuteMoveCall(payload []byte, signature []byte) (chainhash.Hash, error)
+
 	// SubscribeEpochs sends each newly finalised checkpoint on the returned
 	// channel. The channel is closed when quit is closed.
 	SubscribeEpochs(quit <-chan struct{}) (<-chan EpochEvent, error)
