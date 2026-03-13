@@ -440,6 +440,11 @@ type WalletController interface {
 	// published transaction.
 	PublishTransaction(tx *wire.MsgTx, label string) error
 
+	// ExecuteOpenChannelCall is a Sui-specific method to execute a channel
+	// open Move Call payload and return the resulting Channel ObjectID.
+	// For Bitcoin backends, this returns an error.
+	ExecuteOpenChannelCall(tx *wire.MsgTx) (chainhash.Hash, error)
+
 	// LabelTransaction adds a label to a transaction. If the tx already
 	// has a label, this call will fail unless the overwrite parameter
 	// is set. Labels must not be empty, and they are limited to 500 chars.

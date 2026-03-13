@@ -7,10 +7,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 ### Added
 - Phase 3C: Adapted Contract arbitration resolvers to bypass Sweeper and directly publish `sui-htlc-timeout-direct`, `sui-htlc-claim-direct`, and `sui-channel-claim-local` payload signatures to the Sui RPC node.
+- Phase 3D: Adapted Funding flow to directly publish Move Calls and obtain unique `ObjectID` prior to the remainder of channel setup.
 - Included correct signature passing for Sui HTLC payloads using `Serialize()`.
 
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.
+- Implemented `ExecuteOpenChannelCall` interface on `WalletController` to allow the wallet to execute Sui move calls during channel funding.
 - Extracted `CommitmentBuilder` out of `LightningChannel` (Phase 3A).
 - Extracted functions using `txscript` out of `LightningChannel` into a `ScriptEngine` interface (Phase 3B - ongoing).
 

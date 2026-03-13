@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"encoding/hex"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -294,6 +295,13 @@ func (w *mockWalletController) Start() error {
 // Stop currently does nothing.
 func (w *mockWalletController) Stop() error {
 	return nil
+}
+
+// ExecuteOpenChannelCall currently returns a dummy error.
+func (w *mockWalletController) ExecuteOpenChannelCall(
+	_ *wire.MsgTx) (chainhash.Hash, error) {
+
+	return chainhash.Hash{}, fmt.Errorf("not supported on mock backend")
 }
 
 func (w *mockWalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {

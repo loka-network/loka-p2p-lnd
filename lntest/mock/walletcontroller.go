@@ -229,6 +229,11 @@ func (w *WalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 	return nil
 }
 
+// ExecuteOpenChannelCall executes a channel open Move Call.
+func (w *WalletController) ExecuteOpenChannelCall(tx *wire.MsgTx) (chainhash.Hash, error) {
+	return chainhash.Hash{}, nil
+}
+
 // DecorateInputs currently does nothing.
 func (w *WalletController) DecorateInputs(*psbt.Packet, bool) error {
 	return nil

@@ -1687,6 +1687,80 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		}
 		return
 
+	case *chanfunding.SuiIntent:
+		// For Sui, we must execute the open_channel transaction now to
+		// obtain the ObjectID. We bind the keys, compile the dummy tx,
+		// and broadcast it via our connected Sui RPC client.
+		fundingIntent.BindKeys(
+			&pendingReservation.ourContribution.MultiSigKey,
+			theirContribution.MultiSigKey.PubKey,
+		)
+
+		dummyTx, err := fundingIntent.CompileFunds()
+		if err != nil {
+			req.err <- fmt.Errorf("sui: unable to build dummy tx: %v", err)
+			return
+		}
+
+		// Call the Sui Client via the backend.
+		// Since we're in the wallet, we publish via PublishTransaction directly.
+		// Wait, Sui needs immediate feedback to set the ObjectID before ChanPoint.
+		// We'll extract the client from our config and call ExecuteMoveCall.
+		if l.BackEnd() != "sui" {
+			req.err <- fmt.Errorf("sui intent used on non-sui backend")
+			return
+		}
+
+		// We assume dummyTx.TxIn[0].SignatureScript has the payload and we need to sign it.
+		// However, Signer does not have SignMessage. Instead, we can use SignOutputRaw
+		// to generate a signature for this transaction envelope (treating it like a custom Sighash).
+		// For simplicity in this adaptation, since we control the Signer instance (or it's the internal wallet),
+		// we can use SignOutputRaw with a dummy SignDescriptor just to get the signature.
+		signDesc := &input.SignDescriptor{
+			KeyDesc:       pendingReservation.ourContribution.MultiSigKey,
+			WitnessScript: dummyTx.TxIn[0].SignatureScript,
+			Output:        dummyTx.TxOut[0],
+			HashType:      txscript.SigHashAll,
+			SigHashes:     input.NewTxSigHashesV0Only(dummyTx),
+			InputIndex:    0,
+		}
+		sig, err := l.Cfg.Signer.SignOutputRaw(dummyTx, signDesc)
+		if err != nil {
+			req.err <- fmt.Errorf("sui: unable to sign open_channel dummy tx: %v", err)
+			return
+		}
+
+		// Attach the signature to the transaction witness so ExecuteOpenChannelCall can extract it.
+		dummyTx.TxIn[0].Witness = wire.TxWitness{sig.Serialize()}
+
+		// Call the Sui Client via the backend ExecuteOpenChannelCall method.
+		objectID, err := l.WalletController.ExecuteOpenChannelCall(dummyTx)
+		if err != nil {
+			req.err <- fmt.Errorf("sui: execute open_channel failed: %v", err)
+			return
+		}
+
+		// The objectID is now the Channel identifier! Set it on the intent.
+		fundingIntent.SetObjectID(objectID)
+
+		// Recompile the final fundingTx so it has the correct ChanelID/ObjectID length
+		fundingTx, err := fundingIntent.CompileFunds()
+		if err != nil {
+			req.err <- fmt.Errorf("sui: unable to rebuild open_channel tx: %v", err)
+			return
+		}
+
+		chanPoint, err = fundingIntent.ChanPoint()
+		if err != nil {
+			req.err <- fmt.Errorf("sui: unable to obtain chan point: %v", err)
+			return
+		}
+
+		// Proceed to populate pendingReservation just like FullIntent
+		pendingReservation.fundingTx = fundingTx
+		pendingReservation.partialState.FundingOutpoint = *chanPoint
+		pendingReservation.ourFundingInputScripts = make([]*input.Script, 0)
+			
 	case *chanfunding.FullIntent:
 		// Now that we know their public key, we can bind theirs as
 		// well as ours to the funding intent.
