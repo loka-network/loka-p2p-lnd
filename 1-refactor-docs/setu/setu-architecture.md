@@ -1,8 +1,8 @@
-# Sui 架构与技术说明文档
+# Setu 架构与技术说明文档
 
 ## 1. 项目概述
 
-**Sui** 是 Hetu Project 下一代高性能分布式共识网络，设计目标为高吞吐量、低延迟的交易处理系统。项目融合了以下核心技术：
+**Setu** 是 Hetu Project 下一代高性能分布式共识网络，设计目标为高吞吐量、低延迟的交易处理系统。项目融合了以下核心技术：
 
 - **DAG-BFT 共识**：基于有向无环图的拜占庭容错共识协议
 - **VLC 混合时钟**：向量逻辑时钟实现分布式事件因果排序
@@ -16,7 +16,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Sui Network                                   │
+│                              Setu Network                                   │
 ├─────────────────────────────────┬───────────────────────────────────────────┤
 │         Validator Nodes         │           Solver Nodes                    │
 │                                 │                                           │
@@ -138,7 +138,7 @@
 │  │  - Fraud detection               │   │
 │  └─────────────────────────────────┘   │
 │  ┌─────────────────────────────────┐   │
-│  │  Router (sui-router-core)       │   │
+│  │  Router (setu-router-core)       │   │
 │  │  - Route transfers to Solvers    │   │
 │  │  - Load balancing                │   │
 │  └─────────────────────────────────┘   │
@@ -201,7 +201,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          Sui Enclave                                   │
+│                          Setu Enclave                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                     EnclaveRuntime Trait                         │   │
@@ -229,7 +229,7 @@
 STF: (pre_state_root, events) → (post_state_root, state_diff, attestation)
 ```
 
-### 3.6 Sui Runtime（运行时）
+### 3.6 Setu Runtime（运行时）
 
 当前为轻量级实现，为未来 Move VM 集成做准备：
 
@@ -408,7 +408,7 @@ pub struct Coin {
 
 ### 5.2 对象模型
 
-Sui 采用 **面向对象账户模型**（类似 Sui）：
+Setu 采用 **面向对象账户模型**（类似 Sui）：
 
 | 对象类型          | 说明                  |
 | ----------------- | --------------------- |
@@ -432,7 +432,7 @@ pub enum Ownership {
 ## 6. 项目结构
 
 ```
-Sui/
+Setu/
 ├── consensus/              # DAG-BFT 共识实现
 │   ├── dag.rs             # DAG 数据结构
 │   ├── engine.rs          # 主共识引擎
@@ -453,22 +453,22 @@ Sui/
 │   └── state/             # GlobalStateManager, StateProvider
 │
 ├── crates/
-│   ├── sui-vlc/          # VLC 混合逻辑时钟库
-│   ├── sui-merkle/       # Merkle 树 (Binary + Sparse)
-│   ├── sui-keys/         # 密钥管理
-│   ├── sui-enclave/      # TEE 抽象层 (Mock + Nitro)
-│   ├── sui-network-anemo/# Anemo P2P 网络
-│   ├── sui-transport/    # HTTP/WS/gRPC 传输层
-│   ├── sui-protocol/     # 协议消息定义
-│   ├── sui-runtime/      # 运行时执行环境
-│   ├── sui-router-core/  # 路由核心逻辑
-│   └── sui-core/         # 共享核心工具
+│   ├── setu-vlc/          # VLC 混合逻辑时钟库
+│   ├── setu-merkle/       # Merkle 树 (Binary + Sparse)
+│   ├── setu-keys/         # 密钥管理
+│   ├── setu-enclave/      # TEE 抽象层 (Mock + Nitro)
+│   ├── setu-network-anemo/# Anemo P2P 网络
+│   ├── setu-transport/    # HTTP/WS/gRPC 传输层
+│   ├── setu-protocol/     # 协议消息 definition
+│   ├── setu-runtime/      # 运行时执行环境
+│   ├── setu-router-core/  # 路由核心逻辑
+│   └── setu-core/         # 共享核心工具
 │
-├── sui-validator/         # Validator 节点二进制
-├── sui-solver/            # Solver 节点二进制
-├── sui-cli/               # CLI 工具
-├── sui-rpc/               # RPC 层
-├── sui-benchmark/         # TPS 基准测试工具
+├── setu-validator/         # Validator 节点二进制
+├── setu-solver/            # Solver 节点二进制
+├── setu-cli/               # CLI 工具
+├── setu-rpc/               # RPC 层
+├── setu-benchmark/         # TPS 基准测试工具
 │
 ├── api/                    # HTTP API 层
 ├── docker/                 # Docker 部署配置
@@ -571,11 +571,11 @@ Sui/
 
 ## 11. 与 LND 闪电网络集成
 
-Sui 设计支持与 LND 闪电网络的双链集成，详见 [lnd-and-sui-integration.md](./lnd-and-sui-integration.md)。
+Setu 设计支持与 LND 闪电网络的双链集成，详见 [lnd-and-setu-integration.md](./lnd-and-setu-integration.md)。
 
 ### 核心适配策略
 
-由于 Sui 当前不具备通用可编程虚拟机，采用 **硬编码 Lightning Channel EventType** 的方式：
+由于 Setu 当前不具备通用可编程虚拟机，采用 **在 Setu 侧新增硬编码原语** 的方式（当前先行适配 Sui 以支持并行开发）：
 
 - `ChannelOpen` - 通道开设
 - `ChannelClose` - 协作关闭
@@ -585,10 +585,10 @@ Sui 设计支持与 LND 闪电网络的双链集成，详见 [lnd-and-sui-integr
 
 ### 类型映射
 
-| LND 类型             | Sui 映射             |
+| LND 类型             | Setu 映射             |
 | -------------------- | --------------------- |
 | `wire.OutPoint.Hash` | `ObjectID` (32 bytes) |
-| `btcutil.Amount`     | Sui Unit 映射        |
+| `btcutil.Amount`     | Setu Unit 映射        |
 | `wire.MsgTx`         | Event 序列化字节      |
 | `ShortChanID`        | `ObjectID`            |
 
@@ -608,12 +608,12 @@ cargo test --all
 # 启动 Validator
 VALIDATOR_ID=validator-1 \
 VALIDATOR_HTTP_PORT=8080 \
-./target/release/sui-validator
+./target/release/setu-validator
 
 # 启动 Solver
 SOLVER_ID=solver-1 \
 SOLVER_PORT=9001 \
-./target/release/sui-solver
+./target/release/setu-solver
 ```
 
 ### 12.2 Docker 部署
@@ -635,10 +635,10 @@ docker-compose logs -f
 
 ```bash
 # 查询余额
-./target/release/sui balance --address <ADDRESS>
+./target/release/setu balance --address <ADDRESS>
 
 # 转账
-./target/release/sui transfer --from <FROM> --to <TO> --amount 100
+./target/release/setu transfer --from <FROM> --to <TO> --amount 100
 ```
 
 ---
@@ -657,7 +657,7 @@ docker-compose logs -f
 
 ## 参考资料
 
-- [Sui README](../../Sui/README.md)
-- [LND 与 Sui 集成文档](./lnd-and-sui-integration.md)
-- [Sui Runtime README](../../Sui/crates/sui-runtime/README.md)
-- [Sui Merkle README](../../Sui/crates/sui-merkle/README.md)
+- [Setu README](../../../Setu/README.md)
+- [LND 与 Setu 集成文档](./lnd-and-setu-integration.md)
+- [Setu Runtime README](../../../Setu/crates/setu-runtime/README.md)
+- [Setu Merkle README](../../../Setu/crates/setu-merkle/README.md)
