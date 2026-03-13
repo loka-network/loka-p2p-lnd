@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] — 2026-03-12
+
+### Added
+
+- **`chainntnfs/suinotify/rpc_client.go`** — Implemented `SuiRPCClient`, a JSON-RPC client for Sui providing connectivity for checkpoint polling, coin querying, and transaction execution.
+- **`lnwallet/chanfunding/sui_assembler.go`** — Implemented `SuiAssembler` and `SuiIntent` to support LND channel funding via Sui Move call transactions.
+- **`sui-contracts/lightning`** — Initial implementation of the Lightning Move module for Sui, supporting channel lifecycle (open, close, force-close) and HTLC management.
+
+### Changed
+
+- **Refactor (Setu to Sui)** — Performed a project-wide rename of all `setu` references to `sui` to align with the parallel development strategy using the Sui network.
+- **`lnwallet/suiwallet/`** — Upgraded wallet adapters (`SuiWallet`, `SuiSigner`, `SuiKeyRing`) from stubs to functional implementations. `SuiKeyRing` now supports BIP-44 derivation for Sui (coin type 784). `SuiWallet` now supports `ListUnspentWitness` and `ConfirmedBalance` via the RPC client.
+- **`sui_chain_builder.go`** — Updated `buildSuiChainControl` to wire the functional `SuiRPCClient`, `SuiSigner`, and `SuiKeyRing` into the chain control plane.
+- **Docs** — Reorganized `1-refactor-docs/` into `sui/` and `setu/` subdirectories to distinguish between the current Sui implementation and the long-term Setu target.
+
+---
+
 ## [Unreleased] — 2026-03-09
 
 ### Changed
