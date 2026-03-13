@@ -11,6 +11,7 @@ package suinotify
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -324,6 +325,11 @@ func (s *SuiChainNotifier) epochDispatcher() {
 			epoch := &chainntnfs.BlockEpoch{
 				Height: int32(ev.Height),
 				Hash:   &ev.Hash,
+				BlockHeader: &wire.BlockHeader{
+					Version:   1,
+					PrevBlock: ev.Hash,
+					Timestamp: time.Unix(int64(ev.Height), 0),
+				},
 			}
 			s.epochMu.Lock()
 			for _, client := range s.blockEpochClients {
@@ -350,6 +356,11 @@ func (s *SuiChainNotifier) deliverMissedEpochs(
 		epoch := &chainntnfs.BlockEpoch{
 			Height: int32(h),
 			Hash:   &hash,
+			BlockHeader: &wire.BlockHeader{
+				Version:   1,
+				PrevBlock: hash,
+				Timestamp: time.Unix(int64(h), 0),
+			},
 		}
 		select {
 		case epochCh <- epoch:

@@ -89,3 +89,4 @@ coverage.txt
 # Sui Move Contracts
 sui-contracts/**/build/
 sui-contracts/**/Move.lock
+sui-contracts/lightning/build/

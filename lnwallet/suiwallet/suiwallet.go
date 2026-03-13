@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -18,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -28,8 +30,8 @@ var ErrUnsupported = errors.New("suiwallet: operation not implemented")
 
 // Config holds configuration parameters for the Sui adapter wallet.
 type Config struct {
-	// SuiAddress is the Sui address owned by this wallet.
-	SuiAddress string
+	// KeyRing allows derivation of Sui addresses.
+	KeyRing keychain.SecretKeyRing
 
 	// Client provides connectivity to the Sui network.
 	Client suinotify.SuiClient
@@ -78,11 +80,31 @@ func (w *Wallet) ConfirmedBalance(confs int32, accountFilter string) (btcutil.Am
 	return balance, nil
 }
 
+// SuiAddress implements the btcutil.Address interface for Sui addresses.
+type SuiAddress struct {
+	addr string
+}
+
+func (s *SuiAddress) String() string { return s.addr }
+func (s *SuiAddress) EncodeAddress() string { return s.addr }
+func (s *SuiAddress) ScriptAddress() []byte { return []byte(s.addr) }
+func (s *SuiAddress) IsForNet(p *chaincfg.Params) bool { return true }
+
 // NewAddress returns the Sui address owned by this wallet adapter.
 func (w *Wallet) NewAddress(addrType lnwallet.AddressType, change bool, account string) (btcutil.Address, error) {
 	// We return a virtual address since Sui addresses are not BTC-compatible.
-	// This is used for GetInfo and other non-critical paths.
-	return btcutil.DecodeAddress(w.cfg.SuiAddress, nil)
+	// We derive it dynamically so it's only generated once the wallet is unlocked.
+	nodeKeyDesc, err := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
+		Family: keychain.KeyFamilyNodeKey,
+		Index:  0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// We slice off the first byte (the 0x02 or 0x03 prefix) to make it exactly 32 bytes
+	// which satisfies the Sui address format length for the `sui client faucet` command.
+	suiAddress := fmt.Sprintf("0x%x", nodeKeyDesc.PubKey.SerializeCompressed()[1:])
+	return &SuiAddress{addr: suiAddress}, nil
 }
 
 // LastUnusedAddress returns the Sui address.
@@ -92,7 +114,11 @@ func (w *Wallet) LastUnusedAddress(addrType lnwallet.AddressType, account string
 
 // IsOurAddress reports whether the address is ours.
 func (w *Wallet) IsOurAddress(a btcutil.Address) bool {
-	return a.String() == w.cfg.SuiAddress
+	addr, err := w.NewAddress(lnwallet.UnknownAddressType, false, "")
+	if err != nil {
+		return false
+	}
+	return a.String() == addr.String()
 }
 
 // AddressInfo is not implemented for Sui yet.
@@ -100,9 +126,13 @@ func (w *Wallet) AddressInfo(a btcutil.Address) (waddrmgr.ManagedAddress, error)
 	return nil, ErrUnsupported
 }
 
-// ListAccounts is not implemented for Sui yet.
+// ListAccounts returns a single dummy default account for Sui wallet.
 func (w *Wallet) ListAccounts(name string, scope *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
-	return nil, ErrUnsupported
+	return []*waddrmgr.AccountProperties{
+		{
+			AccountName: lnwallet.DefaultAccountName,
+		},
+	}, nil
 }
 
 // RequiredReserve returns zero.
@@ -148,7 +178,11 @@ func (w *Wallet) GetTransactionDetails(txHash *chainhash.Hash) (*lnwallet.Transa
 // ListUnspentWitness returns all unspent outputs (SUI coins) that are
 // available for spending.
 func (w *Wallet) ListUnspentWitness(minConfs, maxConfs int32, accountFilter string) ([]*lnwallet.Utxo, error) {
-	coins, err := w.cfg.Client.GetCoins(w.cfg.SuiAddress)
+	addr, err := w.NewAddress(lnwallet.UnknownAddressType, false, "")
+	if err != nil {
+		return nil, err
+	}
+	coins, err := w.cfg.Client.GetCoins(addr.String())
 	if err != nil {
 		return nil, err
 	}
@@ -185,9 +219,9 @@ func (w *Wallet) ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error {
 	return ErrUnsupported
 }
 
-// ListLeasedOutputs is not implemented for Sui yet.
+// ListLeasedOutputs returns an empty array for Sui wallet.
 func (w *Wallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, error) {
-	return nil, ErrUnsupported
+	return nil, nil
 }
 
 	// LabelTransaction is not implemented for Sui yet.

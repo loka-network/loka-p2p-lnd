@@ -12,10 +12,7 @@ var _ lnwallet.MessageSigner = (*Wallet)(nil)
 // SignMessage signs the given message with the key identified by the key
 // locator. For Sui, this uses the base keyring to sign.
 func (w *Wallet) SignMessage(
-	_ keychain.KeyLocator, _ []byte, _ bool) (*ecdsa.Signature, error) {
+	keyLoc keychain.KeyLocator, msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
 
-	// In a real implementation, we would use the internal keyring to
-	// sign the message. For this adapter, we delegate or return error
-	// if not critical.
-	return nil, ErrUnsupported
+	return w.cfg.KeyRing.SignMessage(keyLoc, msg, doubleHash)
 }

@@ -1353,7 +1353,7 @@ func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
 			channel.FundingOutpoint, err)
 	}
 
-	if blockchain.IsCoinBaseTx(confChannel.fundingTx) {
+	if confChannel.fundingTx != nil && blockchain.IsCoinBaseTx(confChannel.fundingTx) {
 		// If it's a coinbase transaction, we need to wait for it to
 		// mature. We wait out an additional MinAcceptDepth on top of
 		// the coinbase maturity as an extra margin of safety.
@@ -2432,6 +2432,8 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 		FundingPoint:     *outPoint,
 	}
 
+	log.Infof("continueFundingAccept ALICE SENDING OUTPOINT: %v", outPoint)
+
 	// If this is a taproot channel, then we'll need to populate the musig2
 	// partial sig field instead of the regular commit sig field.
 	if resCtx.reservation.IsTaproot() {
@@ -2491,6 +2493,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// the commitment transaction. So at this point, we can validate the
 	// initiator's commitment transaction, then send our own if it's valid.
 	fundingOut := msg.FundingPoint
+	log.Infof("fundeeProcessFundingCreated BOB RECEIVED OUTPOINT: %v", fundingOut)
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
 

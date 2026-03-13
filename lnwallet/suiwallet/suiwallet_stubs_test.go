@@ -65,8 +65,8 @@ func (m *mockSecretKeyRing) ECDH(desc keychain.KeyDescriptor, pub *btcec.PublicK
 
 func newTestWallet() *Wallet {
 	return New(Config{
-		SuiAddress: "0x123",
-		Client:     &mockSuiClient{},
+		KeyRing: &mockSecretKeyRing{},
+		Client:  &mockSuiClient{},
 	})
 }
 

@@ -1005,6 +1005,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning
 
+	assumeChannelValid := cfg.Routing.AssumeChannelValid
+	if cfg.SuiMode != nil && cfg.SuiMode.Active {
+		assumeChannelValid = true
+	}
+
 	s.graphBuilder, err = graph.NewBuilder(&graph.Config{
 		SelfNode:            nodePubKey,
 		Graph:               dbs.GraphDB,
@@ -1014,7 +1019,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ChannelPruneExpiry:  graph.DefaultChannelPruneExpiry,
 		GraphPruneInterval:  time.Hour,
 		FirstTimePruneDelay: graph.DefaultFirstTimePruneDelay,
-		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
+		AssumeChannelValid:  assumeChannelValid,
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
 	})
@@ -1096,7 +1101,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		FindChannel:             s.findChannel,
 		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
 		ScidCloser:              scidCloserMan,
-		AssumeChannelValid:      cfg.Routing.AssumeChannelValid,
+		AssumeChannelValid:      assumeChannelValid,
 		MsgRateBytes:            cfg.Gossip.MsgRateBytes,
 		MsgBurstBytes:           cfg.Gossip.MsgBurstBytes,
 		FilterConcurrency:       cfg.Gossip.FilterConcurrency,
