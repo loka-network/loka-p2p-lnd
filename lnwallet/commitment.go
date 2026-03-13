@@ -609,10 +609,20 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	return localAnchor, remoteAnchor, nil
 }
 
-// CommitmentBuilder is a type that wraps the type of channel we are dealing
-// with, and abstracts the various ways of constructing commitment
+// CommitmentBuilder is an interface that abstracts the various ways of
+// constructing commitment transactions.
+type CommitmentBuilder interface {
+	createUnsignedCommitmentTx(ourBalance,
+		theirBalance lnwire.MilliSatoshi, whoseCommit lntypes.ChannelParty,
+		feePerKw chainfee.SatPerKWeight, height uint64, originalHtlcView,
+		filteredHTLCView *HtlcView, keyRing *CommitmentKeyRing,
+		prevCommit *commitment) (*unsignedCommitmentTx, error)
+}
+
+// BtcCommitmentBuilder is a type that wraps the type of channel we are dealing
+// with, and abstracts the various ways of constructing Bitcoin commitment
 // transactions.
-type CommitmentBuilder struct {
+type BtcCommitmentBuilder struct {
 	// chanState is the underlying channel's state struct, used to
 	// determine the type of channel we are dealing with, and relevant
 	// parameters.
@@ -627,16 +637,16 @@ type CommitmentBuilder struct {
 	auxLeafStore fn.Option[AuxLeafStore]
 }
 
-// NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
-func NewCommitmentBuilder(chanState *channeldb.OpenChannel,
-	leafStore fn.Option[AuxLeafStore]) *CommitmentBuilder {
+// NewBtcCommitmentBuilder creates a new BtcCommitmentBuilder from chanState.
+func NewBtcCommitmentBuilder(chanState *channeldb.OpenChannel,
+	leafStore fn.Option[AuxLeafStore]) *BtcCommitmentBuilder {
 
 	// The anchor channel type MUST be tweakless.
 	if chanState.ChanType.HasAnchors() && !chanState.ChanType.IsTweakless() {
 		panic("invalid channel type combination")
 	}
 
-	return &CommitmentBuilder{
+	return &BtcCommitmentBuilder{
 		chanState:    chanState,
 		obfuscator:   createStateHintObfuscator(chanState),
 		auxLeafStore: leafStore,
@@ -690,7 +700,7 @@ type unsignedCommitmentTx struct {
 // a commitment view and returns it as part of the unsignedCommitmentTx. The
 // passed in balances should be balances *before* subtracting any commitment
 // fees, but after anchor outputs.
-func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
+func (cb *BtcCommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	theirBalance lnwire.MilliSatoshi, whoseCommit lntypes.ChannelParty,
 	feePerKw chainfee.SatPerKWeight, height uint64, originalHtlcView,
 	filteredHTLCView *HtlcView, keyRing *CommitmentKeyRing,

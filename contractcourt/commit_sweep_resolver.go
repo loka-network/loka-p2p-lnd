@@ -142,39 +142,53 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	}
 
 	var sweepTxID chainhash.Hash
-
-	// Sweeper is going to join this input with other inputs if possible
-	// and publish the sweep tx. When the sweep tx confirms, it signals us
-	// through the result channel with the outcome. Wait for this to
-	// happen.
+	
 	outcome := channeldb.ResolverOutcomeClaimed
-	select {
-	case sweepResult := <-c.sweepResultChan:
-		switch sweepResult.Err {
-		// If the remote party was able to sweep this output it's
-		// likely what we sent was actually a revoked commitment.
-		// Report the error and continue to wrap up the contract.
-		case sweep.ErrRemoteSpend:
-			c.log.Warnf("local commitment output was swept by "+
-				"remote party via %v", sweepResult.Tx.TxHash())
-			outcome = channeldb.ResolverOutcomeUnclaimed
 
-		// No errors, therefore continue processing.
-		case nil:
-			c.log.Infof("local commitment output fully resolved by "+
-				"sweep tx: %v", sweepResult.Tx.TxHash())
-		// Unknown errors.
-		default:
-			c.log.Errorf("unable to sweep input: %v",
-				sweepResult.Err)
-
-			return nil, sweepResult.Err
+	if c.IsSui {
+		c.log.Infof("Sui: waiting for spend of commit output %v", c.commitResolution.SelfOutPoint)
+		spend, err := waitForSpend(
+			&c.commitResolution.SelfOutPoint,
+			c.commitResolution.SelfOutputSignDesc.Output.PkScript,
+			c.confirmHeight, c.Notifier, c.quit,
+		)
+		if err != nil {
+			return nil, err
 		}
+		sweepTxID = *spend.SpenderTxHash
+	} else {
+		// Sweeper is going to join this input with other inputs if possible
+		// and publish the sweep tx. When the sweep tx confirms, it signals us
+		// through the result channel with the outcome. Wait for this to
+		// happen.
+		select {
+		case sweepResult := <-c.sweepResultChan:
+			switch sweepResult.Err {
+			// If the remote party was able to sweep this output it's
+			// likely what we sent was actually a revoked commitment.
+			// Report the error and continue to wrap up the contract.
+			case sweep.ErrRemoteSpend:
+				c.log.Warnf("local commitment output was swept by "+
+					"remote party via %v", sweepResult.Tx.TxHash())
+				outcome = channeldb.ResolverOutcomeUnclaimed
 
-		sweepTxID = sweepResult.Tx.TxHash()
+			// No errors, therefore continue processing.
+			case nil:
+				c.log.Infof("local commitment output fully resolved by "+
+					"sweep tx: %v", sweepResult.Tx.TxHash())
+			// Unknown errors.
+			default:
+				c.log.Errorf("unable to sweep input: %v",
+					sweepResult.Err)
 
-	case <-c.quit:
-		return nil, errResolverShuttingDown
+				return nil, sweepResult.Err
+			}
+
+			sweepTxID = sweepResult.Tx.TxHash()
+
+		case <-c.quit:
+			return nil, errResolverShuttingDown
+		}
 	}
 
 	// Funds have been swept and balance is no longer in limbo.
@@ -366,6 +380,40 @@ func (c *commitSweepResolver) Launch() error {
 	witnessType, err := c.decideWitnessType()
 	if err != nil {
 		return err
+	}
+
+	if c.IsSui {
+		var tx *wire.MsgTx
+		var claimType string
+
+		if witnessType == input.CommitmentTimeLock || witnessType == input.TaprootLocalCommitSpend || witnessType == input.LeaseCommitmentTimeLock {
+			payload := input.ChannelClaimLocalPayload{
+				Sig: nil,
+			}
+			tx, err = input.BuildChannelClaimLocalTx(c.chanPoint.Hash, payload)
+			claimType = "sui-channel-claim-local"
+		} else {
+			payload := input.ChannelClaimRemotePayload{
+				Sig: nil,
+			}
+			tx, err = input.BuildChannelClaimRemoteTx(c.chanPoint.Hash, payload)
+			claimType = "sui-channel-claim-remote"
+		}
+
+		if err != nil {
+			return err
+		}
+
+		c.log.Infof("offering Sui commit sweep tx to wallet")
+		// Instead of offering to sweeper, we publish it directly.
+		// Then we wait for the spend in Resolve().
+		// We launch a goroutine inside Launch to not block or just rely on Resolve?
+		// Launch is called outside of Resolve, but Resolve waits for spend.
+		if err := c.PublishTx(tx, claimType); err != nil {
+			c.log.Errorf("unable to publish Sui claim tx: %v", err)
+			return err
+		}
+		return nil
 	}
 
 	// We'll craft an input with all the information required for the

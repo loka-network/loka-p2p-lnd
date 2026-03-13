@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased]
+### Added
+- Phase 3C: Adapted Contract arbitration resolvers to bypass Sweeper and directly publish `sui-htlc-timeout-direct`, `sui-htlc-claim-direct`, and `sui-channel-claim-local` payload signatures to the Sui RPC node.
+- Included correct signature passing for Sui HTLC payloads using `Serialize()`.
+
+### Changed
+- Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.
+- Extracted `CommitmentBuilder` out of `LightningChannel` (Phase 3A).
+- Extracted functions using `txscript` out of `LightningChannel` into a `ScriptEngine` interface (Phase 3B - ongoing).
+
+---
+
+## [Unreleased] — 2026-03-13
+
+### Changed
+
+- **`lnwallet/channel.go` & `lnwallet/commitment.go`** — Extracted `CommitmentBuilder` and `ScriptEngine` into interfaces to decouple LND's protocol logic from Bitcoin-specific script generation. This completes Phase 3A of the Sui adapter integration.
+
+---
+
 ## [Unreleased] — 2026-03-12
 
 ### Added

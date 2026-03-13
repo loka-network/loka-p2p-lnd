@@ -412,6 +412,27 @@ func (h *htlcSuccessResolver) isTaproot() bool {
 // sweepRemoteCommitOutput creates a sweep request to sweep the HTLC output on
 // the remote commitment via the direct preimage-spend.
 func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
+	if h.IsSui {
+		var sig []byte
+		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
+			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
+		}
+		payload := input.HTLCClaimPayload{
+			HtlcID:      h.htlc.HtlcIndex,
+			PaymentHash: h.htlc.RHash,
+			Preimage:    h.htlcResolution.Preimage,
+			Sig:         sig,
+		}
+
+		tx, err := input.BuildHTLCClaimTx(h.htlcResolution.ClaimOutpoint.Hash, payload)
+		if err != nil {
+			return err
+		}
+
+		h.log.Infof("offering Sui HTLC direct claim tx to wallet")
+		return h.PublishTx(tx, "sui-htlc-claim-direct")
+	}
+
 	// Before we can craft out sweeping transaction, we need to create an
 	// input which contains all the items required to add this input to a
 	// sweeping transaction, and generate a witness.
@@ -465,6 +486,27 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 
 // sweepSuccessTx attempts to sweep the second level success tx.
 func (h *htlcSuccessResolver) sweepSuccessTx() error {
+	if h.IsSui {
+		var sig []byte
+		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
+			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
+		}
+		payload := input.HTLCClaimPayload{
+			HtlcID:      h.htlc.HtlcIndex,
+			PaymentHash: h.htlc.RHash,
+			Preimage:    h.htlcResolution.Preimage,
+			Sig:         sig,
+		}
+
+		tx, err := input.BuildHTLCClaimTx(h.htlcResolution.ClaimOutpoint.Hash, payload)
+		if err != nil {
+			return err
+		}
+
+		h.log.Infof("offering Sui second-level HTLC claim tx to wallet")
+		return h.PublishTx(tx, "sui-htlc-claim-2nd-level")
+	}
+
 	var secondLevelInput input.HtlcSecondLevelAnchorInput
 	if h.isTaproot() {
 		secondLevelInput = input.MakeHtlcSecondLevelSuccessTaprootInput(
@@ -664,6 +706,15 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	)
 	if err != nil {
 		return err
+	}
+
+	if h.IsSui {
+		h.log.Infof("Sui HTLC claim confirmed (tx=%v), fully resolving without 2nd stage", commitSpend.SpenderTxHash)
+		h.reportLock.Lock()
+		h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
+		h.currentReport.LimboBalance = 0
+		h.reportLock.Unlock()
+		return h.checkpointClaim(commitSpend.SpenderTxHash)
 	}
 
 	// We'll use this input index to determine the second-level output

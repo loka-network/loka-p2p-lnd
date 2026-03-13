@@ -1380,6 +1380,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			},
 		)(implCfg.AuxChanCloser),
 		ChannelCloseConfs: s.cfg.Dev.ChannelCloseConfs(),
+		IsSui:             cc.Wallet.BackEnd() == "sui",
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.

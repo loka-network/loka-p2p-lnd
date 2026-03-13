@@ -85,3 +85,7 @@ coverage.txt
 
 # All test data generated from rapid.
 */testdata
+
+# Sui Move Contracts
+sui-contracts/**/build/
+sui-contracts/**/Move.lock

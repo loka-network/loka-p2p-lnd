@@ -240,6 +240,9 @@ type ChainArbitratorConfig struct {
 	// the normal capacity-based scaling. This is only available in
 	// dev/integration builds for testing purposes.
 	ChannelCloseConfs fn.Option[uint32]
+
+	// IsSui is true if the backend is the Sui network.
+	IsSui bool
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

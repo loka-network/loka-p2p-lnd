@@ -3,17 +3,18 @@ package suiwallet
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // SuiBlockChainIO is an adapter that implements the lnwallet.BlockChainIO
 // interface for the Sui DAG backend.
 type SuiBlockChainIO struct {
-	client SuiClient
+	client suinotify.SuiClient
 }
 
 // NewSuiBlockChainIO creates a new SuiBlockChainIO instance.
-func NewSuiBlockChainIO(client SuiClient) *SuiBlockChainIO {
+func NewSuiBlockChainIO(client suinotify.SuiClient) *SuiBlockChainIO {
 	return &SuiBlockChainIO{
 		client: client,
 	}
