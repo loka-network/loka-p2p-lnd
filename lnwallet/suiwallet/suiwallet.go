@@ -95,19 +95,21 @@ func (w *Wallet) ConfirmedBalance(confs int32, accountFilter string) (btcutil.Am
 	return balance, nil
 }
 
-// NewAddress is not implemented for Sui yet.
+// NewAddress returns the Sui address owned by this wallet adapter.
 func (w *Wallet) NewAddress(addrType lnwallet.AddressType, change bool, account string) (btcutil.Address, error) {
-	return nil, ErrUnsupported
+	// We return a virtual address since Sui addresses are not BTC-compatible.
+	// This is used for GetInfo and other non-critical paths.
+	return btcutil.DecodeAddress(w.cfg.SuiAddress, nil)
 }
 
-// LastUnusedAddress is not implemented for Sui yet.
+// LastUnusedAddress returns the Sui address.
 func (w *Wallet) LastUnusedAddress(addrType lnwallet.AddressType, account string) (btcutil.Address, error) {
-	return nil, ErrUnsupported
+	return w.NewAddress(addrType, false, account)
 }
 
-// IsOurAddress always returns false until address management is wired in.
+// IsOurAddress reports whether the address is ours.
 func (w *Wallet) IsOurAddress(a btcutil.Address) bool {
-	return false
+	return a.String() == w.cfg.SuiAddress
 }
 
 // AddressInfo is not implemented for Sui yet.

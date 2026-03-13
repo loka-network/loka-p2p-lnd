@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // rpcRequest represents a standard JSON-RPC 2.0 request.
@@ -41,18 +42,21 @@ func (e *rpcError) Error() string {
 // SuiRPCClient is a minimal JSON-RPC client for the Sui network.
 // It implements the SuiClient interface using standard HTTP POST requests.
 type SuiRPCClient struct {
-	url    string
-	client *http.Client
+	url       string
+	packageID string
+	client    *http.Client
 
-	idMu sync.Mutex
+	idMu   sync.Mutex
 	nextID uint64
 }
 
-// NewSuiRPCClient creates a new SuiRPCClient pointing to the given URL.
-func NewSuiRPCClient(url string) *SuiRPCClient {
+// NewSuiRPCClient creates a new SuiRPCClient pointing to the given URL and
+// package ID.
+func NewSuiRPCClient(url string, packageID string) *SuiRPCClient {
 	return &SuiRPCClient{
-		url:    url,
-		client: &http.Client{Timeout: 10 * time.Second},
+		url:       url,
+		packageID: packageID,
+		client:    &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -294,13 +298,91 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 	heightHint uint32, quit <-chan struct{}) (<-chan SpendEvent, error) {
 
 	ch := make(chan SpendEvent, 1)
-	// This would ideally use sui_subscribeEvent with a filter on MoveEvent types
-	// defined in our lightning module.
-	
+
 	go func() {
 		defer close(ch)
-		// Placeholder polling logic.
-		<-quit
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		var cursor interface{}
+
+		for {
+			select {
+			case <-ticker.C:
+				// sui_getEvents with a filter.
+				// Filter for ChannelSpendEvent from our module.
+				// For now, we use a simple filter if possible, or poll and filter locally.
+				result, err := s.call("sui_getEvents", []interface{}{
+					map[string]interface{}{
+						"MoveEvent": fmt.Sprintf("%s::lightning::ChannelSpendEvent", s.packageID),
+					},
+					cursor,
+					nil,   // limit
+					false, // descending
+				})
+				if err != nil {
+					continue
+				}
+
+				var response struct {
+					Data []struct {
+						ID struct {
+							TxDigest string `json:"txDigest"`
+						} `json:"id"`
+						ParsedJson struct {
+							ChannelID string `json:"channel_id"`
+							HtlcID    string `json:"htlc_id"`
+							SpendType uint8  `json:"spend_type"`
+						} `json:"parsedJson"`
+						Checkpoint string `json:"checkpoint"`
+					} `json:"data"`
+					NextCursor interface{} `json:"nextCursor"`
+				}
+				if err := json.Unmarshal(result, &response); err != nil {
+					continue
+				}
+
+				for _, ev := range response.Data {
+					// Check if this event matches our objectID.
+					// objectID is stored as hex in LND.
+					if ev.ParsedJson.ChannelID != objectID.String() {
+						// Check with 0x prefix.
+						if ev.ParsedJson.ChannelID != "0x"+objectID.String() {
+							continue
+						}
+					}
+
+					// If we are looking for a specific HTLC spend.
+					var htlcID uint64
+					fmt.Sscanf(ev.ParsedJson.HtlcID, "%d", &htlcID)
+					if htlcIndex > 0 && uint32(htlcID) != htlcIndex {
+						continue
+					}
+
+					spendTxID, _ := chainhash.NewHashFromStr(ev.ID.TxDigest)
+					var checkpoint uint32
+					fmt.Sscanf(ev.Checkpoint, "%d", &checkpoint)
+
+					select {
+					case ch <- SpendEvent{
+						OutPoint: wire.OutPoint{
+							Hash:  objectID,
+							Index: uint32(htlcID),
+						},
+						SpendTxID:   *spendTxID,
+						SpendHeight: checkpoint,
+					}:
+					case <-quit:
+						return
+					}
+					return // Found it.
+				}
+				cursor = response.NextCursor
+
+			case <-quit:
+				return
+			}
+		}
 	}()
 
 	return ch, nil

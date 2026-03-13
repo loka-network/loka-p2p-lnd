@@ -892,22 +892,27 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// If no chanFunder was provided, then we'll assume the default
 	// assembler, which is backed by the wallet's internal coin selection.
 	if req.ChanFunder == nil {
-		// We use the P2WSH dust limit since it is larger than the
-		// P2WPKH dust limit and to avoid threading through two
-		// different dust limits.
-		cfg := chanfunding.WalletConfig{
-			CoinSource: NewCoinSource(
-				l, req.AllowUtxoForFunding,
-			),
-			CoinSelectLocker: l,
-			CoinLeaser:       l,
-			Signer:           l.Cfg.Signer,
-			DustLimit: DustLimitForSize(
-				input.P2WSHSize,
-			),
-			CoinSelectionStrategy: l.Cfg.CoinSelectionStrategy,
+		// If we're in Sui mode, use the SuiAssembler.
+		if l.BackEnd() == "sui" {
+			req.ChanFunder = chanfunding.NewSuiAssembler()
+		} else {
+			// We use the P2WSH dust limit since it is larger than the
+			// P2WPKH dust limit and to avoid threading through two
+			// different dust limits.
+			cfg := chanfunding.WalletConfig{
+				CoinSource: NewCoinSource(
+					l, req.AllowUtxoForFunding,
+				),
+				CoinSelectLocker: l,
+				CoinLeaser:       l,
+				Signer:           l.Cfg.Signer,
+				DustLimit: DustLimitForSize(
+					input.P2WSHSize,
+				),
+				CoinSelectionStrategy: l.Cfg.CoinSelectionStrategy,
+			}
+			req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 		}
-		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	} else {
 		_, isPsbtFunder := req.ChanFunder.(*chanfunding.PsbtAssembler)
 		enforceNewReservedValue = !isPsbtFunder

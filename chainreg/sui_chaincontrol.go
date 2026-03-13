@@ -62,7 +62,9 @@ func newSuiPartialChainControl(cfg *Config) (
 	}
 
 	// Create the chain notifier backed by the real RPC client.
-	suiClient := suinotify.NewSuiRPCClient(cfg.SuiMode.RPCAddr())
+	suiClient := suinotify.NewSuiRPCClient(
+		cfg.SuiMode.RPCAddr(), cfg.SuiMode.PackageID,
+	)
 	notifier := suinotify.New(suiClient)
 	cc.ChainNotifier = notifier
 	cc.SuiClient = suiClient
