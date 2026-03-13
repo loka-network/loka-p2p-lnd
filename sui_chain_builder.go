@@ -3,10 +3,11 @@ package lnd
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/suiwallet"
 )
 
@@ -62,7 +63,7 @@ func buildSuiChainControl(
 	}
 	suiAddress := fmt.Sprintf("0x%x", nodeKeyDesc.PubKey.SerializeCompressed())
 
-	suiClient := pcc.SuiClient.(suiwallet.SuiClient)
+	suiClient := pcc.SuiClient.(suinotify.SuiClient)
 	suiWalletController := suiwallet.New(suiwallet.Config{
 		SuiAddress: suiAddress,
 		Client:     suiClient,
