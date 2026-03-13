@@ -1143,11 +1143,7 @@ func mapRpcclientError(err error) error {
 }
 
 // PublishTransaction performs cursory validation (dust checks, etc), then
-// finally broadcasts the passed transaction to the Bitcoin network. If
-// publishing the transaction fails, an error describing the reason is returned
-// and mapped to the wallet's internal error types. If the transaction is
-// already published to the network (either in the mempool or chain) no error
-// will be returned.
+// finally broadcasts the passed transaction to the Bitcoin network.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// For neutrino backend there's no mempool, so we return early by
 	// publishing the transaction.
@@ -1230,6 +1226,12 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	}
 
 	return mapRpcclientError(err)
+}
+
+// ExecuteOpenChannelCall is a Sui-specific method to execute a channel
+// open Move Call payload and return the resulting Channel ObjectID.
+func (b *BtcWallet) ExecuteOpenChannelCall(_ *wire.MsgTx) (chainhash.Hash, error) {
+	return chainhash.Hash{}, fmt.Errorf("ExecuteOpenChannelCall not supported on Bitcoin backends")
 }
 
 // LabelTransaction adds a label to a transaction. If the tx already

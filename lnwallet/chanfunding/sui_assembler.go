@@ -1,10 +1,12 @@
 package chanfunding
 
 import (
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // SuiAssembler is an implementation of the Assembler interface that constructs
@@ -38,18 +40,38 @@ type SuiIntent struct {
 	localAmt  btcutil.Amount
 	remoteAmt btcutil.Amount
 	objectID  chainhash.Hash
+
+	localKey  *keychain.KeyDescriptor
+	remoteKey *keychain.KeyDescriptor
+}
+
+// BindKeys is called by the wallet when the remote peer's public key is known.
+// We store both keys here so they can be included in the open_channel payload.
+func (s *SuiIntent) BindKeys(localKey *keychain.KeyDescriptor, remoteKey *btcec.PublicKey) {
+	s.localKey = localKey
+	s.remoteKey = &keychain.KeyDescriptor{PubKey: remoteKey}
 }
 
 // FundingOutput returns the witness script, and the output that creates the
 // funding output.
 func (s *SuiIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
+	// For Sui, there is no real blockchain funding output. We'll return a
+	// placeholder output with the total channel capacity.
+	// The open_channel contract will enforce local/remote balances.
+	capacity := int64(s.localAmt + s.remoteAmt)
 	return nil, &wire.TxOut{
-		Value:    int64(s.localAmt + s.remoteAmt),
-		PkScript: []byte{0x51}, // OP_1 placeholder
+		Value:    capacity,
+		PkScript: []byte{0x51}, // OP_INITIAL_SUI_STATE or OP_TRUE
 	}, nil
 }
 
-// ChanPoint returns the final outpoint that will create the funding output.
+// SetObjectID sets the generated ObjectID on the intent before final compilation.
+func (s *SuiIntent) SetObjectID(id chainhash.Hash) {
+	s.objectID = id
+}
+
+// ChanPoint returns the final outpoint that will create the channel.
+// On Sui this is the ObjectID of the created Channel object.
 func (s *SuiIntent) ChanPoint() (*wire.OutPoint, error) {
 	return &wire.OutPoint{
 		Hash:  s.objectID,
