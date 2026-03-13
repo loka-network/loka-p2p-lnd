@@ -55,10 +55,31 @@ func (s *SuiIntent) BindKeys(localKey *keychain.KeyDescriptor, remoteKey *btcec.
 // FundingOutput returns the witness script, and the output that creates the
 // funding output.
 func (s *SuiIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
-	// For Sui, there is no real blockchain funding output. We'll return a
-	// placeholder output with the total channel capacity.
-	// The open_channel contract will enforce local/remote balances.
 	capacity := int64(s.localAmt + s.remoteAmt)
+
+	// Since LND adapter expects to generate and verify valid Bitcoin signatures
+	// internally, we must return a valid P2WSH multi-sig script matching the keys.
+	if s.localKey != nil && s.remoteKey != nil {
+		witnessScript, err := input.GenMultiSigScript(
+			s.localKey.PubKey.SerializeCompressed(),
+			s.remoteKey.PubKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		pkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return witnessScript, &wire.TxOut{
+			Value:    capacity,
+			PkScript: pkScript,
+		}, nil
+	}
+
+	// Fallback if keys are not bound yet, though they should be.
 	return nil, &wire.TxOut{
 		Value:    capacity,
 		PkScript: []byte{0x51}, // OP_INITIAL_SUI_STATE or OP_TRUE

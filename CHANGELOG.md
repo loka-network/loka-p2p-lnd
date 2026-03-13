@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 - Phase 3D: Adapted Funding flow to directly publish Move Calls and obtain unique `ObjectID` prior to the remainder of channel setup.
 - Included correct signature passing for Sui HTLC payloads using `Serialize()`.
 
+### Fixed
+- Fixed `invalid_htlc_sig` during Sui cooperative and force closes by applying correct private key tweaks (`SingleTweak` and `DoubleTweak`) in `SuiSigner.SignOutputRaw`.
+- Fixed `failed to decode call envelope` during Sui force closes by having the `ChannelArbitrator` correctly wrap Bitcoin commitment transactions into Sui `force_close` Move Call envelopes.
+
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.
 - Implemented `ExecuteOpenChannelCall` interface on `WalletController` to allow the wallet to execute Sui move calls during channel funding.

@@ -1159,7 +1159,45 @@ func (c *ChannelArbitrator) stateStep(
 		label := labels.MakeLabel(
 			labels.LabelTypeChannelClose, &c.cfg.ShortChanID,
 		)
-		if err := c.cfg.PublishTx(closeTx, label); err != nil {
+		
+		publishTx := closeTx
+		if c.cfg.IsSui {
+			log.Infof("ChannelArbitrator(%v): wrapping force close tx "+
+				"in Sui envelope", c.cfg.ChanPoint)
+			var buf bytes.Buffer
+			if err := closeTx.Serialize(&buf); err != nil {
+				return StateError, closeTx, err
+			}
+			
+			chanState, err := c.cfg.FetchHistoricalChannel()
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			localCommit := chanState.LocalCommitment
+			payload := input.ChannelForceClosePayload{
+				StateNum:      localCommit.CommitHeight,
+				CommitmentSig: localCommit.CommitSig,
+			}
+			publishTx, err = input.BuildChannelForceCloseTx(c.cfg.ChanPoint.Hash, payload)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			// Sign the Sui Move call envelope using our funding key.
+			signDesc := &input.SignDescriptor{
+				KeyDesc: chanState.LocalChanCfg.MultiSigKey,
+			}
+			sig, err := c.cfg.Signer.SignOutputRaw(publishTx, signDesc)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			// Attach the signature to the transaction witness.
+			publishTx.TxIn[0].Witness = wire.TxWitness{sig.Serialize()}
+		}
+
+		if err := c.cfg.PublishTx(publishTx, label); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
 

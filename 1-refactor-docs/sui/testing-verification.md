@@ -33,46 +33,33 @@ sui move test
 
 ## 端到端测试（Sui + LND + 支付流程）
 
+我们提供了一个自动化的集成测试脚本 `scripts/itest_sui.sh`，用于在本地模拟完整的双节点（Alice & Bob）支付流程。
+
 ### 先决条件
 
 - Go 1.25.5
-- Sui CLI (已配置本地网络环境)
-- 构建工具链（`make`）
+- Sui CLI (已配置本地网络环境，用于请求测试网水龙头)
+- `jq` (用于解析 JSON 输出)
+- 确保已编译 LND 二进制文件（运行 `make build` 生成 `lnd-debug` 和 `lncli-debug`）
 
-### 1. 启动 Sui 本地网络
+### 运行自动化脚本（推荐）
 
-```sh
-sui start --local-network
-```
-
-### 2. 部署 Move 合约
+您可以直接运行提供的集成测试脚本，完成端到端的通道建立与支付验证：
 
 ```sh
-sui client publish --path <path_to_lightning_move_module>
-```
-记录生成的 `PackageID` 并更新 LND 配置文件。
-
-### 3. 启动 LND（Sui 链）
-
-```sh
-./lnd-debug --configfile=<LND_CONFIG> --chain=sui --sui.active --sui.package_id=<PACKAGE_ID>
+./scripts/itest_sui.sh
 ```
 
-### 4. 建立通道与支付验证
+**该脚本的自动化流程包括：**
+1. **清理环境**：清空上一轮的测试数据目录 `/tmp/lnd-sui-test/`。
+2. **启动节点**：分别启动 Alice 和 Bob 两个 LND 节点，并附带 `--suinode.active` 和 `--suinode.devnet` 参数。
+3. **资金准备**：为 Alice 生成一个新的 Sui 地址，并调用 `sui client faucet` 获取 Devnet 测试币。
+4. **P2P 连接**：Alice 连接到 Bob 的闪电网络节点。
+5. **建立通道**：Alice 向 Bob 发起 `openchannel` 请求，在 Sui 链上注册 Channel Object。
+6. **执行支付**：Bob 创建一张收款发票，Alice 通过刚刚建立的通道完成支付 (`payinvoice`)。
 
-1. 生成收款发票
-```sh
-./lncli-debug --chain=sui addinvoice --amt 1000
-```
-
-2. 使用发票支付
-```sh
-./lncli-debug --chain=sui payinvoice <PAYREQ>
-```
-
-3. 验证结果
-- 检查 `lncli listinvoices` 状态为 settled。
-- 在 Sui Explorer 或 CLI 中查询 `Channel` 对象状态, 验证余额扣减与版本更新。
+### 分步手动验证 (参考)
+如果您希望手动分步执行，可以参考 `scripts/itest_sui.sh` 中的命令流，依次启动节点并使用 `./lncli-debug --lnddir=...` 交互式命令进行验证。
 
 ## 常见问题与排查
 

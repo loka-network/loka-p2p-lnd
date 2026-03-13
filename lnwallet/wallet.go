@@ -1581,6 +1581,13 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 		return nil, nil, err
 	}
 
+	fmt.Printf("CreateCommitmentTxns (isInitiator=%v)\n"+
+		"  params: localBalance=%v remoteBalance=%v\n"+
+		"  ourCommitTx=%v\n"+
+		"  theirCommitTx=%v\n",
+		initiator, localBalance, remoteBalance,
+		ourCommitTx.TxHash(), theirCommitTx.TxHash())
+
 	return ourCommitTx, theirCommitTx, nil
 }
 
@@ -1872,9 +1879,17 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 			),
 			InputIndex: 0,
 		}
+
+		fmt.Printf("signCommitTx: witnessScript=%x channelValue=%v remoteKey=%x commitTx=%v\n",
+			fundingWitnessScript, fundingOutput.Value, theirContribution.MultiSigKey.PubKey.SerializeCompressed(), commitTx.TxHash())
+
 		sigTheirCommit, err = l.Cfg.Signer.SignOutputRaw(
 			commitTx, &signDesc,
 		)
+
+		if err == nil {
+			fmt.Printf("signCommitTx AFTER SignOutputRaw: sigTheirCommit=%x\n", sigTheirCommit.Serialize())
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -2269,6 +2284,9 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		if err != nil {
 			return err
 		}
+
+		fmt.Printf("verifyCommitSig: witnessScript=%x channelValue=%v sigHash=%x remoteKey=%x commitTx=%v commitSig=%x\n",
+			witnessScript, channelValue, sigHash, remoteKey.SerializeCompressed(), commitTx.TxHash(), commitSig.Serialize())
 
 		// Verify that we've received a valid signature from the remote
 		// party for our version of the commitment transaction.
@@ -2741,16 +2759,18 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	// Finally, we'll pass in all the necessary context needed to fully
 	// validate that this channel is indeed what we expect, and can be
 	// used.
-	_, err = chanvalidate.Validate(&chanvalidate.Context{
-		Locator: &chanvalidate.OutPointChanLocator{
-			ChanPoint: channelState.FundingOutpoint,
-		},
-		MultiSigPkScript: fundingScript,
-		FundingTx:        fundingTx,
-		CommitCtx:        commitCtx,
-	})
-	if err != nil {
-		return err
+	if fundingTx != nil {
+		_, err = chanvalidate.Validate(&chanvalidate.Context{
+			Locator: &chanvalidate.OutPointChanLocator{
+				ChanPoint: channelState.FundingOutpoint,
+			},
+			MultiSigPkScript: fundingScript,
+			FundingTx:        fundingTx,
+			CommitCtx:        commitCtx,
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

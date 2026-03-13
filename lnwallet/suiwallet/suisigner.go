@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -45,14 +46,41 @@ func (s *SuiSigner) SignOutputRaw(
 		return nil, err
 	}
 
+	// If a tweak (single or double) is specified, then we'll need to use
+	// this tweak to derive the final private key to be used for signing
+	// this output.
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = input.TweakPrivKey(privKey, signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = input.DeriveRevocationPrivKey(privKey, signDesc.DoubleTweak)
+	}
+
 	// Sui signatures are over the SHA256 digest of the serialized data.
 	// In our adapter, this data is stored in the first input's SignatureScript.
 	if len(tx.TxIn) == 0 {
 		return nil, fmt.Errorf("sui_signer: tx has no inputs")
 	}
-	digest := sha256.Sum256(tx.TxIn[0].SignatureScript)
 
-	sig := ecdsa.Sign(privKey, digest[:])
+	var digest []byte
+	if len(tx.TxIn[0].SignatureScript) > 0 {
+		hash := sha256.Sum256(tx.TxIn[0].SignatureScript)
+		digest = hash[:]
+	} else {
+		// If SignatureScript is empty, this is a standard Lightning transaction
+		// (e.g. commitment tx) that needs the standard witness sighash.
+		hash, err := txscript.CalcWitnessSigHash(
+			signDesc.WitnessScript, signDesc.SigHashes,
+			signDesc.HashType, tx, signDesc.InputIndex,
+			signDesc.Output.Value,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("sui_signer: failed to calc sighash: %v", err)
+		}
+		digest = hash
+	}
+
+	sig := ecdsa.Sign(privKey, digest)
 
 	return sig, nil
 }
