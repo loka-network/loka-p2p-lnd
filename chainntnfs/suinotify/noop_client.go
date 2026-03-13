@@ -56,3 +56,13 @@ func (n *NoopSuiClient) SubscribeObjectSpend(
 	}()
 	return ch, nil
 }
+
+// GetCoins returns no coins.
+func (n *NoopSuiClient) GetCoins(_ string) ([]SuiCoin, error) {
+	return nil, nil
+}
+
+// ExecuteMoveCall does nothing.
+func (n *NoopSuiClient) ExecuteMoveCall(_, _ []byte) (chainhash.Hash, error) {
+	return chainhash.Hash{}, nil
+}

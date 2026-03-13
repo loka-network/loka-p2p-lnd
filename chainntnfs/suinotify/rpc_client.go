@@ -2,7 +2,7 @@ package suinotify
 
 import (
 	"bytes"
-	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -140,6 +140,37 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 
 	return coins, nil
 }
+// ExecuteMoveCall executes a Sui Move call transaction.
+func (s *SuiRPCClient) ExecuteMoveCall(txBytes []byte, signature []byte) (chainhash.Hash, error) {
+	// sui_executeTransactionBlock: (tx_bytes, signatures, options, request_type)
+	txBase64 := base64.StdEncoding.EncodeToString(txBytes)
+	sigBase64 := base64.StdEncoding.EncodeToString(signature)
+
+	result, err := s.call("sui_executeTransactionBlock", []interface{}{
+		txBase64,
+		[]string{sigBase64},
+		map[string]bool{"showEffects": true},
+		"WaitForLocalExecution",
+	})
+	if err != nil {
+		return chainhash.Hash{}, err
+	}
+
+	var response struct {
+		Digest string `json:"digest"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return chainhash.Hash{}, err
+	}
+
+	digest, err := chainhash.NewHashFromStr(response.Digest)
+	if err != nil {
+		return chainhash.Hash{}, err
+	}
+
+	return *digest, nil
+}
+
 func (s *SuiRPCClient) GetBestEpoch() (uint32, chainhash.Hash, error) {
 	// sui_getLatestCheckpointSequenceNumber returns the seq as a string.
 	result, err := s.call("sui_getLatestCheckpointSequenceNumber", []interface{}{})

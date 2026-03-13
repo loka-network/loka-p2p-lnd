@@ -763,7 +763,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// When the Sui chain backend is explicitly enabled via
 	// --suinode.active we bypass the Bitcoin wallet stack entirely.
 	if partialChainControl.Cfg.SuiMode != nil && partialChainControl.Cfg.SuiMode.Active {
-		return buildSuiChainControl(partialChainControl)
+		return buildSuiChainControl(partialChainControl, walletConfig)
 	}
 
 	walletController, err := btcwallet.New(

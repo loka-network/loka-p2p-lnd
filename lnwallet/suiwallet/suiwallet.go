@@ -2,6 +2,7 @@ package suiwallet
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -30,6 +32,9 @@ type SuiClient interface {
 
 	// GetCoins returns the list of SUI coins owned by the given address.
 	GetCoins(address string) ([]SuiCoin, error)
+
+	// ExecuteMoveCall executes a Sui Move call transaction.
+	ExecuteMoveCall(payload []byte, signature []byte) (chainhash.Hash, error)
 }
 
 // SuiCoin represents a Sui Coin object.
@@ -200,9 +205,40 @@ func (w *Wallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, error) {
 	return nil, ErrUnsupported
 }
 
-// PublishTransaction is not implemented for Sui yet.
+// PublishTransaction decodes the wire.MsgTx envelope and executes the
+// corresponding Sui Move call.
 func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
-	return ErrUnsupported
+	// Decode the Sui call from the MsgTx envelope.
+	_, _, _, err := input.DecodeSuiCallTx(tx)
+	if err != nil {
+		return fmt.Errorf("suiwallet: failed to decode tx: %w", err)
+	}
+
+	// In our adapter, the signature is expected to be appended to the
+	// end of the SignatureScript or handled via a separate mechanism.
+	// For now, assume tx.TxIn[0].SignatureScript contains the serialized
+	// call and the Signer has already been called.
+	//
+	// This is a simplified flow:
+	// 1. input.BuildSuiCallTx creates MsgTx with JSON payload.
+	// 2. suiSigner.SignOutputRaw is called, it signs the JSON payload.
+	// 3. The caller (e.g. fundingManager) must put the signature somewhere.
+	//
+	// Let's assume for this adapter that the SignatureScript IS the payload,
+	// and we need the signature from the witness or a known location.
+	// To keep it compatible with LND's expectation that PublishTransaction
+	// takes a "signed" tx, we'll assume the signature is in the witness.
+	if len(tx.TxIn[0].Witness) == 0 {
+		return fmt.Errorf("suiwallet: tx has no signature in witness")
+	}
+	signature := tx.TxIn[0].Witness[0]
+
+	_, err = w.cfg.Client.ExecuteMoveCall(tx.TxIn[0].SignatureScript, signature)
+	if err != nil {
+		return fmt.Errorf("suiwallet: execution failed: %w", err)
+	}
+
+	return nil
 }
 
 // LabelTransaction is not implemented for Sui yet.
