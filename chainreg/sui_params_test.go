@@ -7,13 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetuGenesisHashLengths(t *testing.T) {
+func TestSuiGenesisHashLengths(t *testing.T) {
 	hashes := []chainhash.Hash{
-		setuDevnetGenesisHash,
-		SetuDevNetParams.GenesisHash,
-		SetuTestNetParams.GenesisHash,
-		SetuMainNetParams.GenesisHash,
-		SetuSimNetParams.GenesisHash,
+		suiDevnetGenesisHash,
+		SuiDevNetParams.GenesisHash,
+		SuiTestNetParams.GenesisHash,
+		SuiMainNetParams.GenesisHash,
+		SuiSimNetParams.GenesisHash,
 	}
 
 	for i, h := range hashes {
@@ -22,8 +22,8 @@ func TestSetuGenesisHashLengths(t *testing.T) {
 }
 
 func TestMustDecodeHashValid(t *testing.T) {
-	hash := mustDecodeHash(setuDevnetGenesisHashHex)
-	require.Equal(t, setuDevnetGenesisHash, hash)
+	hash := mustDecodeHash(suiDevnetGenesisHashHex)
+	require.Equal(t, suiDevnetGenesisHash, hash)
 }
 
 func TestMustDecodeHashInvalid(t *testing.T) {

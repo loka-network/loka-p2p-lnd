@@ -1,4 +1,4 @@
-package setuwallet
+package suiwallet
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"

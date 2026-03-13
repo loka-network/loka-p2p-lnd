@@ -1,144 +1,81 @@
 # 测试与验证文档
 
-本文档定义 Setu 适配版 LND 的测试与验证策略，覆盖单元测试与端到端测试（从启动 Setu、LND 到完成一次完整支付流程）。
+本文档定义 Sui/MoveVM 适配版 LND 的测试与验证策略，覆盖单元测试、合约测试与端到端测试。
 
 ## 目标与范围
 
-- 验证 Setu 适配不会破坏既有 LND 行为。
-- 验证 Setu 新增链路在关键路径（通道建立、HTLC、支付结算、关闭通道）上的正确性。
-- 覆盖单元测试与端到端测试，形成可重复执行的流程。
+- 验证 Sui 适配不会破坏既有 LND 行为。
+- 验证 Move 合约在关键路径（通道建立、HTLC、支付结算、关闭通道）上的逻辑正确性。
+- 覆盖 Go 适配层单测、Move 合约单测与 LND+Sui 端到端集成测试。
 
 ## 单元测试
 
-### 基础要求
+### 1. Go 适配层测试
 
 - 保持与上游 LND 一致的单测结构与命名。
-- 新增/修改的 Setu 适配逻辑必须有单元测试覆盖。
-- 所有新导出的符号保持已有 GoDoc 约定。
+- 重点覆盖：`suinotify/`, `suiwallet/`, `input/sui_channel.go`, `chainfee/sui_estimator`。
+- 验证类型映射：`wire.OutPoint.Hash` 与 Sui `ObjectID` 的 1:1 映射。
 
-### 运行方式
-
+运行方式:
 ```sh
-# 根模块单元测试（需要 btcd 二进制）
-make unit
-
-# 所有子模块单元测试（actor/, fn/, tools/）
-make unit-module
+make unit tags=sui
 ```
 
-### 覆盖建议
+### 2. Move 合约测试
 
-- 适配层：`setunotify/`, `setuwallet/`, `input/setu_channel.go`, `chainfee/setu_estimator`。
-- 关键接口契约：`chainntnfs/interface.go`, `lnwallet/interface.go`, `input/signer.go`, `chainreg/chainregistry.go`。
-- 类型映射：`wire.OutPoint.Hash` 与 Setu `ObjectID` 的映射，以及 `wire.MsgTx` 与 Setu Event 序列化的映射。
+- 验证合约方法的权限控制、签名校验与状态转换。
+- 重点覆盖：`open_channel` 的资金锁定, `htlc_claim` 的原像验证, `penalize` 的撤销逻辑。
 
-### 推荐用例模板
+运行方式 (在合约目录下):
+```sh
+sui move test
+```
 
-- 正常路径：创建、查询、释放等操作返回预期结果。
-- 错误路径：输入非法参数、链路不可达、事件类型不支持等场景。
-- 边界条件：空值、最大/最小值、重复请求等。
-
-## 端到端测试（Setu + LND + 支付流程）
-
-> 说明：以下步骤以通用命令占位符描述，请根据 Setu 运行环境与二进制名称替换。
+## 端到端测试（Sui + LND + 支付流程）
 
 ### 先决条件
 
 - Go 1.25.5
-- Setu 运行环境与二进制
+- Sui CLI (已配置本地网络环境)
 - 构建工具链（`make`）
 
-### 构建 LND
+### 1. 启动 Sui 本地网络
 
 ```sh
-make build
+sui start --local-network
 ```
 
-### 启动 Setu
-
-- 启动本地 Setu 节点/网络（示例）：
+### 2. 部署 Move 合约
 
 ```sh
-<SETU_BIN> start --config <SETU_CONFIG>
+sui client publish --path <path_to_lightning_move_module>
 ```
+记录生成的 `PackageID` 并更新 LND 配置文件。
 
-- 等待节点进入可用状态，确认 RPC/HTTP 端口可用。
-
-### 启动 LND（Setu 链）
+### 3. 启动 LND（Sui 链）
 
 ```sh
-./lnd-debug --configfile=<LND_CONFIG> --chain=setu
+./lnd-debug --configfile=<LND_CONFIG> --chain=sui --sui.active --sui.package_id=<PACKAGE_ID>
 ```
 
-关键配置建议：
-
-- 指定 Setu 适配器所需的 RPC/HTTP 地址与认证。
-- 配置数据库与日志目录。
-
-### 初始化钱包
-
-- 创建钱包并解锁：
-
-```sh
-./lncli-debug --chain=setu create
-./lncli-debug --chain=setu unlock
-```
-
-### 建立通道（如需要）
-
-- 连接对端并打开通道（示例占位）：
-
-```sh
-./lncli-debug --chain=setu connect <PUBKEY>@<HOST>
-./lncli-debug --chain=setu openchannel --node_key <PUBKEY> --local_amt <AMOUNT>
-```
-
-- 等待通道进入可用状态：
-
-```sh
-./lncli-debug --chain=setu listchannels
-```
-
-### 发起支付流程
+### 4. 建立通道与支付验证
 
 1. 生成收款发票
-
 ```sh
-./lncli-debug --chain=setu addinvoice --amt <AMOUNT>
+./lncli-debug --chain=sui addinvoice --amt 1000
 ```
 
 2. 使用发票支付
-
 ```sh
-./lncli-debug --chain=setu payinvoice <PAYREQ>
+./lncli-debug --chain=sui payinvoice <PAYREQ>
 ```
 
-3. 验证支付成功
-
-```sh
-./lncli-debug --chain=setu listinvoices
-./lncli-debug --chain=setu listpayments
-```
-
-### 关闭通道（可选）
-
-```sh
-./lncli-debug --chain=setu closechannel --funding_txid <TXID> --output_index <INDEX>
-```
-
-### 结果验收
-
-- 发票状态为 settled。
-- 支付记录为 succeeded。
-- 通道状态正确更新（active/closing/closed）。
-- Setu 事件链上可追踪对应的 `ChannelOpen`、`HTLCClaim`、`ChannelClose` 事件。
+3. 验证结果
+- 检查 `lncli listinvoices` 状态为 settled。
+- 在 Sui Explorer 或 CLI 中查询 `Channel` 对象状态, 验证余额扣减与版本更新。
 
 ## 常见问题与排查
 
-- RPC 连接失败：检查 Setu RPC/HTTP 地址与认证配置。
-- 通道长时间 pending：检查 Setu 节点共识状态与事件落账。
-- 支付失败：查看 LND 与 Setu 日志，确认 HTLC 事件与签名流程。
-
-## 变更记录
-
-- 创建本文档：补充单元测试与端到端测试流程。
+- **Gas 不足**: 检查 LND 钱包账户是否有足够的 SUI 支付 Move Call 交易手续费。
+- **Event 订阅失败**: 确保 Sui RPC 节点支持 WebSocket 订阅。
+- **签名校验失败**: 确认 Move 合约中 `ecdsa_k1::secp256k1_verify` 使用的是压缩格式公钥。

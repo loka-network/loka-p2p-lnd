@@ -42,13 +42,13 @@ type Config struct {
 	// Bitcoin defines settings for the Bitcoin chain.
 	Bitcoin *lncfg.Chain
 
-	// Setu defines per-channel routing parameters for the Setu DAG chain.
-	// It is populated when --chain=setu is specified on the command line.
-	Setu *lncfg.Chain
+	// Sui defines per-channel routing parameters for the Sui chain.
+	// It is populated when --chain=sui is specified on the command line.
+	Sui *lncfg.Chain
 
-	// SetuMode holds the Setu validator node connection parameters used
-	// when the Setu chain backend is active.
-	SetuMode *lncfg.SetuNode
+	// SuiMode holds the Sui node connection parameters used
+	// when the Sui chain backend is active.
+	SuiMode *lncfg.SuiNode
 
 	// HeightHintCacheQueryDisable is a boolean that disables height hint
 	// queries if true.
@@ -179,6 +179,10 @@ type PartialChainControl struct {
 	// mempool.
 	MempoolNotifier chainntnfs.MempoolWatcher
 
+	// SuiClient is the client used to communicate with the Sui network.
+	// It is only populated when the Sui chain backend is active.
+	SuiClient interface{}
+
 	// ChainView is used in the router for maintaining an up-to-date graph.
 	ChainView chainview.FilteredChainView
 
@@ -232,13 +236,13 @@ type ChainControl struct {
 //
 //nolint:ll
 func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
-	// When Setu mode is explicitly enabled via --setunode.active, delegate
-	// entirely to the Setu-specific constructor rather than executing the
+	// When Sui mode is explicitly enabled via --suinode.active, delegate
+	// entirely to the Sui-specific constructor rather than executing the
 	// Bitcoin code paths below.
-	if cfg.SetuMode != nil && cfg.SetuMode.Active {
-		log.Infof("Initializing Setu chain backend (node: %s)",
-			cfg.SetuMode.RPCAddr())
-		return newSetuPartialChainControl(cfg)
+	if cfg.SuiMode != nil && cfg.SuiMode.Active {
+		log.Infof("Initializing Sui chain backend (node: %s)",
+			cfg.SuiMode.RPCAddr())
+		return newSuiPartialChainControl(cfg)
 	}
 
 	cc := &PartialChainControl{

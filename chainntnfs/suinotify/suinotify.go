@@ -1,12 +1,12 @@
-// Package setunotify implements the chainntnfs.ChainNotifier interface for
-// the Setu DAG network.
+// Package suinotify implements the chainntnfs.ChainNotifier interface for
+// the Sui network.
 //
 // Semantic mapping:
-//   - Bitcoin "block"            -> Setu epoch / anchor finalization
-//   - Bitcoin "txid"             -> Setu EventId (chainhash.Hash)
-//   - Bitcoin "outpoint"         -> Setu ObjectId (OutPoint.Hash, Index=0)
-//   - Bitcoin "num confirmations"-> Setu anchor finalizations (usually 1)
-package setunotify
+//   - Bitcoin "block"            -> Sui checkpoint / epoch
+//   - Bitcoin "txid"             -> Sui Transaction Digest (chainhash.Hash)
+//   - Bitcoin "outpoint"         -> Sui ObjectId (OutPoint.Hash, Index=0)
+//   - Bitcoin "num confirmations"-> Sui transaction finality
+package suinotify
 
 import (
 	"sync"
@@ -17,59 +17,55 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
-const notifierType = "setunotify"
+const notifierType = "suinotify"
 
-// EpochEvent is a single epoch notification from the Setu network client.
+// EpochEvent is a single epoch notification from the Sui network client.
 type EpochEvent struct {
 	Height uint32
 	Hash   chainhash.Hash
 }
 
-// ConfirmEvent is fired when a Setu event reaches the requested finalization
+// ConfirmEvent is fired when a Sui transaction reaches the requested finalization
 // depth.
 type ConfirmEvent struct {
 	TxID         chainhash.Hash
 	AnchorHeight uint32
 }
 
-// SpendEvent is fired when a Channel Object is spent / closed on the DAG.
+// SpendEvent is fired when a Channel Object is spent / closed on Sui.
 type SpendEvent struct {
 	OutPoint    wire.OutPoint
 	SpendTxID   chainhash.Hash
 	SpendHeight uint32
 }
 
-// SetuClient is the minimal interface required from a Setu network backend.
-// The real implementation wraps the gRPC stub; tests use a mock.
-type SetuClient interface {
-	// GetBestEpoch returns the current latest epoch height and its hash.
+// SuiClient is the minimal interface required from a Sui network backend.
+type SuiClient interface {
+	// GetBestEpoch returns the current latest checkpoint height and its hash.
 	GetBestEpoch() (height uint32, hash chainhash.Hash, err error)
 
-	// SubscribeEpochs sends each newly finalised epoch on the returned
+	// GetCoins returns the list of SUI coins owned by the given address.
+	GetCoins(address string) ([]SuiCoin, error)
+
+	// SubscribeEpochs sends each newly finalised checkpoint on the returned
 	// channel. The channel is closed when quit is closed.
 	SubscribeEpochs(quit <-chan struct{}) (<-chan EpochEvent, error)
 
-	// SubscribeEventConfirmation fires once the Setu event with eventID
-	// reaches numConfs anchor finalizations.
-	SubscribeEventConfirmation(eventID chainhash.Hash, numConfs,
+	// SubscribeEventConfirmation fires once the Sui transaction with txID
+	// is finalized.
+	SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 		heightHint uint32, quit <-chan struct{}) (<-chan ConfirmEvent, error)
 
 	// SubscribeObjectSpend fires once the Channel Object (or a specific
 	// HTLC slot within it) is spent / closed.
-	//
-	// Mapping from Bitcoin:
-	//   objectID   = OutPoint.Hash  → the ChannelObject's ObjectID
-	//                                 (equivalent to the commitment txid)
-	//   htlcIndex  = OutPoint.Index → the HTLC's slot index inside
-	//                                 ChannelObject.htlcs[] (0 = channel-level
-	//                                 spend, i.e. cooperative/force close;
-	//                                 N>0 = specific HTLC claim or timeout)
-	//
-	// The Setu backend must fire this event when:
-	//   htlcIndex == 0 → the ChannelObject transitions to CLOSING/CLOSED
-	//   htlcIndex == N → HTLCEntry[N].status changes to Claimed or Timeout
 	SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex uint32,
 		heightHint uint32, quit <-chan struct{}) (<-chan SpendEvent, error)
+}
+
+// SuiCoin represents a Sui Coin object.
+type SuiCoin struct {
+	ObjectID chainhash.Hash
+	Balance  uint64
 }
 
 // blockEpochRegistration holds one RegisterBlockEpochNtfn subscriber.
@@ -79,8 +75,8 @@ type blockEpochRegistration struct {
 	cancel  func()
 }
 
-// SetuChainNotifier implements chainntnfs.ChainNotifier for the Setu DAG.
-type SetuChainNotifier struct {
+// SuiChainNotifier implements chainntnfs.ChainNotifier for Sui.
+type SuiChainNotifier struct {
 	epochClientCounter uint64 // accessed atomically
 
 	started int32 // accessed atomically
@@ -89,7 +85,7 @@ type SetuChainNotifier struct {
 	start sync.Once
 	stop  sync.Once
 
-	client SetuClient
+	client SuiClient
 
 	blockEpochClients map[uint64]*blockEpochRegistration
 	epochMu           sync.Mutex
@@ -98,11 +94,11 @@ type SetuChainNotifier struct {
 	wg   sync.WaitGroup
 }
 
-var _ chainntnfs.ChainNotifier = (*SetuChainNotifier)(nil)
+var _ chainntnfs.ChainNotifier = (*SuiChainNotifier)(nil)
 
-// New returns a SetuChainNotifier backed by the given client.
-func New(client SetuClient) *SetuChainNotifier {
-	return &SetuChainNotifier{
+// New returns a SuiChainNotifier backed by the given client.
+func New(client SuiClient) *SuiChainNotifier {
+	return &SuiChainNotifier{
 		client:            client,
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 		quit:              make(chan struct{}),
@@ -110,10 +106,10 @@ func New(client SetuClient) *SetuChainNotifier {
 }
 
 // Start starts the event-dispatch goroutine.
-func (s *SetuChainNotifier) Start() error {
+func (s *SuiChainNotifier) Start() error {
 	var startErr error
 	s.start.Do(func() {
-		chainntnfs.Log.Info("Setu chain notifier starting")
+		chainntnfs.Log.Info("Sui chain notifier starting")
 		if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 			return
 		}
@@ -124,14 +120,14 @@ func (s *SetuChainNotifier) Start() error {
 }
 
 // Started reports whether the notifier has been started.
-func (s *SetuChainNotifier) Started() bool {
+func (s *SuiChainNotifier) Started() bool {
 	return atomic.LoadInt32(&s.started) != 0
 }
 
 // Stop shuts down the notifier.
-func (s *SetuChainNotifier) Stop() error {
+func (s *SuiChainNotifier) Stop() error {
 	s.stop.Do(func() {
-		chainntnfs.Log.Info("Setu chain notifier shutting down")
+		chainntnfs.Log.Info("Sui chain notifier shutting down")
 		atomic.StoreInt32(&s.stopped, 1)
 		close(s.quit)
 		s.wg.Wait()
@@ -139,9 +135,9 @@ func (s *SetuChainNotifier) Stop() error {
 	return nil
 }
 
-// RegisterConfirmationsNtfn registers to be notified once txid (a Setu
-// EventId) reaches numConfs anchor finalizations.
-func (s *SetuChainNotifier) RegisterConfirmationsNtfn(
+// RegisterConfirmationsNtfn registers to be notified once txid (a Sui
+// Transaction Digest) reaches numConfs confirmations.
+func (s *SuiChainNotifier) RegisterConfirmationsNtfn(
 	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,
 	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
 
@@ -152,7 +148,7 @@ func (s *SetuChainNotifier) RegisterConfirmationsNtfn(
 	confEvent := chainntnfs.NewConfirmationEvent(numConfs, func() {})
 
 	if txid == nil {
-		chainntnfs.Log.Warn("setunotify: nil txid is unsupported; event will never fire")
+		chainntnfs.Log.Warn("suinotify: nil txid is unsupported; event will never fire")
 		return confEvent, nil
 	}
 
@@ -196,8 +192,8 @@ func (s *SetuChainNotifier) RegisterConfirmationsNtfn(
 }
 
 // RegisterSpendNtfn registers to be notified once the Channel Object with
-// outpoint.Hash (the Setu ObjectId) is spent on the DAG.
-func (s *SetuChainNotifier) RegisterSpendNtfn(
+// outpoint.Hash (the Sui ObjectId) is spent.
+func (s *SuiChainNotifier) RegisterSpendNtfn(
 	outpoint *wire.OutPoint, pkScript []byte,
 	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
@@ -208,13 +204,13 @@ func (s *SetuChainNotifier) RegisterSpendNtfn(
 	spendEvent := chainntnfs.NewSpendEvent(func() {})
 
 	if outpoint == nil {
-		chainntnfs.Log.Warn("setunotify: nil outpoint is unsupported; event will never fire")
+		chainntnfs.Log.Warn("suinotify: nil outpoint is unsupported; event will never fire")
 		return spendEvent, nil
 	}
 
 	sub, err := s.client.SubscribeObjectSpend(
-		outpoint.Hash,  // ChannelObject ObjectID  (≡ commitment txid)
-		outpoint.Index, // HTLC slot index         (≡ output index; 0 = channel)
+		outpoint.Hash,  // ChannelObject ObjectID
+		outpoint.Index, // HTLC slot index
 		heightHint, s.quit,
 	)
 	if err != nil {
@@ -236,10 +232,6 @@ func (s *SetuChainNotifier) RegisterSpendNtfn(
 			if !ok {
 				return
 			}
-			// Preserve outpoint.Index (htlcIndex) so that contractcourt
-			// can match the spend back to the correct HTLC resolver.
-			// In Bitcoin this is the output index on the commitment tx;
-			// in Setu it is the HTLC slot index in ChannelObject.htlcs[].
 			spentOut := wire.OutPoint{
 				Hash:  ev.OutPoint.Hash,
 				Index: ev.OutPoint.Index,
@@ -265,8 +257,8 @@ func (s *SetuChainNotifier) RegisterSpendNtfn(
 	return spendEvent, nil
 }
 
-// RegisterBlockEpochNtfn registers to be notified of each new Setu epoch.
-func (s *SetuChainNotifier) RegisterBlockEpochNtfn(
+// RegisterBlockEpochNtfn registers to be notified of each new Sui checkpoint.
+func (s *SuiChainNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 
 	if !s.Started() {
@@ -310,13 +302,13 @@ func (s *SetuChainNotifier) RegisterBlockEpochNtfn(
 	return event, nil
 }
 
-// epochDispatcher fans out new epoch notifications to all registered clients.
-func (s *SetuChainNotifier) epochDispatcher() {
+// epochDispatcher fans out new checkpoint notifications to all registered clients.
+func (s *SuiChainNotifier) epochDispatcher() {
 	defer s.wg.Done()
 
 	sub, err := s.client.SubscribeEpochs(s.quit)
 	if err != nil {
-		chainntnfs.Log.Errorf("setunotify: epoch subscription failed: %v", err)
+		chainntnfs.Log.Errorf("suinotify: epoch subscription failed: %v", err)
 		return
 	}
 
@@ -345,9 +337,8 @@ func (s *SetuChainNotifier) epochDispatcher() {
 	}
 }
 
-// deliverMissedEpochs synthesises catch-up notifications for epochs between
-// startHeight (exclusive) and endHeight (inclusive).
-func (s *SetuChainNotifier) deliverMissedEpochs(
+// deliverMissedEpochs synthesises catch-up notifications.
+func (s *SuiChainNotifier) deliverMissedEpochs(
 	epochCh chan *chainntnfs.BlockEpoch, startHeight, endHeight uint32,
 	cancelCh <-chan struct{}) {
 
@@ -367,8 +358,7 @@ func (s *SetuChainNotifier) deliverMissedEpochs(
 	}
 }
 
-// heightToHash produces a deterministic placeholder hash from an epoch height
-// for logging / compatibility purposes only.
+// heightToHash produces a deterministic placeholder hash from a checkpoint height.
 func heightToHash(height uint32) chainhash.Hash {
 	var h chainhash.Hash
 	h[0] = byte(height)
