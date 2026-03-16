@@ -128,6 +128,9 @@ type ChannelForceClosePayload struct {
 	// StateNum is the commitment state number being force-closed.
 	StateNum uint64 `json:"state_num"`
 
+	// RevocationHash is the 32 byte static hash for penalize checks.
+	RevocationHash [32]byte `json:"revocation_hash"`
+
 	// CommitmentSig is the owner's signature over this commitment state.
 	CommitmentSig []byte `json:"commitment_sig"`
 }
@@ -179,8 +182,8 @@ type ChannelPenalizePayload struct {
 	// BreachStateNum is the state_num of the revoked commitment.
 	BreachStateNum uint64 `json:"breach_state_num"`
 
-	// Sig is the honest party's signature.
-	Sig []byte `json:"sig"`
+	// RevocationSecret is the honest party's revealed secret for the revoked state.
+	RevocationSecret []byte `json:"revocation_secret"`
 }
 
 // -------------------------------------------------------------------------

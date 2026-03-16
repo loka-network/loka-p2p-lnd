@@ -116,9 +116,9 @@ func TestBuildDecodeRoundTrip(t *testing.T) {
 			name:     "ChannelPenalize",
 			callType: SuiCallChannelPenalize,
 			payload: ChannelPenalizePayload{
-				RevocationKey:  []byte{0x66},
-				BreachStateNum: 7,
-				Sig:            []byte{0x77},
+				RevocationKey:    []byte{0x66},
+				BreachStateNum:   7,
+				RevocationSecret: []byte{0x77},
 			},
 		},
 	}

@@ -1,0 +1,976 @@
+2026-03-16 18:29:39.015 [WRN] LTND config.go:909: open /tmp/lnd-sui-test/alice/lnd.conf: no such file or directory
+2026-03-16 18:29:39.020 [INF] LTND lnd.go:186: Version Info rev=854f97 version=0.20.99-beta commit=actor/v0.0.5-169-g854f973c3-dirty debuglevel=development logging=info
+2026-03-16 18:29:39.023 [INF] LTND lnd.go:213: Network Info rev=854f97 active_chain=Bitcoin network=""
+2026-03-16 18:29:39.023 [INF] RPCS tls_manager.go:219: Generating TLS certificates...
+2026-03-16 18:29:39.033 [INF] RPCS tls_manager.go:251: Done generating TLS certificates
+2026-03-16 18:29:39.039 [INF] RPCS lnd.go:923: RPC server listening on 127.0.0.1:10009
+2026-03-16 18:29:39.053 [INF] RPCS lnd.go:1044: gRPC proxy started at 127.0.0.1:8081
+2026-03-16 18:29:39.060 [INF] LTND config_builder.go:1001: Opening the main database, this might take a few minutes...
+2026-03-16 18:29:39.060 [INF] LTND config_builder.go:1006: Opening bbolt database, sync_freelist=false, auto_compact=false
+2026-03-16 18:29:39.114 [INF] LTND config_builder.go:1049: Creating local graph and channel state DB instances
+2026-03-16 18:29:39.154 [INF] CHDB db.go:1801: Checking for schema update: latest_version=33, db_version=33
+2026-03-16 18:29:39.155 [INF] CHDB db.go:1895: Applying 2 optional migrations
+2026-03-16 18:29:39.155 [INF] CHDB db.go:1899: Checking for optional update: name=prune_revocation_log
+2026-03-16 18:29:39.155 [INF] CHDB db.go:1899: Checking for optional update: name=gc_decayed_log
+2026-03-16 18:29:39.155 [INF] CHDB db.go:1919: Performing database optional migration: gc_decayed_log
+2026-03-16 18:29:39.155 [INF] CHDB migration.go:56: Migrating decayed log...
+2026-03-16 18:29:39.171 [INF] CHDB migration.go:73: Decayed log migrated successfully
+2026-03-16 18:29:39.187 [INF] CHDB db.go:1942: Successfully applied optional migration: gc_decayed_log
+2026-03-16 18:29:39.232 [INF] LTND config_builder.go:1342: Database(s) now open (time_to_open=172.468209ms)!
+2026-03-16 18:29:39.476 [INF] CHRE chainregistry.go:247: Initializing Sui chain backend (node: localhost:9000)
+2026-03-16 18:29:39.482 [INF] NTFN suinotify.go:115: Sui chain notifier starting
+2026-03-16 18:29:40.091 [ERR] RPCS interceptor.go:608: [/lnrpc.Lightning/GetInfo]: the RPC server is in the process of starting up, but not yet ready to accept calls
+2026-03-16 18:29:41.154 [ERR] RPCS interceptor.go:608: [/lnrpc.Lightning/GetInfo]: the RPC server is in the process of starting up, but not yet ready to accept calls
+2026-03-16 18:29:42.214 [ERR] RPCS interceptor.go:608: [/lnrpc.Lightning/GetInfo]: the RPC server is in the process of starting up, but not yet ready to accept calls
+2026-03-16 18:29:42.602 [INF] BTWL wallet.go:4359: Opened wallet
+2026-03-16 18:29:43.272 [ERR] RPCS interceptor.go:608: [/lnrpc.Lightning/GetInfo]: the RPC server is in the process of starting up, but not yet ready to accept calls
+2026-03-16 18:29:43.572 [INF] BTWL wallet.go:1430: The wallet has been unlocked without a time limit
+2026-03-16 18:29:43.595 [INF] CHRE chainregistry.go:817: LightningWallet opened
+2026-03-16 18:29:43.664 [INF] HSWC circuit_map.go:280: Cleaning circuits from disk for closed channels
+2026-03-16 18:29:43.665 [INF] HSWC circuit_map.go:328: Finished cleaning: no closed channels found, no actions taken.
+2026-03-16 18:29:43.665 [INF] HSWC circuit_map.go:497: Restoring in-memory circuit state from disk
+2026-03-16 18:29:43.684 [INF] HSWC circuit_map.go:602: Payment circuits loaded: num_pending=0, num_open=0
+2026-03-16 18:29:43.763 [INF] CRTR missioncontrol_store.go:107: Loaded 0 mission control entries
+2026-03-16 18:29:43.791 [INF] ACSM accessman.go:79: Access Manager initialized
+2026-03-16 18:29:43.795 [INF] SWPR store.go:182: Migrating UTXO nursery finalized TXIDs
+2026-03-16 18:29:43.823 [INF] LTND channel_notifier.go:39: Channel backup proxy channel notifier starting
+2026-03-16 18:29:43.826 [INF] CHIO dispatcher.go:92: Registered queue=1 with 3 blockbeat consumers
+2026-03-16 18:29:43.826 [INF] ATPL pilot.go:143: Instantiating autopilot with active=false, max_channels=5, allocation=0.600000, min_chan_size=20000, max_chan_size=16777215, private=false, min_confs=1, conf_target=3
+2026-03-16 18:29:43.827 [INF] RRPC router_server.go:232: Making macaroons for Router RPC Server at: /tmp/lnd-sui-test/alice/data/chain/sui/devnet/router.macaroon
+2026-03-16 18:29:43.848 [INF] LTND signal.go:45: We're not running within systemd or the service type is not 'notify'
+2026-03-16 18:29:43.848 [INF] LTND lnd.go:694: Waiting for chain backend to finish sync rev=854f97 start_height=8239
+2026-03-16 18:29:43.859 [INF] LTND lnd.go:752: Chain backend is fully synced! rev=854f97 end_height=8239
+2026-03-16 18:29:43.863 [WRN] HLCK healthcheck.go:69: check: disk space configured with 0 attempts, skipping it
+2026-03-16 18:29:43.864 [WRN] HLCK healthcheck.go:69: check: tls configured with 0 attempts, skipping it
+2026-03-16 18:29:43.864 [INF] LNWL sigpool.go:157: SigPool starting
+2026-03-16 18:29:43.864 [INF] CHNF channelnotifier.go:111: ChannelNotifier starting
+2026-03-16 18:29:43.864 [INF] PRNF peernotifier.go:44: PeerNotifier starting
+2026-03-16 18:29:43.864 [INF] HSWC htlcnotifier.go:85: HtlcNotifier starting
+2026-03-16 18:29:44.656 [INF] SRVR server.go:5467: Received initial block 000000000000000000000000000000000000000000000000000000000000202f at height 8239
+2026-03-16 18:29:44.657 [INF] SWPR fee_bumper.go:895: TxPublisher starting...
+2026-03-16 18:29:44.660 [INF] SWPR sweeper.go:471: Sweeper starting
+2026-03-16 18:29:44.661 [INF] UTXN utxonursery.go:317: UTXO nursery starting
+2026-03-16 18:29:44.662 [INF] BRAR breach_arbitrator.go:221: Breach arbiter starting
+2026-03-16 18:29:44.665 [INF] BRAR breach_arbitrator.go:391: Starting contract observer, watching for breaches.
+2026-03-16 18:29:44.665 [INF] FNDG manager.go:724: Funding manager starting
+2026-03-16 18:29:44.666 [INF] HSWC switch.go:1772: HTLC Switch starting
+2026-03-16 18:29:44.666 [INF] HSWC interceptable_switch.go:226: InterceptableSwitch starting...
+2026-03-16 18:29:44.666 [INF] INVC modification_interceptor.go:168: HtlcModificationInterceptor starting...
+2026-03-16 18:29:44.666 [INF] CNCT chain_arbitrator.go:715: ChainArbitrator starting at height 8239 with 0 chain watchers, 0 channel arbitrators, and budget config=[tolocal=0 BTC tolocalratio=0.5 anchorcpfp=0 BTC anchorcpfpratio=0.5 deadlinehtlc=0 BTC deadlinehtlcratio=0.5 nodeadlinehtlc=0 BTC nodeadlinehtlcratio=0.5]
+2026-03-16 18:29:44.670 [INF] GRDB graph.go:168: Populating in-memory channel graph, this might take a while...
+2026-03-16 18:29:44.671 [INF] GRDB graph.go:209: Finished populating in-memory channel graph (took 280.75µs, num_node_features=1, num_nodes=0, num_channels=0)
+2026-03-16 18:29:44.671 [INF] GRPH builder.go:169: Builder starting
+2026-03-16 18:29:44.697 [INF] CRTR router.go:359: Channel Router starting
+2026-03-16 18:29:44.717 [INF] DISC gossiper.go:672: Authenticated Gossiper starting
+2026-03-16 18:29:44.722 [INF] INVC invoiceregistry.go:226: InvoiceRegistry starting...
+2026-03-16 18:29:44.726 [INF] HSWC iterator.go:646: Onion processor starting
+2026-03-16 18:29:44.744 [INF] NANN chan_status_manager.go:179: Channel Status Manager starting
+2026-03-16 18:29:44.750 [INF] CHFT chaneventstore.go:150: ChannelEventStore starting...
+2026-03-16 18:29:44.750 [INF] CHFT chaneventstore.go:186: Adding 0 channels to event store
+2026-03-16 18:29:44.750 [INF] CHBU pubsub.go:171: chanbackup.SubSwapper starting
+2026-03-16 18:29:44.778 [INF] CHBU backupfile.go:94: Updating backup file at /tmp/lnd-sui-test/alice/data/chain/sui/devnet/channel.backup
+2026-03-16 18:29:44.797 [INF] CHBU backupfile.go:129: Swapping old multi backup file from /tmp/lnd-sui-test/alice/data/chain/sui/devnet/temp-dont-use.backup to /tmp/lnd-sui-test/alice/data/chain/sui/devnet/channel.backup
+2026-03-16 18:29:44.798 [INF] SRVR server.go:2431: connMgr starting...
+2026-03-16 18:29:44.798 [INF] CMGR connmanager.go:497: Server listening on 127.0.0.1:10011
+2026-03-16 18:29:44.798 [INF] SRVR server.go:2945: Initializing peer network bootstrappers!
+2026-03-16 18:29:44.798 [INF] CHIO dispatcher.go:117: BlockbeatDispatcher is starting with 1 consumer queues
+2026-03-16 18:29:44.798 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:29:44.799 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:29:46.803 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:29:46.804 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:29:50.808 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:29:50.809 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:29:52.378 [INF] SRVR server.go:4102: Established outbound connection to: 03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891@127.0.0.1:10012
+2026-03-16 18:29:52.379 [INF] SRVR server.go:4335: Finalizing connection to 03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891@127.0.0.1:10012, inbound=false
+2026-03-16 18:29:52.380 [INF] ACSM accessman.go:609: Upgraded outbound peer: restricted -> temporary peer=03f90fe6c6d9
+2026-03-16 18:29:52.382 [INF] MSGX msg_router.go:142: Starting Router
+2026-03-16 18:29:52.383 [INF] MSGX msg_router.go:220: MsgRouter: unregistering Endpoint(OnionMessageHandler)
+2026-03-16 18:29:52.383 [INF] MSGX msg_router.go:196: MsgRouter: registering new Endpoint(OnionMessageHandler)
+2026-03-16 18:29:52.383 [INF] PEER brontide.go:985: Peer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): Negotiated chan series queries
+2026-03-16 18:29:52.383 [INF] DISC sync_manager.go:661: Creating new GossipSyncer for peer=03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891
+2026-03-16 18:29:52.384 [INF] DISC syncer.go:1146: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): requesting new chans from height=0 and 8276 blocks after
+2026-03-16 18:29:52.384 [INF] DISC syncer.go:1216: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): filtering chan range: start_height=0, num_blocks=8276
+2026-03-16 18:29:52.384 [INF] DISC syncer.go:1361: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): sending final chan range chunk, size=0
+2026-03-16 18:29:52.385 [INF] DISC syncer.go:1029: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): buffering chan range reply of size=0
+2026-03-16 18:29:52.385 [INF] DISC syncer.go:1059: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): filtering through 0 chans
+2026-03-16 18:29:52.385 [INF] DISC syncer.go:1083: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): remote peer has no new chans
+2026-03-16 18:29:52.385 [INF] DISC syncer.go:819: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): applying gossipFilter(start=2026-03-16 18:29:52.385885 +0800 CST m=+13.581126042, end=2162-04-23 00:58:07.385885 +0800 CST)
+2026-03-16 18:29:52.387 [INF] DISC syncer.go:1494: GossipSyncer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): applying new remote update horizon: start=2026-03-16 18:29:52 +0800 CST, end=2162-04-23 00:58:07 +0800 CST, has_updates=false
+2026-03-16 18:29:54.449 [WRN] RPCS rpcserver.go:1365: Expected either 'sat_per_vbyte' or 'conf_target' to be set, using default conf of 6 instead
+2026-03-16 18:29:54.450 [INF] FNDG manager.go:4843: Initiating fundingRequest(local_amt=0.10000000 BTC (subtract_fees=false), push_amt=0 mSAT, chain_hash=0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206, peer=03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891, min_confs=1)
+2026-03-16 18:29:54.596 [INF] FNDG manager.go:5052: Target commit tx sat/kw for pendingID(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217): 2500
+2026-03-16 18:29:54.596 [INF] FNDG manager.go:5098: Dust limit for pendingID(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217): 0.00000354 BTC
+2026-03-16 18:29:54.596 [INF] FNDG manager.go:5171: Starting funding workflow with 127.0.0.1:10012 for pending_id(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217), committype=anchors-zero-fee-second-level
+2026-03-16 18:29:54.747 [INF] FNDG manager.go:2035: Recv'd fundingResponse for pending_id(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217)
+[SUI RPC MOCK] Simulated broadcast of txBytes payload length: 113
+CreateCommitmentTxns (isInitiator=true)
+  params: localBalance=0.09996530 BTC remoteBalance=0 BTC
+  ourCommitTx=a2d6e2c3f89441f5c871269e1492b604b21bb2767e2630b7dd0ee64b5a405227
+  theirCommitTx=9fc2fa4b05665ea3da076f338a2cd6ffceae7f0fa20d02efb8c077dc41513b08
+signCommitTx: witnessScript=522102bc4a20188c7fa1a965b78c34a2e6f0158fdb51a72ba2dc8487657041ed8075f021033bc50de50204327934d4a25bc216f97ac6cb409b899fd0d587f47bfb90989e1752ae channelValue=10000000 remoteKey=02bc4a20188c7fa1a965b78c34a2e6f0158fdb51a72ba2dc8487657041ed8075f0 commitTx=03627ad8872aa95bc481be8c59df06738d78ab37d661122f97be2ce46a69072c
+signCommitTx AFTER SignOutputRaw: sigTheirCommit=3045022100cd88b2c1d9a8870089f0769461e74194dc64f3fa2c05e70d0459e4562b04bf10022010667feaa99f2cf97c011997b35910c501ae716c60f48159666e895f8cf21ca9
+2026-03-16 18:29:54.782 [INF] FNDG manager.go:2257: pendingChan(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217): remote party proposes num_confs=3, csv_delay=1201
+2026-03-16 18:29:54.782 [INF] FNDG manager.go:2412: Generated ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0) for pending_id(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217)
+2026-03-16 18:29:54.782 [INF] FNDG manager.go:2435: continueFundingAccept ALICE SENDING OUTPOINT: 000000000000000000000000000000000000000000000000000000000000cefa:0
+verifyCommitSig: witnessScript=522102bc4a20188c7fa1a965b78c34a2e6f0158fdb51a72ba2dc8487657041ed8075f021033bc50de50204327934d4a25bc216f97ac6cb409b899fd0d587f47bfb90989e1752ae channelValue=10000000 sigHash=8ddc3291c1eeb2d4339e4e2bbeeced0c2b25297f3f7905d9cdc6980924581375 remoteKey=02bc4a20188c7fa1a965b78c34a2e6f0158fdb51a72ba2dc8487657041ed8075f0 commitTx=8af14fc1e83c73affbb87c7ecbdb9c9af348cfed0549f43c7781a3e36c98edfc commitSig=3045022100c7a8de3517ce1819a006c532e163591ad6de4456ef8766ce02c1d27ed465b4460220234a8c01b22ea2c203a8a44e9f95fa3e4dd700ce2c67fbc50205ae1886479c92
+2026-03-16 18:29:54.839 [INF] CNCT chain_arbitrator.go:1127: Creating new chainWatcher and ChannelArbitrator for ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0)
+2026-03-16 18:29:54.839 [INF] FNDG manager.go:2892: Finalizing pending_id(8906da793761bd6cff7ad423b0612e05c6993e47b6fd530e2561f3cbf1d9a217) over ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0), waiting for channel open on-chain
+2026-03-16 18:29:54.839 [INF] CNCT channel_arbitrator.go:539: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0): starting state=StateDefault, trigger=chainTrigger, triggerHeight=8290
+2026-03-16 18:29:54.839 [INF] CNCT chain_watcher.go:834: Close observer for ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0) active
+2026-03-16 18:29:54.839 [INF] FNDG manager.go:3134: Waiting for funding tx (000000000000000000000000000000000000000000000000000000000000cefa) to reach 3 confirmations
+2026-03-16 18:29:54.839 [INF] CHBU pubsub.go:374: Updating on-disk multi SCB backup: num_old_chans=0, num_new_chans=1
+2026-03-16 18:29:54.866 [INF] CHBU backupfile.go:94: Updating backup file at /tmp/lnd-sui-test/alice/data/chain/sui/devnet/channel.backup
+2026-03-16 18:29:54.872 [INF] CHBU backupfile.go:129: Swapping old multi backup file from /tmp/lnd-sui-test/alice/data/chain/sui/devnet/temp-dont-use.backup to /tmp/lnd-sui-test/alice/data/chain/sui/devnet/channel.backup
+2026-03-16 18:29:54.872 [INF] CHBU backupfile.go:193: Archiving old channel backup to /tmp/lnd-sui-test/alice/data/chain/sui/devnet/chan-backup-archives
+2026-03-16 18:29:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:56.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:56.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:56.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:56.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:56.852 [INF] FNDG manager.go:3268: ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0) is now active: ChannelID(face000000000000000000000000000000000000000000000000000000000000)
+2026-03-16 18:29:56.909 [INF] ACSM accessman.go:452: Peer transitioned temporary -> protected (channel opened) peer=03f90fe6c6d9
+2026-03-16 18:29:56.910 [INF] CHBU pubsub.go:374: Updating on-disk multi SCB backup: num_old_chans=1, num_new_chans=1
+2026-03-16 18:29:56.914 [INF] FNDG manager.go:3604: Peer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891) is online, sending ChannelReady for ChannelID(face000000000000000000000000000000000000000000000000000000000000)
+2026-03-16 18:29:56.935 [WRN] CHBU pubsub.go:281: Replacing disk backup for ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0) w/ newer version
+2026-03-16 18:29:56.963 [INF] CHBU backupfile.go:94: Updating backup file at /tmp/lnd-sui-test/alice/data/chain/sui/devnet/channel.backup
+2026-03-16 18:29:56.977 [INF] CHBU backupfile.go:129: Swapping old multi backup file from /tmp/lnd-sui-test/alice/data/chain/sui/devnet/temp-dont-use.backup to /tmp/lnd-sui-test/alice/data/chain/sui/devnet/channel.backup
+2026-03-16 18:29:56.977 [INF] CHBU backupfile.go:193: Archiving old channel backup to /tmp/lnd-sui-test/alice/data/chain/sui/devnet/chan-backup-archives
+2026-03-16 18:29:56.981 [INF] PEER brontide.go:5275: Peer(03f90fe6c6d981381c0501b14c8bc4ba86882bcc8262779304ed089370a3744891): New channel active ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0) with peer
+2026-03-16 18:29:56.985 [INF] HSWC link.go:554: ChannelLink(000000000000000000000000000000000000000000000000000000000000cefa:0): starting
+2026-03-16 18:29:56.990 [INF] HSWC circuit_map.go:701: Trimming open circuits for chan_id=100:0:0, start_htlc_id=0
+2026-03-16 18:29:56.990 [INF] HSWC switch.go:2070: Adding live link chan_id=face000000000000000000000000000000000000000000000000000000000000, short_chan_id=100:0:0
+2026-03-16 18:29:56.990 [INF] CNCT chain_arbitrator.go:993: Attempting to update ContractSignals for ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0)
+2026-03-16 18:29:56.990 [INF] HSWC link.go:1293: ChannelLink(000000000000000000000000000000000000000000000000000000000000cefa:0): HTLC manager started, bandwidth=9892000000 mSAT
+2026-03-16 18:29:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:58.512 [ERR] RPCS interceptor.go:624: [/lnrpc.Lightning/OpenChannel]: rpc error: code = Unavailable desc = transport is closing
+2026-03-16 18:29:58.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:58.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:58.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:58.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:58.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:58.810 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:29:58.810 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:29:59.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:59.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:59.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:59.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:59.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:29:59.992 [INF] DISC gossiper.go:3556: Received new remote announcement signature for 100:0:0
+2026-03-16 18:30:00.014 [INF] DISC gossiper.go:3725: 1/2 of channel ann proof received for short_chan_id=109951162777600, waiting for other half
+2026-03-16 18:30:00.513 [INF] FNDG manager.go:3865: Announcing ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0), short_chan_id=100:0:0
+2026-03-16 18:30:00.513 [INF] DISC gossiper.go:3556: Received new local announcement signature for 100:0:0
+2026-03-16 18:30:00.558 [INF] DISC gossiper.go:3804: Fully valid channel proof for short_chan_id=109951162777600 constructed, adding to next ann batch
+2026-03-16 18:30:00.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:00.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:00.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:00.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:02.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:02.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:02.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:02.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:02.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:03.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:03.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:03.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:03.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:03.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:04.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:04.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:04.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:04.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:04.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:05.325 [ERR] HSWC link.go:3742: ChannelLink(000000000000000000000000000000000000000000000000000000000000cefa:0): failing link: ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0): received error from peer: chan_id=face000000000000000000000000000000000000000000000000000000000000, err=rejected commitment: commit_height=1, invalid_htlc_sig=30440220245e8011eadc72d7af7f97d6e9c02ea7ab4de63f128f97a12feeb5aaa3d986d3022072bbf48485012c91a843d0c3d69379f7a98c612d4756b47340f84773e9d2e2f0, commit_tx=0200000001face0000000000000000000000000000000000000000000000000000000000000000000000e5e46f80044a0100000000000022002049fd609ef6b85e49a6406cb7d869d8e04c5f09cbd08c2965ddde05657d8f59b74a01000000000000220020e44300b4ac8c72ebc6aa4f7374cda1bebcbd547c375243e12b6212fdc2e5501ee8030000000000002200206bc14e0078d7b04a29cc0e0002a84a60026015b289547afa4fe130d0d31fc6f55c839800000000002200200f7115ae72c2b792ff871169970033934254b8f85c730a858c420d280e5eb44914ea1820, sig_hash=4ad9a77a091471cb453f2d540cb80adaf3d9c2a1723af2040f800d7c8154932b with error: remote error
+2026-03-16 18:30:05.325 [ERR] HSWC link.go:1321: ChannelLink(000000000000000000000000000000000000000000000000000000000000cefa:0): link failed, exiting htlcManager
+2026-03-16 18:30:05.325 [INF] HSWC link.go:1290: ChannelLink(000000000000000000000000000000000000000000000000000000000000cefa:0): exited
+2026-03-16 18:30:05.325 [INF] HSWC link.go:630: ChannelLink(000000000000000000000000000000000000000000000000000000000000cefa:0): stopping
+2026-03-16 18:30:05.325 [INF] HSWC switch.go:2410: Removing channel link with ChannelID(face000000000000000000000000000000000000000000000000000000000000)
+2026-03-16 18:30:05.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:05.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:05.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:05.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:06.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:06.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:06.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:06.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:06.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:07.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:07.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:07.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:07.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:07.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:08.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:08.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:08.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:08.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:08.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:11.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:11.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:11.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:11.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:11.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:12.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:12.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:12.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:12.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:12.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:13.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:13.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:13.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:13.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:14.698 [INF] GRPH builder.go:212: Initial zombie prune starting
+2026-03-16 18:30:14.699 [INF] GRPH builder.go:522: Examining channel graph for zombie channels
+2026-03-16 18:30:14.699 [INF] GRPH builder.go:625: Pruning 0 zombie channels
+2026-03-16 18:30:14.811 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:30:14.812 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:30:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:16.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:19.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:19.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:19.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:19.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:19.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:20.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:20.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:20.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:20.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:20.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:21.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:21.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:21.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:21.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:21.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:22.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:22.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:22.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:22.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:22.658 [INF] CNCT channel_arbitrator.go:2183: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0): fail dangling htlc=d18c3c0db4173661360af300fafffc070c26bf6be21a380747ecc337d55d7f90 from local/remote commitments diff
+2026-03-16 18:30:22.692 [INF] CNCT channel_arbitrator.go:1106: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0): force closing chan
+2026-03-16 18:30:22.740 [INF] CNCT channel_arbitrator.go:1153: Broadcasting force close transaction 8af14fc1e83c73affbb87c7ecbdb9c9af348cfed0549f43c7781a3e36c98edfc, ChannelPoint(000000000000000000000000000000000000000000000000000000000000cefa:0): (*wire.MsgTx)(0x140024d47c0)({
+ Version: (int32) 2,
+ TxIn: ([]*wire.TxIn) (len=1 cap=1) {
+  (*wire.TxIn)(0x14000b4c5a0)({
+   PreviousOutPoint: (wire.OutPoint) 000000000000000000000000000000000000000000000000000000000000cefa:0,
+   SignatureScript: ([]uint8) <nil>,
+   Witness: (wire.TxWitness) (len=4 cap=4) {
+    ([]uint8) <nil>,
+    ([]uint8) (len=72 cap=144) {
+     00000000  30 45 02 21 00 c7 a8 de  35 17 ce 18 19 a0 06 c5  |0E.!....5.......|
+     00000010  32 e1 63 59 1a d6 de 44  56 ef 87 66 ce 02 c1 d2  |2.cY...DV..f....|
+     00000020  7e d4 65 b4 46 02 20 23  4a 8c 01 b2 2e a2 c2 03  |~.e.F. #J.......|
+     00000030  a8 a4 4e 9f 95 fa 3e 4d  d7 00 ce 2c 67 fb c5 02  |..N...>M...,g...|
+     00000040  05 ae 18 86 47 9c 92 01                           |....G...|
+    },
+    ([]uint8) (len=71 cap=144) {
+     00000000  30 44 02 20 5c 81 2c 64  f9 6d c4 b6 c3 d2 8e 12  |0D. \.,d.m......|
+     00000010  8d 91 77 fc 0d b8 a5 17  64 45 db 4e b3 44 54 b4  |..w.....dE.N.DT.|
+     00000020  b9 c7 e9 86 02 20 67 7e  d2 44 0d 33 71 8d 67 8c  |..... g~.D.3q.g.|
+     00000030  ea cb db c8 30 20 82 0c  fc 18 67 1c df 0e 92 79  |....0 ....g....y|
+     00000040  39 dc 4d 11 1b fe 01                              |9.M....|
+    },
+    ([]uint8) (len=71 cap=71) {
+     00000000  52 21 02 bc 4a 20 18 8c  7f a1 a9 65 b7 8c 34 a2  |R!..J .....e..4.|
+     00000010  e6 f0 15 8f db 51 a7 2b  a2 dc 84 87 65 70 41 ed  |.....Q.+....epA.|
+     00000020  80 75 f0 21 03 3b c5 0d  e5 02 04 32 79 34 d4 a2  |.u.!.;.....2y4..|
+     00000030  5b c2 16 f9 7a c6 cb 40  9b 89 9f d0 d5 87 f4 7b  |[...z..@.......{|
+     00000040  fb 90 98 9e 17 52 ae                              |.....R.|
+    }
+   },
+   Sequence: (uint32) 2154816741
+  })
+ },
+ TxOut: ([]*wire.TxOut) (len=2 cap=2) {
+  (*wire.TxOut)(0x140000251e0)({
+   Value: (int64) 330,
+   PkScript: ([]uint8) (len=34 cap=34) {
+    00000000  00 20 e4 43 00 b4 ac 8c  72 eb c6 aa 4f 73 74 cd  |. .C....r...Ost.|
+    00000010  a1 be bc bd 54 7c 37 52  43 e1 2b 62 12 fd c2 e5  |....T|7RC.+b....|
+    00000020  50 1e                                             |P.|
+   }
+  }),
+  (*wire.TxOut)(0x14000025220)({
+   Value: (int64) 9996530,
+   PkScript: ([]uint8) (len=34 cap=34) {
+    00000000  00 20 94 29 b6 ed b2 6b  52 61 44 64 5d 43 c9 0d  |. .)...kRaDd]C..|
+    00000010  56 f7 57 66 d7 a3 2d 2b  35 7b b8 9c a4 ca 55 de  |V.Wf..-+5{....U.|
+    00000020  18 6c                                             |.l|
+   }
+  })
+ },
+ LockTime: (uint32) 538503701
+})
+
+2026-03-16 18:30:22.741 [ERR] CNCT channel_arbitrator.go:1163: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0): unable to broadcast close tx: suiwallet: failed to decode tx: sui_channel: failed to decode call envelope: unexpected end of JSON input
+2026-03-16 18:30:22.741 [ERR] CNCT channel_arbitrator.go:1670: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0): unable to advance state: suiwallet: failed to decode tx: sui_channel: failed to decode call envelope: unexpected end of JSON input
+2026-03-16 18:30:22.741 [ERR] CNCT channel_arbitrator.go:2840: Handle block=8423 got err: unable to advance state: suiwallet: failed to decode tx: sui_channel: failed to decode call envelope: unexpected end of JSON input
+2026-03-16 18:30:23.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:23.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:23.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:23.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:23.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:26.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:26.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:26.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:26.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:27.655 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:27.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:27.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:27.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:27.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:28.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:28.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:28.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:28.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:28.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:30.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:30.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:30.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:30.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:31.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:31.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:31.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:31.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:31.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:33.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:33.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:33.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:33.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:33.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:34.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:34.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:34.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:34.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:35.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:35.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:35.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:35.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:35.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:36.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:36.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:36.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:36.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:36.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:39.694 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:39.695 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:39.695 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:39.695 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:39.695 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:42.711 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:42.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:43.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:43.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:43.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:43.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:43.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:43.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:44.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:44.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:44.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:44.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:45.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:45.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:45.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:45.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:45.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:46.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:46.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:46.665 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:46.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:46.826 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:30:46.853 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:30:47.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:47.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:47.745 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:49.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:49.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:49.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:49.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:49.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:50.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:50.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:51.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:51.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:51.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:51.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:52.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:52.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:52.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:52.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:52.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:53.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:53.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:53.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:53.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:53.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:54.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:54.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:54.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:54.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:54.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:55.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:56.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:56.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:56.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:56.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:57.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:58.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:58.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:58.682 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:58.692 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:59.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:59.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:59.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:30:59.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:00.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:00.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:00.681 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:00.693 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:01.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:01.672 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:01.686 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:01.710 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:02.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:02.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:02.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:02.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:03.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:03.662 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:03.662 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:04.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:04.731 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:04.751 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:04.769 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:05.707 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:05.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:05.740 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:06.693 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:06.753 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:06.776 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:06.780 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:06.788 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:07.714 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:07.728 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:08.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:08.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:08.677 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:08.719 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:08.734 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:09.680 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:09.690 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:09.701 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:09.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:10.733 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:10.763 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:10.780 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:11.881 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:11.917 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:11.981 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:11.999 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:12.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:12.677 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:12.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:13.677 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:13.693 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:14.686 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:14.723 [WRN] DISC gossiper.go:960: ignoring remote ChannelAnnouncement1 for own channel
+2026-03-16 18:31:14.753 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:14.769 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:14.796 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:14.805 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:15.689 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:15.704 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:15.727 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:16.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:16.674 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:16.688 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:16.697 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:17.744 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:17.764 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:18.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:18.692 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:18.714 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:18.772 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:19.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:19.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:19.723 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:20.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:20.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:20.706 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:20.753 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:21.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:21.704 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:21.718 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:21.722 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:21.739 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:22.663 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:22.679 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:22.692 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:22.712 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:23.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:23.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:23.682 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:23.702 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:24.668 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:24.702 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:24.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:25.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:25.685 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:26.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:26.692 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:26.723 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:26.736 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:27.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:27.680 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:27.700 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:28.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:28.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:28.681 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:28.690 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:29.695 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:29.706 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:29.717 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:30.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:30.678 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:30.698 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:31.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:31.665 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:31.683 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:31.697 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:31.723 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:32.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:32.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:33.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:33.664 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:33.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:33.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:34.662 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:34.672 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:34.699 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:35.721 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:35.731 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:35.759 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:36.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:36.691 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:36.706 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:36.722 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:36.751 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:37.743 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:37.753 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:37.790 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:38.664 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:38.674 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:38.739 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:39.713 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:39.731 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:40.667 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:40.739 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:40.759 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:40.781 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:41.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:43.450 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:46.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:46.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:46.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:46.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:46.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:46.854 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:31:46.863 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:31:47.664 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:47.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:47.699 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:48.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:48.686 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:48.686 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:48.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:48.691 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:49.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:49.693 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:49.702 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:49.719 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:50.678 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:50.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:50.687 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:51.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:51.672 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:51.672 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:51.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:52.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:52.667 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:52.678 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:52.691 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:53.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:53.678 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:53.688 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:53.688 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:53.688 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:54.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:54.666 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:54.667 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:54.667 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:54.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:55.664 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:55.664 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:55.668 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:55.668 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:56.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:56.665 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:56.682 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:56.694 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:57.665 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:57.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:57.675 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:58.665 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:58.696 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:58.708 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:58.719 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:59.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:59.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:59.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:59.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:59.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:31:59.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:00.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:00.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:00.662 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:00.662 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:01.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:02.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:02.662 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:02.672 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:02.672 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:03.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:03.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:03.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:03.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:04.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:04.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:04.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:04.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:04.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:05.685 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:05.689 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:05.689 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:05.689 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:06.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:06.676 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:06.685 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:06.685 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:06.685 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:07.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:07.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:07.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:07.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:08.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:08.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:08.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:08.669 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:09.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:10.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:11.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:11.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:11.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:11.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:11.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:12.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:12.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:12.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:12.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:13.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:13.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:13.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:13.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:13.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:14.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:15.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:16.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:17.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:18.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:19.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:19.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:19.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:19.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:19.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:20.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:20.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:20.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:20.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:21.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:21.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:21.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:21.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:21.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:22.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:22.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:22.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:22.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:22.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:23.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:23.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:23.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:23.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:23.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:24.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:24.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:24.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:25.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:26.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:26.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:26.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:26.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:26.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:27.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:27.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:27.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:27.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:27.673 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:28.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:28.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:28.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:28.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:28.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:29.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:29.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:29.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:29.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:30.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:30.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:30.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:30.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:30.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:31.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:31.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:31.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:31.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:31.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:32.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:33.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:33.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:33.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:34.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:34.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:34.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:34.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:34.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:35.698 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:35.719 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:35.740 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:36.679 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:36.692 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:36.701 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:36.701 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:37.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:37.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:37.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:38.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:38.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:38.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:38.670 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:38.680 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:39.668 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:39.679 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:39.715 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:39.725 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:40.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:40.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:40.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:40.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:43.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:43.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:43.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:43.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:43.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:44.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:44.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:44.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:44.661 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:45.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:45.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:45.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:45.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:45.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:46.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:46.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:46.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:46.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:46.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:46.880 [INF] DISC bootstrapper.go:74: Attempting to bootstrap with: Authenticated Channel Graph
+2026-03-16 18:32:46.881 [ERR] SRVR server.go:3222: Unable to retrieve initial bootstrap peers: no addresses found
+2026-03-16 18:32:47.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:47.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:47.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:47.660 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:48.656 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:48.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:49.658 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:49.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:49.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:49.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:49.659 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:50.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:51.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:51.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:51.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+2026-03-16 18:32:51.657 [INF] CNCT channel_arbitrator.go:3092: ChannelArbitrator(000000000000000000000000000000000000000000000000000000000000cefa:0) no close event
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x2 addr=0x0 pc=0x104bc8680]
+
+goroutine 593 [running]:
+github.com/btcsuite/btcd/wire.writeBlockHeaderBuf({0x10780ad40, 0x140028dc8a0}, 0x0, 0x0, {0x14000f001e0, 0x8, 0x8})
+	/Users/blake/.gvm/pkgsets/go1.25.5/global/pkg/mod/github.com/btcsuite/btcd@v0.24.3-0.20250318170759-4f4ea81776d6/wire/blockheader.go:186 +0x70
+github.com/btcsuite/btcd/wire.writeBlockHeader({0x10780ad40, 0x140028dc8a0}, 0x0, 0x0)
+	/Users/blake/.gvm/pkgsets/go1.25.5/global/pkg/mod/github.com/btcsuite/btcd@v0.24.3-0.20250318170759-4f4ea81776d6/wire/blockheader.go:169 +0x80
+github.com/btcsuite/btcd/wire.(*BlockHeader).Serialize(0x0, {0x10780ad40, 0x140028dc8a0})
+	/Users/blake/.gvm/pkgsets/go1.25.5/global/pkg/mod/github.com/btcsuite/btcd@v0.24.3-0.20250318170759-4f4ea81776d6/wire/blockheader.go:86 +0x40
+github.com/lightningnetwork/lnd/peer.NewBrontide.func1()
+	/Users/blake/work/nagara/code/chain/loka-payment/lnd/peer/brontide.go:732 +0x168
+github.com/lightningnetwork/lnd/peer.(*PingManager).pingHandler(0x14000b13c70)
+	/Users/blake/work/nagara/code/chain/loka-payment/lnd/peer/ping_manager.go:175 +0x568
+created by github.com/lightningnetwork/lnd/peer.(*PingManager).Start.func1 in goroutine 520
+	/Users/blake/work/nagara/code/chain/loka-payment/lnd/peer/ping_manager.go:107 +0x124

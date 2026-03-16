@@ -24,7 +24,7 @@ make unit tags=sui
 ### 2. Move 合约测试
 
 - 验证合约方法的权限控制、签名校验与状态转换。
-- 重点覆盖：`open_channel` 的资金锁定, `htlc_claim` 的原像验证, `penalize` 的撤销逻辑。
+- 重点覆盖：`open_channel` 的资金锁定, `htlc_claim` 的原像验证, `penalize` 的纯 Hash 摘要验证 (原版为 ECDSA 签名验证, 现基于 Lightning 状态机的安全假定改为纯哈希比对验证)。
 
 运行方式 (在合约目录下):
 ```sh

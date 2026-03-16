@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed `invalid_htlc_sig` during Sui cooperative and force closes by applying correct private key tweaks (`SingleTweak` and `DoubleTweak`) in `SuiSigner.SignOutputRaw`.
 - Fixed `failed to decode call envelope` during Sui force closes by having the `ChannelArbitrator` correctly wrap Bitcoin commitment transactions into Sui `force_close` Move Call envelopes.
+- Fixed `EInvalidSignature` test failures in the Move contract by ensuring `ecdsa_k1::secp256k1_verify` is passed the raw payload with hash algorithm `1` (SHA256) instead of a pre-hashed payload.
+- Fixed signature validation tests in `lightning_tests.move` by using standard `btcec/v2/ecdsa` in Go to generate deterministic, low-S (BIP-62 compliant) `secp256k1` signatures ensuring full compatibility with Sui Move VM requirements.
 
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.

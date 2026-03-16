@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -1174,10 +1175,17 @@ func (c *ChannelArbitrator) stateStep(
 				return StateError, closeTx, err
 			}
 
+			// In this prototype the expected revocation_hash is statically sha256(32 bytes of 0x22)
+			expectedHashHex := "9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4"
+			expectedHashBytes, _ := hex.DecodeString(expectedHashHex)
+			var revHash [32]byte
+			copy(revHash[:], expectedHashBytes)
+			
 			localCommit := chanState.LocalCommitment
 			payload := input.ChannelForceClosePayload{
-				StateNum:      localCommit.CommitHeight,
-				CommitmentSig: localCommit.CommitSig,
+				StateNum:       localCommit.CommitHeight,
+				RevocationHash: revHash,
+				CommitmentSig:  localCommit.CommitSig,
 			}
 			publishTx, err = input.BuildChannelForceCloseTx(c.cfg.ChanPoint.Hash, payload)
 			if err != nil {

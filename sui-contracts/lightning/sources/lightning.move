@@ -3,21 +3,25 @@ module lightning::lightning {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::coin::{Self, Coin};
+    use sui::balance::Balance;
     use sui::sui::SUI;
     use sui::event;
-    use std::vector;
     use std::option::{Self, Option};
     use sui::table::{Self, Table};
     use sui::ecdsa_k1;
+    use sui::bcs;
     use std::hash;
+    use std::vector;
 
     // --- Errors ---
     const EInvalidSignature: u64 = 0;
     const EInvalidStateNum: u64 = 1;
     const EChannelNotOpen: u64 = 2;
+    #[allow(unused_const)]
     const EInsufficientBalance: u64 = 3;
     const EInvalidPreimage: u64 = 4;
     const ENotExpired: u64 = 5;
+    const EInvalidHash: u64 = 6;
 
     // --- Data Structures ---
 
@@ -27,6 +31,7 @@ module lightning::lightning {
         party_b: address,
         balance_a: u64,
         balance_b: u64,
+        funding_balance: Balance<SUI>,
         pubkey_a: vector<u8>, // secp256k1 compressed
         pubkey_b: vector<u8>,
         status: u8,           // 0: OPEN, 1: CLOSING, 2: CLOSED
@@ -35,8 +40,10 @@ module lightning::lightning {
         close_epoch: u64,
         htlcs: Table<u64, HTLC>,
         revocation_key: Option<vector<u8>>,
+        revocation_hash: vector<u8>,
     }
 
+    #[allow(unused_field)]
     struct HTLC has store, drop {
         htlc_id: u64,
         amount: u64,
@@ -63,7 +70,7 @@ module lightning::lightning {
 
     // --- Entry Functions ---
 
-    public entry fun open_channel(
+    public fun open_channel(
         funding_coin: Coin<SUI>,
         pubkey_a: vector<u8>,
         pubkey_b: vector<u8>,
@@ -80,6 +87,7 @@ module lightning::lightning {
             party_b,
             balance_a: capacity,
             balance_b: 0,
+            funding_balance: coin::into_balance(funding_coin),
             pubkey_a,
             pubkey_b,
             status: 0, // OPEN
@@ -88,6 +96,7 @@ module lightning::lightning {
             close_epoch: 0,
             htlcs: table::new(ctx),
             revocation_key: option::none(),
+            revocation_hash: vector::empty<u8>(),
         };
 
         event::emit(ChannelOpenEvent {
@@ -98,15 +107,13 @@ module lightning::lightning {
         });
 
         transfer::share_object(channel);
-        transfer::public_transfer(funding_coin, @0x0); // Burn or lock? In Sui we usually lock in the object.
-        // Actually, we should keep the balance in the Channel object.
     }
 
     // For simplicity, we'll keep the balance inside the Channel object by
     // converting the Coin into a Balance field in a future iteration.
     // For this prototype, we'll assume the funding_coin was handled.
 
-    public entry fun close_channel(
+    public fun close_channel(
         channel: &mut Channel,
         state_num: u64,
         balance_a: u64,
@@ -132,17 +139,29 @@ module lightning::lightning {
         });
     }
 
-    public entry fun force_close(
+    public fun force_close(
         channel: &mut Channel,
         state_num: u64,
-        _commitment_sig: vector<u8>,
+        revocation_hash: vector<u8>,
+        commitment_sig: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
         assert!(state_num >= channel.state_num, EInvalidStateNum);
 
+        let payload = object::id_to_bytes(&object::id(channel));
+        let num_bytes = bcs::to_bytes(&state_num);
+        let mut_payload = payload;
+        vector::append(&mut mut_payload, num_bytes);
+        vector::append(&mut mut_payload, revocation_hash);
+        
+        // Verify the commitment_sig against pubkey_b.
+        // Hash algorithms in ecdsa_k1 1: SHA256. 
+        assert!(ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_b, &mut_payload, 1), EInvalidSignature);
+
         channel.status = 1; // CLOSING
         channel.close_epoch = tx_context::epoch(ctx);
+        channel.revocation_hash = revocation_hash;
 
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),
@@ -151,7 +170,7 @@ module lightning::lightning {
         });
     }
 
-    public entry fun htlc_claim(
+    public fun htlc_claim(
         channel: &mut Channel,
         htlc_id: u64,
         preimage: vector<u8>,
@@ -181,7 +200,7 @@ module lightning::lightning {
         });
     }
 
-    public entry fun htlc_timeout(
+    public fun htlc_timeout(
         channel: &mut Channel,
         htlc_id: u64,
         ctx: &mut TxContext
@@ -199,12 +218,15 @@ module lightning::lightning {
         });
     }
 
-    public entry fun penalize(
+    public fun penalize(
         channel: &mut Channel,
-        _revocation_key: vector<u8>,
+        revocation_secret: vector<u8>,
         _ctx: &mut TxContext
     ) {
-        // Verify revocation_key provides the secret for the revoked state.
+        // Evaluate the SHA256 of the provided `revocation_secret` against the dynamically bound hash inside the channel
+        let actual_hash = hash::sha2_256(revocation_secret);
+        assert!(actual_hash == channel.revocation_hash, EInvalidHash);
+
         // If valid, transfer all balances to the honest party.
         channel.balance_a = 0;
         channel.balance_b = channel.balance_a + channel.balance_b;
