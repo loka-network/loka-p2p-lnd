@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
 - Fixed `failed to decode call envelope` during Sui force closes by having the `ChannelArbitrator` correctly wrap Bitcoin commitment transactions into Sui `force_close` Move Call envelopes.
 - Fixed `EInvalidSignature` test failures in the Move contract by ensuring `ecdsa_k1::secp256k1_verify` is passed the raw payload with hash algorithm `1` (SHA256) instead of a pre-hashed payload.
 - Fixed signature validation tests in `lightning_tests.move` by using standard `btcec/v2/ecdsa` in Go to generate deterministic, low-S (BIP-62 compliant) `secp256k1` signatures ensuring full compatibility with Sui Move VM requirements.
+- **Fixed Sui Node `Invalid user signature` execution crashes:** Migrated native Go SECP256K1 signature generation to use `SHA256(Blake2B(intent))` to perfectly replicate the implicit double-hashing sequence inadvertently introduced by the `@mysten/sui` Typescript SDK.
+- **Fixed `encoding/hex: invalid byte: U+007A 'z'` crash:** Swapped `chainhash` hexadecimal hex-decoding in `ExecuteTransactionBlock` with a native Base58 parser to properly decode Sui's Transaction Block `Digest` format.
 
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.
@@ -189,3 +191,6 @@ Activation is controlled by a single flag: `--suinode.active`. When absent, LND 
 - `SuiSigner` → ECDSA signing via Sui key material.
 - `SuiKeyRing` → BIP-44 HD derivation at `m/1017'/99999'/…`.
 - `buildSuiChainControl` → wire real `lnwallet.LightningWallet` once stubs are replaced.
+
+- Updated Move contract `force_close` and `penalize` functions to use dynamic revocation hashes (Scheme A) instead of a hardcoded expected hash, fixing a critical security vulnerability.
+- Updated LND Go bindings (`ChannelForceClosePayload`) to serialize the expected revocation hash natively during force close.

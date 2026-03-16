@@ -48,8 +48,11 @@ type SuiClient interface {
 	// GetCoins returns the list of SUI coins owned by the given address.
 	GetCoins(address string) ([]SuiCoin, error)
 
-	// ExecuteMoveCall executes a Sui Move call transaction.
-	ExecuteMoveCall(payload []byte, signature []byte) (chainhash.Hash, error)
+	// BuildMoveCall requests the Sui Node to build an unsigned BCS PTB.
+	BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error)
+
+	// ExecuteTransactionBlock executes a signed Sui transaction block.
+	ExecuteTransactionBlock(txBytes []byte, suiSignature []byte) (chainhash.Hash, error)
 
 	// SubscribeEpochs sends each newly finalised checkpoint on the returned
 	// channel. The channel is closed when quit is closed.

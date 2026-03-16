@@ -41,7 +41,7 @@ func main() {
 	fmt.Printf("pubkey: %x\n", pubKey)
 
 	// --- 1. Force Close Message ---
-	channelHex := "63d9a65220318469fb169034d8a011eae3f014fed2a1f8c006183e2ece3c3975"
+	channelHex := "90c5264c9da2b340fdc9fbd15ad3f0a181a57afa7ae55b15a3c5dce6b31f45c8"
 	channelIDBytes, err := hex.DecodeString(channelHex)
 	if err != nil {
 		panic(err)

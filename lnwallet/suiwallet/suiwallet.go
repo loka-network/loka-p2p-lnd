@@ -16,12 +16,17 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"crypto/rand"
+	go_ecdsa "crypto/ecdsa"
+	"math/big"
 	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"golang.org/x/crypto/blake2b"
+	"crypto/sha256"
 )
 
 // ErrUnsupported is returned for Sui wallet operations that are not yet
@@ -101,9 +106,13 @@ func (w *Wallet) NewAddress(addrType lnwallet.AddressType, change bool, account 
 	if err != nil {
 		return nil, err
 	}
-	// We slice off the first byte (the 0x02 or 0x03 prefix) to make it exactly 32 bytes
-	// which satisfies the Sui address format length for the `sui client faucet` command.
-	suiAddress := fmt.Sprintf("0x%x", nodeKeyDesc.PubKey.SerializeCompressed()[1:])
+	// Sui Address derivation for Secp256k1 (flag 0x01):
+	// blake2b.Sum256([]byte{0x01} + compressed_pubkey)
+	pubKeyData := nodeKeyDesc.PubKey.SerializeCompressed()
+	addrData := append([]byte{0x01}, pubKeyData...)
+	hash := blake2b.Sum256(addrData)
+	
+	suiAddress := fmt.Sprintf("0x%x", hash[:])
 	return &SuiAddress{addr: suiAddress}, nil
 }
 
@@ -237,13 +246,24 @@ func (w *Wallet) ExecuteOpenChannelCall(tx *wire.MsgTx) (chainhash.Hash, error) 
 		return chainhash.Hash{}, fmt.Errorf("suiwallet: failed to decode tx: %w", err)
 	}
 
-	if len(tx.TxIn[0].Witness) == 0 {
-		return chainhash.Hash{}, fmt.Errorf("suiwallet: tx has no signature in witness")
+	addr, err := w.NewAddress(lnwallet.UnknownAddressType, false, "")
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("failed to get sender address: %w", err)
 	}
-	signature := tx.TxIn[0].Witness[0]
+
+	channelID := &tx.TxIn[0].PreviousOutPoint.Hash
+	txBytes, err := w.cfg.Client.BuildMoveCall(addr.String(), channelID, tx.TxIn[0].SignatureScript)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: BuildMoveCall failed: %w", err)
+	}
+
+	suiSig, err := w.signSuiTransaction(txBytes)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: failed to sign Sui transaction: %w", err)
+	}
 
 	// Execute via RPC client
-	txDigest, err := w.cfg.Client.ExecuteMoveCall(tx.TxIn[0].SignatureScript, signature)
+	txDigest, err := w.cfg.Client.ExecuteTransactionBlock(txBytes, suiSig)
 	if err != nil {
 		return chainhash.Hash{}, fmt.Errorf("suiwallet: execution failed: %w", err)
 	}
@@ -275,21 +295,75 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		}
 	}
 
-	// In our adapter, the signature is expected to be appended to the
-	// end of the SignatureScript or handled via a separate mechanism.
-	// For now, assume tx.TxIn[0].SignatureScript contains the serialized
-	// call and the Signer has already been called.
-	if len(tx.TxIn[0].Witness) == 0 {
-		return fmt.Errorf("suiwallet: tx has no signature in witness")
+	addr, err := w.NewAddress(lnwallet.UnknownAddressType, false, "")
+	if err != nil {
+		return fmt.Errorf("failed to get sender address: %w", err)
 	}
-	signature := tx.TxIn[0].Witness[0]
 
-	_, err = w.cfg.Client.ExecuteMoveCall(tx.TxIn[0].SignatureScript, signature)
+	channelID := &tx.TxIn[0].PreviousOutPoint.Hash
+	txBytes, err := w.cfg.Client.BuildMoveCall(addr.String(), channelID, tx.TxIn[0].SignatureScript)
+	if err != nil {
+		return fmt.Errorf("suiwallet: BuildMoveCall failed: %w", err)
+	}
+
+	suiSig, err := w.signSuiTransaction(txBytes)
+	if err != nil {
+		return fmt.Errorf("suiwallet: failed to sign Sui transaction: %w", err)
+	}
+
+	_, err = w.cfg.Client.ExecuteTransactionBlock(txBytes, suiSig)
 	if err != nil {
 		return fmt.Errorf("suiwallet: execution failed: %w", err)
 	}
 
 	return nil
+}
+
+// signSuiTransaction generates a native Sui signature (secp256k1) over the PTB.
+func (w *Wallet) signSuiTransaction(txBytes []byte) ([]byte, error) {
+	nodeKeyDesc, err := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
+		Family: keychain.KeyFamilyNodeKey,
+		Index:  0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	privKey, err := w.cfg.KeyRing.DerivePrivKey(nodeKeyDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	intent := append([]byte{0, 0, 0}, txBytes...)
+	b2bHash := blake2b.Sum256(intent)
+	hash := sha256.Sum256(b2bHash[:])
+
+	stdPrivKey := privKey.ToECDSA()
+	
+	halfOrder, _ := new(big.Int).SetString("7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0", 16)
+	var rVal, sVal *big.Int
+	var errSign error
+	for {
+		rVal, sVal, errSign = go_ecdsa.Sign(rand.Reader, stdPrivKey, hash[:])
+		if errSign != nil {
+			return nil, errSign
+		}
+		if sVal.Cmp(halfOrder) <= 0 {
+			break
+		}
+	}
+
+	r := make([]byte, 32)
+	s := make([]byte, 32)
+	rVal.FillBytes(r)
+	sVal.FillBytes(s)
+
+	var suiSig []byte
+	suiSig = append(suiSig, 0x01) // Flag for secp256k1
+	suiSig = append(suiSig, r...)
+	suiSig = append(suiSig, s...)
+	suiSig = append(suiSig, nodeKeyDesc.PubKey.SerializeCompressed()...)
+
+	return suiSig, nil
 }
 
 // FetchTx is not implemented for Sui yet.

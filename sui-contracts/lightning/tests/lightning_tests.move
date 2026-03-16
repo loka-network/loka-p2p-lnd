@@ -21,12 +21,13 @@ module lightning::lightning_tests {
         
         // Setup ALICE with some SUI
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(local_amt, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
         let delay = 144;
         
         lightning::open_channel(
-            coin,
+            &mut coin,
+            local_amt,
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
@@ -40,6 +41,7 @@ module lightning::lightning_tests {
         
         // Return it
         test_scenario::return_shared(channel);
+        sui::transfer::public_transfer(coin, ALICE);
         test_scenario::end(scenario_val);
     }
     
@@ -50,16 +52,18 @@ module lightning::lightning_tests {
         
         let local_amt = 10000;
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(local_amt, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
-            coin,
+            &mut coin,
+            local_amt,
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
             144,
             test_scenario::ctx(scenario)
         );
+        sui::transfer::public_transfer(coin, ALICE);
         
         test_scenario::next_tx(scenario, ALICE);
         let channel = test_scenario::take_shared<Channel>(scenario);
@@ -97,24 +101,26 @@ module lightning::lightning_tests {
         // Let's print the ID in the Go script using 0x1111... for now. Wait, I'll pass the exact signature byte array from my Go script.
         
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(10000, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
-            coin,
+            &mut coin,
+            10000,
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
             144,
             test_scenario::ctx(scenario)
         );
+        sui::transfer::public_transfer(coin, ALICE);
         test_scenario::next_tx(scenario, ALICE);
         let channel = test_scenario::take_shared<Channel>(scenario);
 
         std::debug::print(&sui::object::id(&channel));
 
         // Force close 
-        // force_close sig: cb284b16dce9170dbd8aac383c421d788d9d822e979d9cbd52922fa1dd980ae94b122804ed65fb8b2223dee07347924305c30c8c5f300fa8d30b8e4ad70ff350
-        let commitment_sig = x"cb284b16dce9170dbd8aac383c421d788d9d822e979d9cbd52922fa1dd980ae94b122804ed65fb8b2223dee07347924305c30c8c5f300fa8d30b8e4ad70ff350";
+        // force_close sig: af031946182971756ecb8cc164921c54dfbcba34376d5810f1cded65ecf2b7b340dd6fb83a4a1179babc463f31e9efb921759cb284c199892f8f6465fc7feee2
+        let commitment_sig = x"af031946182971756ecb8cc164921c54dfbcba34376d5810f1cded65ecf2b7b340dd6fb83a4a1179babc463f31e9efb921759cb284c199892f8f6465fc7feee2";
         let revocation_hash = x"9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4";
         
         lightning::force_close(
@@ -135,23 +141,25 @@ module lightning::lightning_tests {
         let scenario = &mut scenario_val;
         
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(10000, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
-            coin,
+            &mut coin,
+            10000,
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
             144,
             test_scenario::ctx(scenario)
         );
+        sui::transfer::public_transfer(coin, ALICE);
         
         test_scenario::next_tx(scenario, ALICE);
         let channel = test_scenario::take_shared<Channel>(scenario);
 
         // Force close 
         // We first force close the channel with Alice's signature to inject the revocation hash.
-        let commitment_sig = x"cb284b16dce9170dbd8aac383c421d788d9d822e979d9cbd52922fa1dd980ae94b122804ed65fb8b2223dee07347924305c30c8c5f300fa8d30b8e4ad70ff350";
+        let commitment_sig = x"af031946182971756ecb8cc164921c54dfbcba34376d5810f1cded65ecf2b7b340dd6fb83a4a1179babc463f31e9efb921759cb284c199892f8f6465fc7feee2";
         let revocation_hash = x"9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4";
         
         lightning::force_close(

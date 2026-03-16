@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
@@ -27,7 +29,11 @@ func (m *mockSuiClient) GetCoins(addr string) ([]suinotify.SuiCoin, error) {
 	return nil, nil
 }
 
-func (m *mockSuiClient) ExecuteMoveCall(p, s []byte) (chainhash.Hash, error) {
+func (m *mockSuiClient) BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockSuiClient) ExecuteTransactionBlock(txBytes []byte, suiSignature []byte) (chainhash.Hash, error) {
 	return chainhash.Hash{}, nil
 }
 
@@ -61,6 +67,18 @@ func (m *mockSecretKeyRing) DerivePrivKey(desc keychain.KeyDescriptor) (*btcec.P
 
 func (m *mockSecretKeyRing) ECDH(desc keychain.KeyDescriptor, pub *btcec.PublicKey) ([32]byte, error) {
 	return [32]byte{}, nil
+}
+
+func (m *mockSecretKeyRing) SignMessage(keyLoc keychain.KeyLocator, msg []byte, doubleHash bool) (*ecdsa.Signature, error) {
+	return nil, ErrUnsupported
+}
+
+func (m *mockSecretKeyRing) SignMessageCompact(keyLoc keychain.KeyLocator, msg []byte, doubleHash bool) ([]byte, error) {
+	return nil, ErrUnsupported
+}
+
+func (m *mockSecretKeyRing) SignMessageSchnorr(keyLoc keychain.KeyLocator, msg []byte, doubleHash bool, taprootTweak []byte, tag []byte) (*schnorr.Signature, error) {
+	return nil, ErrUnsupported
 }
 
 func newTestWallet() *Wallet {

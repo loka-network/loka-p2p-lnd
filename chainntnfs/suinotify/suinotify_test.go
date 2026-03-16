@@ -81,7 +81,11 @@ func (m *mockSuiClient) GetCoins(address string) ([]SuiCoin, error) {
 	return nil, nil
 }
 
-func (m *mockSuiClient) ExecuteMoveCall(payload []byte, signature []byte) (chainhash.Hash, error) {
+func (m *mockSuiClient) BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockSuiClient) ExecuteTransactionBlock(txBytes []byte, suiSignature []byte) (chainhash.Hash, error) {
 	return chainhash.Hash{}, nil
 }
 

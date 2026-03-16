@@ -62,7 +62,11 @@ func (n *NoopSuiClient) GetCoins(_ string) ([]SuiCoin, error) {
 	return nil, nil
 }
 
-// ExecuteMoveCall does nothing.
-func (n *NoopSuiClient) ExecuteMoveCall(_, _ []byte) (chainhash.Hash, error) {
+func (n *NoopSuiClient) BuildMoveCall(_ string, _ *chainhash.Hash, _ []byte) ([]byte, error) {
+	return nil, nil
+}
+
+// ExecuteTransactionBlock does nothing.
+func (n *NoopSuiClient) ExecuteTransactionBlock(_, _ []byte) (chainhash.Hash, error) {
 	return chainhash.Hash{}, nil
 }

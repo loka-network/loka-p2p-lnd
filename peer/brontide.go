@@ -724,7 +724,7 @@ func NewBrontide(cfg Config) *Brontide {
 		// used to cross-check our own view of the network to mitigate
 		// various types of eclipse attacks.
 		header, err := p.cfg.BestBlockView.BestBlockHeader()
-		if err != nil && header == lastBlockHeader {
+		if err != nil || header == lastBlockHeader {
 			return lastSerializedBlockHeader[:]
 		}
 

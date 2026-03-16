@@ -80,6 +80,8 @@ func (s *SuiSigner) SignOutputRaw(
 		digest = hash
 	}
 
+	fmt.Printf("SuiSigner.SignOutputRaw [txid=%v, value=%v]: computed sighash %x\n", tx.TxHash(), signDesc.Output.Value, digest)
+
 	sig := ecdsa.Sign(privKey, digest)
 
 	return sig, nil

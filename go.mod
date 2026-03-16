@@ -11,6 +11,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
+	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/btcsuite/btcwallet v0.16.17
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2

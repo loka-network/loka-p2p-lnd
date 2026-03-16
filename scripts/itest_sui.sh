@@ -36,7 +36,21 @@ if [ ! -f "$LND_BIN" ] || [ ! -f "$LNCLI_BIN" ]; then
     exit 1
 fi
 
-echo "[2/7] Starting Alice and Bob LND nodes..."
+echo "[2.5/7] Funding default Sui CLI address and publishing Lightning Move package..."
+sui client faucet --url https://faucet.devnet.sui.io > /dev/null || true
+echo "Waiting for devnet faucet funding..."
+sleep 5
+PUBLISH_JSON=$(sui client publish --json --gas-budget 100000000 ./sui-contracts/lightning || echo "")
+PACKAGE_ID=$(echo "$PUBLISH_JSON" | grep -v 'Note' | grep -v 'INCLUDING' | grep -v 'BUILDING' | grep -v 'Skipping' | jq -r '.objectChanges[] | select(.type == "published") | .packageId')
+
+if [ -z "$PACKAGE_ID" ] || [ "$PACKAGE_ID" == "null" ]; then
+    echo "Error: Failed to publish Sui package or extract Package ID. Is your Devnet environment configured correctly?"
+    echo "$PUBLISH_JSON"
+    exit 1
+fi
+echo "Published Lightning Package ID: $PACKAGE_ID"
+
+echo "[2.8/7] Starting Alice and Bob LND nodes..."
 
 # Start Alice
 $LND_BIN \
@@ -46,6 +60,7 @@ $LND_BIN \
     --restlisten="127.0.0.1:$ALICE_REST" \
     --suinode.active \
     --suinode.devnet \
+    --suinode.packageid="$PACKAGE_ID" \
     --noseedbackup \
     > "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
@@ -58,6 +73,7 @@ $LND_BIN \
     --restlisten="127.0.0.1:$BOB_REST" \
     --suinode.active \
     --suinode.devnet \
+    --suinode.packageid="$PACKAGE_ID" \
     --noseedbackup \
     > "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!

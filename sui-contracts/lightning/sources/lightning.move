@@ -71,7 +71,8 @@ module lightning::lightning {
     // --- Entry Functions ---
 
     public fun open_channel(
-        funding_coin: Coin<SUI>,
+        funding_coin: &mut Coin<SUI>,
+        amount: u64,
         pubkey_a: vector<u8>,
         pubkey_b: vector<u8>,
         party_b: address,
@@ -79,7 +80,8 @@ module lightning::lightning {
         ctx: &mut TxContext
     ) {
         let party_a = tx_context::sender(ctx);
-        let capacity = coin::value(&funding_coin);
+        let split_coin = coin::split(funding_coin, amount, ctx);
+        let capacity = amount;
         
         let channel = Channel {
             id: object::new(ctx),
@@ -87,7 +89,7 @@ module lightning::lightning {
             party_b,
             balance_a: capacity,
             balance_b: 0,
-            funding_balance: coin::into_balance(funding_coin),
+            funding_balance: coin::into_balance(split_coin),
             pubkey_a,
             pubkey_b,
             status: 0, // OPEN

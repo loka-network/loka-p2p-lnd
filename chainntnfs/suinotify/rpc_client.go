@@ -2,6 +2,8 @@ package suinotify
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil/base58"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 // rpcRequest represents a standard JSON-RPC 2.0 request.
@@ -148,7 +152,178 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 
 	return coins, nil
 }
-// ExecuteMoveCall executes a Sui Move call transaction.
+
+// hexToNumArray converts a hex string to an array of integers for Sui RPC.
+func hexToNumArray(h string) []int {
+	if len(h) >= 2 && h[:2] == "0x" {
+		h = h[2:]
+	}
+	b, _ := hex.DecodeString(h)
+	nums := make([]int, len(b))
+	for i, v := range b {
+		nums[i] = int(v)
+	}
+	return nums
+}
+
+// bytesToNumArray converts a byte slice to an array of integers for Sui RPC.
+func bytesToNumArray(b []byte) []int {
+	nums := make([]int, len(b))
+	for i, v := range b {
+		nums[i] = int(v)
+	}
+	return nums
+}
+
+// BuildMoveCall requests the Sui Node to build an unsigned BCS PTB.
+func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error) {
+	fmt.Printf("[SUI RPC] BuildMoveCall from %s for channel %s\n", sender, channelID.String())
+
+	var envelope struct {
+		Type    input.SuiCallType `json:"type"`
+		Payload json.RawMessage   `json:"payload"`
+	}
+	if err := json.Unmarshal(payloadBytes, &envelope); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal envelope: %w", err)
+	}
+
+	var functionName string
+	var args []interface{}
+
+	switch envelope.Type {
+	case input.SuiCallChannelOpen: // 0
+		functionName = "open_channel"
+		var p input.ChannelOpenPayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		
+		coins, err := s.GetCoins(sender)
+		if err != nil || len(coins) == 0 {
+			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
+		}
+		fundingCoinObjID := fmt.Sprintf("0x%s", coins[0].ObjectID.String())
+
+		args = []interface{}{
+			fundingCoinObjID,
+			fmt.Sprintf("%d", p.LocalBalance),
+			hexToNumArray(p.LocalKey),
+			hexToNumArray(p.RemoteKey),
+			sender, 
+			fmt.Sprintf("%d", p.CSVDelay),
+		}
+
+	case input.SuiCallChannelClose: // 1
+		functionName = "close_channel"
+		var p input.ChannelClosePayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		channelObjID := fmt.Sprintf("0x%s", channelID.String())
+		args = []interface{}{
+			channelObjID,
+			fmt.Sprintf("%d", p.StateNum),
+			fmt.Sprintf("%d", p.LocalBalance),
+			fmt.Sprintf("%d", p.RemoteBalance),
+			bytesToNumArray(p.LocalSig),
+			bytesToNumArray(p.RemoteSig),
+		}
+
+	case input.SuiCallChannelForceClose: // 2
+		functionName = "force_close"
+		var p input.ChannelForceClosePayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		channelObjID := fmt.Sprintf("0x%s", channelID.String())
+		args = []interface{}{
+			channelObjID,
+			fmt.Sprintf("%d", p.StateNum),
+			bytesToNumArray(p.RevocationHash[:]),
+			bytesToNumArray(p.CommitmentSig),
+		}
+
+	case input.SuiCallChannelPenalize: // 7
+		functionName = "penalize"
+		var p input.ChannelPenalizePayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		channelObjID := fmt.Sprintf("0x%s", channelID.String())
+		args = []interface{}{
+			channelObjID,
+			bytesToNumArray(p.RevocationSecret[:]),
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported Sui Call Type: %v", envelope.Type)
+	}
+
+	callParams := []interface{}{
+		sender,
+		s.packageID,
+		"lightning",
+		functionName,
+		[]string{},
+		args,
+		nil,
+		"100000000",
+	}
+
+	result, err := s.call("unsafe_moveCall", callParams)
+	if err != nil {
+		return nil, fmt.Errorf("unsafe_moveCall failed: %w", err)
+	}
+
+	var response struct {
+		TxBytes string `json:"txBytes"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("\n[DEBUG] SUI TX_BYTES BASE64:\n%s\n\n", response.TxBytes)
+
+	txBytes, err := base64.StdEncoding.DecodeString(response.TxBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return txBytes, nil
+}
+
+// ExecuteTransactionBlock executes a Sui Move call transaction.
+func (s *SuiRPCClient) ExecuteTransactionBlock(txBytes []byte, signature []byte) (chainhash.Hash, error) {
+	txBase64 := base64.StdEncoding.EncodeToString(txBytes)
+	sigBase64 := base64.StdEncoding.EncodeToString(signature)
+
+	result, err := s.call("sui_executeTransactionBlock", []interface{}{
+		txBase64,
+		[]string{sigBase64},
+		map[string]bool{"showEffects": true},
+		"WaitForLocalExecution",
+	})
+	if err != nil {
+		return chainhash.Hash{}, err
+	}
+
+	var response struct {
+		Digest string `json:"digest"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return chainhash.Hash{}, err
+	}
+
+	digestBytes := base58.Decode(response.Digest)
+	if len(digestBytes) != 32 {
+		return chainhash.Hash{}, fmt.Errorf("invalid digest length: %d for %s", len(digestBytes), response.Digest)
+	}
+
+	var digest chainhash.Hash
+	copy(digest[:], digestBytes)
+
+	return digest, nil
+}
 func (s *SuiRPCClient) ExecuteMoveCall(txBytes []byte, signature []byte) (chainhash.Hash, error) {
 	// For the integration test, we don't have a native Sui Go BCS serializer.
 	// We intercept the JSON payload and simulate a successful broadcast.
