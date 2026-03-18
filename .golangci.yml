@@ -1,0 +1,334 @@
+version: "2"
+
+run:
+  # If you change this please also update GO_VERSION in Makefile (then run
+  # `make lint` to see where else it needs to be updated as well).
+  go: "1.25.5"
+
+  # Abort after 10 minutes.
+  timeout: 10m
+
+  build-tags:
+    - autopilotrpc
+    - chainrpc
+    - dev
+    - invoicesrpc
+    - neutrinorpc
+    - peersrpc
+    - signrpc
+    - walletrpc
+    - watchtowerrpc
+    - kvdb_etcd
+    - kvdb_postgres
+    - kvdb_sqlite
+    - integration
+
+linters:
+  default: all
+  disable:
+    # We instead use our own custom line length linter called `ll` since
+    # then we can ignore log lines.
+    - lll
+
+    # Global variables are used in many places throughout the code base.
+    - gochecknoglobals
+
+    # We want to allow short variable names.
+    - varnamelen
+
+    # We want to allow TODOs.
+    - godox
+
+    # Instances of table driven tests that don't pre-allocate shouldn't trigger
+    # the linter.
+    - prealloc
+
+    # Init functions are used by loggers throughout the codebase.
+    - gochecknoinits
+
+    # Deprecated linters. See https://golangci-lint.run/usage/linters/.
+    - bodyclose
+    - contextcheck
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - tparallel
+    - unparam
+    - wastedassign
+
+    # Disable whitespace linters as it has conflict rules against our
+    # contribution guidelines.
+    - wsl
+    - wsl_v5
+
+    # Allow using default empty values.
+    - exhaustruct
+
+    # Allow exiting case select faster by putting everything in default.
+    - exhaustive
+
+    # Allow tests to be put in the same package.
+    - testpackage
+
+    # Don't run the cognitive related linters.
+    - gocognit
+    - gocyclo
+    - maintidx
+    - cyclop
+
+    # Allow customized interfaces to be returned from functions.
+    - ireturn
+
+    # Disable too many blank identifiers check. We won't be able to run this
+    # unless a large refactor has been applied to old code.
+    - dogsled
+
+    # We don't wrap errors.
+    - wrapcheck
+
+    # Allow dynamic errors.
+    - err113
+
+    # We use ErrXXX instead.
+    - errname
+
+    # Disable nil check to allow returning multiple nil values.
+    - nilnil
+    
+    # We often split tests into separate test functions. If we are forced to
+    # call t.Helper() within those functions, we lose the information where
+    # exactly a test failed in the generated failure stack trace.
+    - thelper
+    
+    # The linter is too aggressive and doesn't add much value since reviewers
+    # will also catch magic numbers that make sense to extract.
+    - mnd
+
+    # Some of the tests cannot be parallelized. On the other hand, we don't
+    # gain much performance with this check so we disable it for now until
+    # unit tests become our CI bottleneck.
+    - paralleltest
+
+    # New linters that we haven't had time to address yet.
+    - testifylint
+    - perfsprint
+    - inamedparam
+    - copyloopvar
+    - tagalign
+    - protogetter
+    - revive
+    - depguard
+    - gosmopolitan
+    - intrange
+    - goconst
+    
+    # Disable function order linter because we structure exported and unexported
+    # functions differently.
+    - funcorder
+    
+    # Disable noinlineerr linter because we use it to inline errors.
+    - noinlineerr
+    
+    # Disable embeddedstructfieldcheck linter because we use it to align 
+    # structs. Because sometimes we have atomic fields that need to be aligned
+    # with means we need to assure that the field is at the beginning of the
+    # struct.
+    - embeddedstructfieldcheck
+    
+
+  settings:
+    dupl:
+      # Tokens count to trigger issue.
+      threshold: 200
+
+    errorlint:
+      # Check for incorrect fmt.Errorf error wrapping.
+      errorf: true
+    
+    funlen:
+      # Checks the number of lines in a function.
+      # If lower than 0, disable the check.
+      lines: 200
+      # Checks the number of statements in a function.
+      statements: 80
+    
+    gomoddirectives:
+      # See project's go.mod for the explanation why these are needed.
+      replace-allow-list:
+        - github.com/ulikunitz/xz
+        - github.com/gogo/protobuf
+        - google.golang.org/protobuf
+        - github.com/lightningnetwork/lnd/sqldb
+      replace-local: true
+
+    gosec:
+      excludes:
+        - G402 # Look for bad TLS connection settings.
+        - G306 # Poor file permissions used when writing to a new file.
+        - G601 # Implicit memory aliasing in for loop.
+        - G115 # Integer overflow in conversion.
+
+    nestif:
+      # Minimal complexity of if statements to report.
+      min-complexity: 10
+
+    nlreturn:
+      # Size of the block (including return statement that is still "OK")
+      # so no return split required.
+      block-size: 3
+
+    staticcheck:
+      checks:
+        - -SA1019
+      
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+
+    usetesting:
+      context-background: true
+
+    whitespace:
+      multi-if: true
+      multi-func: true
+
+    custom:
+      ll:
+        type: module
+        description: Custom lll linter with 'S' log line exclusion.
+        settings:
+           # Max line length, lines longer will be reported.
+          line-length: 80
+          # The regex that we will use to detect the start of an `S` log line.
+          log-regex: ^\s*.*(L|l)og\.(Info|Debug|Trace|Warn|Error|Critical)S\(
+          # Tab width in spaces.
+          tab-width: 8
+
+  exclusions:
+    # Mode of the generated files analysis.
+    #
+    # - `strict`: sources are excluded by strictly following the Go generated file convention.
+    #    Source files that have lines matching only the following regular expression will be excluded: `^// Code generated .* DO NOT EDIT\.$`
+    #    This line must appear before the first non-comment, non-blank text in the file.
+    #    https://go.dev/s/generatedcode
+    # - `lax`: sources are excluded if they contain lines like `autogenerated file`, `code generated`, `do not edit`, etc.
+    # - `disable`: disable the generated files exclusion.
+    #
+    # Default: strict
+    generated: lax
+
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+  
+    rules:
+      - linters:
+          # Allow duplications in tests so it's easier to follow a single unit
+          - dupl
+          - funlen
+          - gosec
+          - revive
+        # Exclude gosec from running for tests so that tests with weak 
+        # randomness (math/rand) will pass the linter.
+        path: _test\.go
+
+      - linters:
+          # forcetypeassert is skipped for the mock because the test would fail
+          # if the returned value doesn't match the type, so there's no need to
+          # check the convert.
+          - forcetypeassert
+          - revive
+        path: mock*
+
+      - linters:
+          - funlen
+          - gosec
+        path: test*
+      
+      # Allow duplicated code and fmt.Printf() in DB migrations.
+      - linters:
+          - dupl
+          - forbidigo
+          - godot
+        path: channeldb/migration*
+
+      # Allow duplicated code and fmt.Printf() in DB migration tests.
+      - linters:
+          - dupl
+          - forbidigo
+          - godot
+        path: channeldb/migtest
+
+      # Allow fmt.Printf() in commands.
+      - linters:
+          - forbidigo
+        path: cmd/commands/*
+
+      # Allow fmt.Printf() in config parsing.
+      - linters:
+          - forbidigo
+        path: config\.go
+      - linters:
+          - forbidigo
+        path: lnd\.go
+
+      - linters:
+          # forcetypeassert is skipped for the mock because the test would fail
+          # if the returned value doesn't match the type, so there's no need to
+          # check the convert.
+          - forcetypeassert
+        path: lnmock/*
+
+      - linters:
+          # forcetypeassert is skipped for the mock because the test would fail
+          # if the returned value doesn't match the type, so there's no need to
+          # check the convert.
+          - forcetypeassert
+        path: mock*
+      
+    # Skip autogenerated files for mobile and gRPC as well as copied code for
+    # internal use. 
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - "mobile\\/.*generated\\.go"
+      - "\\.pb\\.go$"
+      - "\\.pb\\.gw\\.go$"
+      - "internal\\/musig2v040"
+      - channeldb/migration_01_to_11
+      - channeldb/migration/lnwire21
+      
+issues:
+  # Only show newly introduced problems.
+  new-from-rev: 03eab4db64540aa5f789c617793e4459f4ba9e78
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+
+  settings:
+    gofmt:
+      # simplify code: gofmt with `-s` option, true by default
+      simplify: true
+
+  exclusions:
+    generated: lax
+    # Skip autogenerated files for mobile and gRPC as well as copied code for
+    # internal use.
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - "mobile\\/.*generated\\.go"
+      - "\\.pb\\.go$"
+      - "\\.pb\\.gw\\.go$"
+      - "internal\\/musig2v040"
+      - channeldb/migration_01_to_11
+      - channeldb/migration/lnwire21
