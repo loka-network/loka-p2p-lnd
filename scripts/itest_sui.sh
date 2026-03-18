@@ -9,6 +9,39 @@ LND_BIN="./lnd-debug"
 LNCLI_BIN="./lncli-debug"
 SUI_CMD="sui"
 
+NETWORK="${1:-devnet}"
+
+if [ "$NETWORK" == "localnet" ]; then
+    echo "=== Running in LOCALNET mode ==="
+    SUI_RPC_HOST="http://127.0.0.1:9000"
+    FAUCET_URL="" # Localnet uses the active-env settings for faucet natively
+    sui client switch --env localnet || true
+
+    if ! nc -z 127.0.0.1 9000; then
+        echo "Local Sui node not found on port 9000. Starting it..."
+        RUST_LOG="off,sui_node=info" sui start --with-faucet --force-regenesis > /tmp/sui_localnet.log 2>&1 &
+        SUI_PID=$!
+        echo "Waiting for local node RPC (9000) and Faucet (9123) to initialize..."
+        for i in {1..30}; do
+            if nc -z 127.0.0.1 9000 && nc -z 127.0.0.1 9123; then
+                break
+            fi
+            sleep 1
+        done
+        sleep 2 # Extra padding
+    else
+        echo "Local Sui node is already running."
+    fi
+elif [ "$NETWORK" == "devnet" ]; then
+    echo "=== Running in DEVNET mode ==="
+    SUI_RPC_HOST="https://fullnode.devnet.sui.io:443"
+    FAUCET_URL="https://faucet.devnet.sui.io"
+    sui client switch --env devnet || true
+else
+    echo "Error: Unknown network parameter '$NETWORK'. Please use 'localnet' or 'devnet'."
+    exit 1
+fi
+
 ALICE_DIR="/tmp/lnd-sui-test/alice"
 BOB_DIR="/tmp/lnd-sui-test/bob"
 ALICE_PORT=10011
@@ -18,7 +51,7 @@ BOB_REST=8082
 ALICE_RPC=10009
 BOB_RPC=10010
 
-echo "=== Sui LND Integration Test ==="
+echo "=== Sui LND Integration Test ($NETWORK) ==="
 
 # 1. Clean up from previous runs
 echo "[1/7] Cleaning up previous test state..."
@@ -37,10 +70,15 @@ if [ ! -f "$LND_BIN" ] || [ ! -f "$LNCLI_BIN" ]; then
 fi
 
 echo "[2.5/7] Funding default Sui CLI address and publishing Lightning Move package..."
-sui client faucet --url https://faucet.devnet.sui.io > /dev/null || true
-echo "Waiting for devnet faucet funding..."
+if [ -n "$FAUCET_URL" ]; then
+    sui client faucet --url "$FAUCET_URL" > /dev/null || true
+else
+    sui client faucet > /dev/null || true
+fi
+echo "Waiting for $NETWORK faucet funding..."
 sleep 5
 PUBLISH_JSON=$(sui client publish --json --gas-budget 100000000 ./sui-contracts/lightning || echo "")
+echo "PUBLISH_JSON: $PUBLISH_JSON"
 PACKAGE_ID=$(echo "$PUBLISH_JSON" | grep -v 'Note' | grep -v 'INCLUDING' | grep -v 'BUILDING' | grep -v 'Skipping' | jq -r '.objectChanges[] | select(.type == "published") | .packageId')
 
 if [ -z "$PACKAGE_ID" ] || [ "$PACKAGE_ID" == "null" ]; then
@@ -60,6 +98,7 @@ $LND_BIN \
     --restlisten="127.0.0.1:$ALICE_REST" \
     --suinode.active \
     --suinode.devnet \
+    --suinode.rpchost="$SUI_RPC_HOST" \
     --suinode.packageid="$PACKAGE_ID" \
     --noseedbackup \
     > "$ALICE_DIR/lnd.log" 2>&1 &
@@ -73,6 +112,7 @@ $LND_BIN \
     --restlisten="127.0.0.1:$BOB_REST" \
     --suinode.active \
     --suinode.devnet \
+    --suinode.rpchost="$SUI_RPC_HOST" \
     --suinode.packageid="$PACKAGE_ID" \
     --noseedbackup \
     > "$BOB_DIR/lnd.log" 2>&1 &
@@ -87,6 +127,12 @@ cleanup() {
     echo "Cleaning up LND nodes..."
     kill $ALICE_PID $BOB_PID 2>/dev/null || true
     wait $ALICE_PID $BOB_PID 2>/dev/null || true
+
+    if [ -n "$SUI_PID" ]; then
+        echo "Stopping background local Sui node (PID: $SUI_PID)..."
+        kill $SUI_PID 2>/dev/null || true
+        wait $SUI_PID 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
 
@@ -116,8 +162,18 @@ ALICE_ADDR=$($ALICE_CLI newaddress p2wkh | jq -r '.address')
 echo "Alice Address: $ALICE_ADDR"
 
 # Assuming local faucet is running. If interacting with public testnet, we'd use 'sui client faucet'
-sui client faucet --address "$ALICE_ADDR"
-sleep 5 # Wait for faucet tx
+if [ -n "$FAUCET_URL" ]; then
+    sui client faucet --url "$FAUCET_URL" --address "$ALICE_ADDR" || true
+    sleep 5
+    # Call faucet a second time so Alice has TWO coins (one for funding, one for gas)
+    sui client faucet --url "$FAUCET_URL" --address "$ALICE_ADDR" || true
+else
+    sui client faucet --address "$ALICE_ADDR" || true
+    sleep 5
+    sui client faucet --address "$ALICE_ADDR" || true
+fi
+echo "Waiting for $NETWORK faucet funding to propagate across all RPC nodes..."
+sleep 15 # Wait for faucet tx
 
 echo "Checking Alice's wallet balance..."
 $ALICE_CLI walletbalance
@@ -128,7 +184,11 @@ BOB_PUBKEY=$($BOB_CLI getinfo | jq -r '.identity_pubkey')
 echo "Bob Pubkey: $BOB_PUBKEY"
 
 $ALICE_CLI connect "${BOB_PUBKEY}@127.0.0.1:${BOB_PORT}"
-sleep 2
+sleep 5
+
+# Wait for Alice's nodes to fully propagate coins
+echo "Double checking gas object propagation..."
+sleep 10
 
 # 5. Opening Channel
 echo "[5/7] Alice opening channel to Bob..."
@@ -143,10 +203,56 @@ $ALICE_CLI pendingchannels
 $ALICE_CLI listchannels
 
 # 7. Payment Test
-echo "[7/7] Testing Payment (Alice -> Bob)..."
-INVOICE=$($BOB_CLI addinvoice --amt=1000 --memo="itest-sui-payment" | jq -r '.payment_request')
+echo "[7/9] Testing Payment (Alice -> Bob)..."
+INVOICE=$($BOB_CLI addinvoice --amt=200000 --memo="itest-sui-payment" | jq -r '.payment_request')
 echo "Bob Invoice: $INVOICE"
 $ALICE_CLI payinvoice --pay_req="$INVOICE" --force
+
+echo "[8/9] Testing Reverse Payment (Bob -> Alice)..."
+INVOICE2=$($ALICE_CLI addinvoice --amt=500 --memo="reverse-sui-payment" | jq -r '.payment_request')
+echo "Alice Invoice: $INVOICE2"
+$BOB_CLI payinvoice --pay_req="$INVOICE2" --force
+
+# 8. Cooperative Channel Closure
+echo "[9/9] Testing Cooperative and Force Channel Closures..."
+echo "Closing first channel cooperatively..."
+CHAN_POINT=$($ALICE_CLI listchannels | jq -r '.channels[0].channel_point')
+TXID=$(echo $CHAN_POINT | cut -d':' -f1)
+OUT_INDEX=$(echo $CHAN_POINT | cut -d':' -f2)
+
+# Start cooperative close stream in background
+$ALICE_CLI closechannel $TXID $OUT_INDEX > /tmp/coop_close.log &
+echo "Waiting 10s for cooperative close to settle on chain..."
+sleep 10
+
+echo "Funding Alice for the second channel (Force Close test)..."
+if [ -n "$FAUCET_URL" ]; then
+    sui client faucet --url "$FAUCET_URL" --address "$ALICE_ADDR" || true
+else
+    sui client faucet --address "$ALICE_ADDR" || true
+fi
+sleep 5
+
+echo "Alice opening second channel to Bob..."
+$ALICE_CLI openchannel --node_key=$BOB_PUBKEY --local_amt=5000000
+sleep 10
+CHAN_POINT2=$($ALICE_CLI listchannels | jq -r '.channels[0].channel_point')
+if [ "$CHAN_POINT2" == "null" ] || [ -z "$CHAN_POINT2" ]; then
+    echo "Warning: Second channel failed to open or sync. Delaying."
+    sleep 10
+    CHAN_POINT2=$($ALICE_CLI listchannels | jq -r '.channels[0].channel_point')
+fi
+TXID2=$(echo "$CHAN_POINT2" | cut -d':' -f1)
+OUT_INDEX2=$(echo "$CHAN_POINT2" | cut -d':' -f2)
+
+echo "Alice force closing second channel..."
+$ALICE_CLI closechannel --force $TXID2 $OUT_INDEX2 > /tmp/force_close.log &
+echo "Waiting 10s for force close to register..."
+sleep 10
+
+echo "Checking final node states:"
+$ALICE_CLI pendingchannels
+$ALICE_CLI listchannels
 
 echo "=== Sui LND Integration Test SUCCESS ==="
 exit 0

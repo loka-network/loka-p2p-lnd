@@ -1039,6 +1039,14 @@ func (p *Brontide) QuitSignal() <-chan struct{} {
 func (p *Brontide) addrWithInternalKey(
 	deliveryScript []byte) (*chancloser.DeliveryAddrWithKey, error) {
 
+	// Hack for Sui addresses:
+	if len(deliveryScript) == 66 && deliveryScript[0] == '0' && deliveryScript[1] == 'x' {
+		return &chancloser.DeliveryAddrWithKey{
+			DeliveryAddress: deliveryScript,
+			InternalKey:     fn.None[btcec.PublicKey](),
+		}, nil
+	}
+
 	// Currently, custom channels cannot be created with external upfront
 	// shutdown addresses, so this shouldn't be an issue. We only require
 	// the internal key for taproot addresses to be able to provide a non
@@ -2947,6 +2955,10 @@ func (p *Brontide) genDeliveryScript() ([]byte, error) {
 	}
 	p.log.Infof("Delivery addr for channel close: %v",
 		deliveryAddr)
+
+	if fmt.Sprintf("%T", deliveryAddr) == "*suiwallet.SuiAddress" || fmt.Sprintf("%T", deliveryAddr) == "suiwallet.SuiAddress" {
+		return deliveryAddr.ScriptAddress(), nil
+	}
 
 	return txscript.PayToAddrScript(deliveryAddr)
 }

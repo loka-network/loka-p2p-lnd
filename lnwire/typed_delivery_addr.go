@@ -16,7 +16,8 @@ const (
 	// - pay to pubkey hash: 25
 	// - pay to script hash: 22
 	// - pay to witness pubkey hash: 22.
-	deliveryAddressMaxSize = 34
+	// - SUI hex address: 66
+	deliveryAddressMaxSize = 66
 )
 
 // DeliveryAddress is used to communicate the address to which funds from a

@@ -3,6 +3,7 @@ package lncfg
 import (
 	"fmt"
 	"net"
+	"strings"
 )
 
 const (
@@ -146,6 +147,10 @@ func (s *SuiNode) Validate() error {
 // node RPC endpoint.  If RPCHost already contains a port the value is
 // returned verbatim; otherwise the default port is appended.
 func (s *SuiNode) RPCAddr() string {
+	if strings.HasPrefix(s.RPCHost, "http://") || strings.HasPrefix(s.RPCHost, "https://") {
+		return s.RPCHost
+	}
+
 	_, _, err := net.SplitHostPort(s.RPCHost)
 	if err != nil {
 		// No port present – append default.

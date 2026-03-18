@@ -2885,6 +2885,11 @@ func (s *shimKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDesc
 func ValidateUpfrontShutdown(shutdown lnwire.DeliveryAddress,
 	params *chaincfg.Params) bool {
 
+	// Hack for Sui addresses:
+	if len(shutdown) == 66 && shutdown[0] == '0' && shutdown[1] == 'x' {
+		return true
+	}
+
 	// We don't need to worry about a large UpfrontShutdownScript since it
 	// was already checked in lnwire when decoding from the wire.
 	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(shutdown, params)

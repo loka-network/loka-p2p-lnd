@@ -28,7 +28,7 @@ All supported chains share the same powerful RPC interface, pathfinding engine, 
 
 Integrating LND with Sui creates a truly scalable, high-throughput P2P payment value network that is capable of supporting global micro-transactions with optimal efficiency:
 
-- **Instant Finality & High Throughput:** Sui's DAG-BFT consensus provides sub-second confirmation latency, ensuring that on-chain operations—like channel openings, closures, and dispute resolutions—are settled incredibly fast.
+- **Instant Finality & High Throughput:** Setu's DAG-BFT consensus provides sub-second confirmation latency, ensuring that on-chain operations—like channel openings, closures, and dispute resolutions—are settled incredibly fast.
 - **Battle-Tested P2P Routing:** We preserve the complete, extensively tested Lightning Network (BOLT) logic. The P2P network, routing engine, and HTLC state machine remain fully intact.
 - **Smart Contract (Move) Enforced Lightning:** Channel primitives (open, close, HTLCs, penalties) are handled elegantly by native Sui Move smart contracts, avoiding the limitations of traditional Bitcoin scripting.
 

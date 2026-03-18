@@ -264,10 +264,9 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 		}
 
 	case PkScript:
-		// The largest script we'll accept is a p2wsh which is exactly
-		// 34 bytes long.
+		// The largest script we'll accept is 66 bytes to support SUI addresses.
 		scriptLength := len(e)
-		if scriptLength > 34 {
+		if scriptLength > 66 {
 			return fmt.Errorf("'PkScript' too long")
 		}
 

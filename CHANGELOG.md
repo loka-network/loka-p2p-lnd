@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Fixed signature validation tests in `lightning_tests.move` by using standard `btcec/v2/ecdsa` in Go to generate deterministic, low-S (BIP-62 compliant) `secp256k1` signatures ensuring full compatibility with Sui Move VM requirements.
 - **Fixed Sui Node `Invalid user signature` execution crashes:** Migrated native Go SECP256K1 signature generation to use `SHA256(Blake2B(intent))` to perfectly replicate the implicit double-hashing sequence inadvertently introduced by the `@mysten/sui` Typescript SDK.
 - **Fixed `encoding/hex: invalid byte: U+007A 'z'` crash:** Swapped `chainhash` hexadecimal hex-decoding in `ExecuteTransactionBlock` with a native Base58 parser to properly decode Sui's Transaction Block `Digest` format.
+- Fixed panics and `invalid shutdown script` errors during Sui cooperative channel closures by bypassing strict Bitcoin payload length (`deliveryAddressMaxSize`) and script type validation for 66-byte hex Sui addresses.
 
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.

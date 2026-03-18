@@ -1267,6 +1267,10 @@ func ParseUpfrontShutdownAddress(address string,
 		return nil, nil
 	}
 
+	if len(address) == 66 && address[:2] == "0x" {
+		return []byte(address), nil
+	}
+
 	addr, err := btcutil.DecodeAddress(
 		address, params,
 	)
