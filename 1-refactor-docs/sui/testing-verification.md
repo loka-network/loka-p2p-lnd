@@ -1,68 +1,68 @@
-# 测试与验证文档
+# Testing and Verification Documentation
 
-本文档定义 Sui/MoveVM 适配版 LND 的测试与验证策略，覆盖单元测试、合约测试与端到端测试。
+This document defines the testing and verification strategy for the Sui/MoveVM adapted version of LND, covering unit tests, contract tests, and end-to-end tests.
 
-## 目标与范围
+## Objectives and Scope
 
-- 验证 Sui 适配不会破坏既有 LND 行为。
-- 验证 Move 合约在关键路径（通道建立、HTLC、支付结算、关闭通道）上的逻辑正确性。
-- 覆盖 Go 适配层单测、Move 合约单测与 LND+Sui 端到端集成测试。
+- Verify that the Sui adaptation does not break existing LND behavior.
+- Verify the logical correctness of the Move contract on critical paths (channel establishment, HTLC, payment settlement, channel closure).
+- Cover Go adaptation layer unit tests, Move contract unit tests, and LND+Sui end-to-end integration tests.
 
-## 单元测试
+## Unit Tests
 
-### 1. Go 适配层测试
+### 1. Go Adaptation Layer Tests
 
-- 保持与上游 LND 一致的单测结构与命名。
-- 重点覆盖：`suinotify/`, `suiwallet/`, `input/sui_channel.go`, `chainfee/sui_estimator`。
-- 验证类型映射：`wire.OutPoint.Hash` 与 Sui `ObjectID` 的 1:1 映射。
+- Maintain the same unit test structure and naming conventions as upstream LND.
+- Focus coverage on: `suinotify/`, `suiwallet/`, `input/sui_channel.go`, `chainfee/sui_estimator`.
+- Verify type mapping: 1:1 mapping between `wire.OutPoint.Hash` and Sui `ObjectID`.
 
-运行方式:
+How to run:
 ```sh
 make unit tags=sui
 ```
 
-### 2. Move 合约测试
+### 2. Move Contract Tests
 
-- 验证合约方法的权限控制、签名校验与状态转换。
-- 重点覆盖：`open_channel` 的资金锁定, `htlc_claim` 的原像验证, `penalize` 的纯 Hash 摘要验证 (原版为 ECDSA 签名验证, 现基于 Lightning 状态机的安全假定改为纯哈希比对验证)。
+- Verify the permission control, signature validation, and state transitions of contract methods.
+- Focus coverage on: fund locking in `open_channel`, preimage validation in `htlc_claim`, and pure Hash digest validation in `penalize` (the original uses ECDSA signature validation, which is now changed to pure hash comparison validation based on the security assumptions of the Lightning state machine).
 
-运行方式 (在合约目录下):
+How to run (in the contract directory):
 ```sh
 sui move test
 ```
 
-## 端到端测试（Sui + LND + 支付流程）
+## End-to-End Tests (Sui + LND + Payment Flow)
 
-我们提供了一个自动化的集成测试脚本 `scripts/itest_sui.sh`，用于在本地模拟完整的双节点（Alice & Bob）支付流程。
+We provide an automated integration test script `scripts/itest_sui.sh` to simulate a complete two-node (Alice & Bob) payment flow locally.
 
-### 先决条件
+### Prerequisites
 
 - Go 1.25.5
-- Sui CLI (已配置本地网络环境，用于请求测试网水龙头)
-- `jq` (用于解析 JSON 输出)
-- 确保已编译 LND 二进制文件（运行 `make build` 生成 `lnd-debug` 和 `lncli-debug`）
+- Sui CLI (configured with local network environment, used to request testnet faucet)
+- `jq` (for parsing JSON output)
+- Ensure the LND binaries are compiled (run `make build` to generate `lnd-debug` and `lncli-debug`)
 
-### 运行自动化脚本（推荐）
+### Run Automated Script (Recommended)
 
-您可以直接运行提供的集成测试脚本，完成端到端的通道建立与支付验证：
+You can directly run the provided integration test script to complete the end-to-end channel establishment and payment verification:
 
 ```sh
 ./scripts/itest_sui.sh
 ```
 
-**该脚本的自动化流程包括：**
-1. **清理环境**：清空上一轮的测试数据目录 `/tmp/lnd-sui-test/`。
-2. **启动节点**：分别启动 Alice 和 Bob 两个 LND 节点，并附带 `--suinode.active` 和 `--suinode.devnet` 参数。
-3. **资金准备**：为 Alice 生成一个新的 Sui 地址，并调用 `sui client faucet` 获取 Devnet 测试币。
-4. **P2P 连接**：Alice 连接到 Bob 的闪电网络节点。
-5. **建立通道**：Alice 向 Bob 发起 `openchannel` 请求，在 Sui 链上注册 Channel Object。
-6. **执行支付**：Bob 创建一张收款发票，Alice 通过刚刚建立的通道完成支付 (`payinvoice`)。
+**The automated flow of this script includes:**
+1. **Environment Cleanup**: Clear the test data directory `/tmp/lnd-sui-test/` from the previous run.
+2. **Start Nodes**: Start two LND nodes, Alice and Bob, with the `--suinode.active` and `--suinode.devnet` parameters.
+3. **Fund Preparation**: Generate a new Sui address for Alice and call `sui client faucet` to get Devnet test coins.
+4. **P2P Connection**: Alice connects to Bob's Lightning Network node.
+5. **Establish Channel**: Alice initiates an `openchannel` request to Bob, registering the Channel Object on the Sui chain.
+6. **Execute Payment**: Bob creates a receiving invoice, and Alice completes the payment (`payinvoice`) through the newly established channel.
 
-### 分步手动验证 (参考)
-如果您希望手动分步执行，可以参考 `scripts/itest_sui.sh` 中的命令流，依次启动节点并使用 `./lncli-debug --lnddir=...` 交互式命令进行验证。
+### Step-by-Step Manual Verification (Reference)
+If you wish to execute the steps manually, you can refer to the command flow in `scripts/itest_sui.sh`, start the nodes sequentially, and use the `./lncli-debug --lnddir=...` interactive command for verification.
 
-## 常见问题与排查
+## Common Issues and Troubleshooting
 
-- **Gas 不足**: 检查 LND 钱包账户是否有足够的 SUI 支付 Move Call 交易手续费。
-- **Event 订阅失败**: 确保 Sui RPC 节点支持 WebSocket 订阅。
-- **签名校验失败**: 确认 Move 合约中 `ecdsa_k1::secp256k1_verify` 使用的是压缩格式公钥。
+- **Insufficient Gas**: Check if the LND wallet account has enough SUI to pay for the Move Call transaction fee.
+- **Event Subscription Failure**: Ensure the Sui RPC node supports WebSocket subscriptions.
+- **Signature Validation Failure**: Confirm that `ecdsa_k1::secp256k1_verify` in the Move contract is using a compressed public key.

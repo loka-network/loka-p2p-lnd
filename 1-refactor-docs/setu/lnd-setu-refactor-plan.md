@@ -1,250 +1,250 @@
-# LND 适配 Setu 改造详细文档
+# Detailed Refactoring Plan for LND Adaptation to Setu
 
-> 目标: 在不改动 LND 现有接口签名的前提下, 以适配器模式接入 Setu, 支持 Setu 通道生命周期与 HTLC 流程。
-> 约束: Setu 当前无通用 VM, 需要在 Setu Runtime/Validator 侧新增硬编码 Lightning 原语。
+> Objective: Integrate Setu using an adapter pattern without modifying LND's existing interface signatures, and support Setu's channel lifecycle and HTLC processes.
+> Constraints: Setu currently does not have a general-purpose VM, requiring hardcoded Lightning primitives to be added on the Setu Runtime/Validator side.
 
-## 1. 改造原则与总体路径
+## 1. Refactoring Principles and Overall Approach
 
-- 零侵入接口层: 不新增抽象层、不改 LND 既有接口签名, 仅在实现层新增 Setu 版本。
-- 类型复用: 适配层内部尽量复用 Bitcoin/LND 类型, 并在边界做语义转换。
-- 双链共存: Bitcoin 逻辑保持不变, 通过 `--chain=setu` 启动 Setu 后端。
-- 端到端闭环: 需要链上 Event/State 与 LND 通道状态机同步, 以及完整测试验证。
+- Zero-intrusion at the interface layer: Do not add new abstraction layers and do not change existing LND interface signatures; only add the Setu version at the implementation layer.
+- Type reuse: Reuse Bitcoin/LND types internally within the adapter layer as much as possible, and perform semantic conversions at the boundaries.
+- Dual-chain coexistence: Keep Bitcoin logic unchanged, and start the Setu backend via `--chain=setu`.
+- End-to-end closed loop: Requires synchronization between on-chain Event/State and the LND channel state machine, as well as comprehensive test validation.
 
-## 2. 关键接口与 Setu 适配实现清单
+## 2. Key Interfaces and Setu Adaptation Implementation List
 
-### 2.1 ChainNotifier (链事件通知)
+### 2.1 ChainNotifier (Chain Event Notification)
 
-LND 依赖 `chainntnfs.ChainNotifier` 以订阅确认、花费、区块等事件。
+LND relies on `chainntnfs.ChainNotifier` to subscribe to confirmations, spends, blocks, and other events.
 
-适配策略:
+Adaptation Strategy:
 
-- 将 Setu Event/Anchor 作为 “区块” 语义来源。
-- 将 Setu EventId 作为 `TxID` 语义来源。
-- 将 Setu Channel Object 的版本变更或状态变更模拟为 “花费”/“确认”。
+- Use Setu Event/Anchor as the "block" semantic source.
+- Use Setu EventId as the `TxID` semantic source.
+- Simulate the version changes or state changes of Setu Channel Objects as "spends"/"confirmations".
 
-需要实现:
+Needs to be implemented:
 
-- `RegisterConfirmationsNtfn`: 对 Setu EventType 的确认, 通过 Anchor Finalized 触发。
-- `RegisterSpendNtfn`: 对 Channel Object 的强制关闭/处罚等状态变更触发。
-- `RegisterBlockEpochNtfn`: 对 Anchor 事件广播 (Anchor = BlockEpoch)。
+- `RegisterConfirmationsNtfn`: For confirmation of Setu EventTypes, triggered via Anchor Finalized.
+- `RegisterSpendNtfn`: Triggered by state changes of the Channel Object, such as force closes or penalties.
+- `RegisterBlockEpochNtfn`: For Anchor event broadcasts (Anchor = BlockEpoch).
 
-### 2.2 WalletController (钱包控制器)
+### 2.2 WalletController (Wallet Controller)
 
-LND 高度依赖 `lnwallet.WalletController` 进行 UTXO 选择、交易构造与签名。
+LND heavily relies on `lnwallet.WalletController` for UTXO selection, transaction construction, and signing.
 
-Setu 适配策略:
+Setu Adaptation Strategy:
 
-- 以 Setu `Coin` + `ObjectId` 作为 UTXO 替代。
-- `wire.OutPoint.Hash` 内部存放 Setu `ObjectId` (32B) 并固定 `Index = 0`。
-- `btcutil.Amount` 直接映射为 Setu 最小单位 (u64)。
+- Use Setu `Coin` + `ObjectId` as a UTXO replacement.
+- `wire.OutPoint.Hash` internally stores the Setu `ObjectId` (32B) with a fixed `Index = 0`.
+- `btcutil.Amount` maps directly to Setu's smallest unit (u64).
 
-关键方法映射:
+Key method mapping:
 
-- `ListUnspentWitness`: 返回 Setu `Coin` -> `Utxo` 列表。
-- `SendOutputs`/`CreateSimpleTx`: 构建 Setu Event (Transfer/ChannelXXX)。
-- `PublishTransaction`: 提交 Setu Event。
-- `GetTransactionDetails`: 通过 EventId 查询执行状态和确认高度 (Anchor depth)。
+- `ListUnspentWitness`: Returns a list of Setu `Coin` -> `Utxo`.
+- `SendOutputs`/`CreateSimpleTx`: Builds Setu Events (Transfer/ChannelXXX).
+- `PublishTransaction`: Submits a Setu Event.
+- `GetTransactionDetails`: Queries execution status and confirmation height (Anchor depth) via EventId.
 
-### 2.3 BlockChainIO (链读接口)
+### 2.3 BlockChainIO (Chain Read Interface)
 
-Setu 适配策略:
+Setu Adaptation Strategy:
 
-- `GetBestBlock`: 返回最新 Anchor (id, depth)。
-- `GetUtxo`: 查询 ObjectId 是否存在, 并构造 TxOut 语义。
-- `GetBlock`: 将 Anchor + Event 列表包装为 `wire.MsgTx` 等效结构 (只用于 LND 内部逻辑)。
+- `GetBestBlock`: Returns the latest Anchor (id, depth).
+- `GetUtxo`: Queries whether an ObjectId exists, and constructs TxOut semantics.
+- `GetBlock`: Wraps an Anchor + Event list into an equivalent `wire.MsgTx` structure (only used for LND's internal logic).
 
 ### 2.4 Signer + SecretKeyRing
 
-Setu 支持 Secp256k1 / Ed25519 / Secp256r1。
+Setu supports Secp256k1 / Ed25519 / Secp256r1.
 
-适配策略:
+Adaptation Strategy:
 
-- LND 内部签名默认基于 Secp256k1, 维持使用 Secp256k1。
-- Setu 端可接受 Secp256k1 作为通道签名格式。
-- 私钥派生路径复用 Setu `setu-keys` BIP32 路径 (coin type 99999)。
+- LND internal signatures default to Secp256k1; maintain the use of Secp256k1.
+- The Setu side can accept Secp256k1 as the channel signature format.
+- Private key derivation path reuses the Setu `setu-keys` BIP32 path (coin type 99999).
 
 ### 2.5 Fee Estimator
 
-Setu 目前无 Gas 机制, 使用固定费率或通过配置模拟。
+Setu currently has no Gas mechanism. It uses fixed rates or simulates them through configuration.
 
-实现策略:
+Implementation Strategy:
 
-- `EstimateFeePerKW`: 返回固定值 (configurable) 或基于历史 Event size 估算。
-- `RelayFeePerKW`: 返回固定最小值。
+- `EstimateFeePerKW`: Returns a fixed value (configurable) or an estimate based on historical Event size.
+- `RelayFeePerKW`: Returns a fixed minimum value.
 
-## 3. 通道生命周期映射
+## 3. Channel Lifecycle Mapping
 
 ### 3.1 ChannelOpen
 
-LND 逻辑:
+LND Logic:
 
-- Bitcoin: 构建 2-of-2 多签 funding tx, chain confirm
+- Bitcoin: Builds a 2-of-2 multisig funding tx, chain confirm.
 
-Setu 逻辑:
+Setu Logic:
 
-- 创建 Channel SharedObject (ObjectId = ChannelID)
-- EventType: `ChannelOpen` (新增) + payload
+- Creates a Channel SharedObject (ObjectId = ChannelID).
+- EventType: `ChannelOpen` (new) + payload.
 
-数据流:
+Data Flow:
 
-1. LND 调用 `WalletController.SendOutputs` -> 生成 ChannelOpen Event
-2. Setu Validator/Runtime 执行 ChannelOpen, 创建/更新 Channel Object
-3. Anchor Finalize -> LND `ChainNotifier` 触发确认
+1. LND calls `WalletController.SendOutputs` -> Generates a ChannelOpen Event.
+2. Setu Validator/Runtime executes ChannelOpen, creating/updating the Channel Object.
+3. Anchor Finalize -> LND `ChainNotifier` triggers confirmation.
 
 ### 3.2 ChannelClose
 
-Setu 逻辑:
+Setu Logic:
 
-- EventType: `ChannelClose`
-- 更新 Channel Object -> Closed
+- EventType: `ChannelClose`.
+- Updates Channel Object -> Closed.
 
-触发:
+Trigger:
 
-- LND 主动关闭 (cooperative close)
-- LND 被动监控链上 close event
+- LND actively closes (cooperative close).
+- LND passively monitors on-chain close events.
 
 ### 3.3 ChannelForceClose
 
-Setu 逻辑:
+Setu Logic:
 
-- EventType: `ChannelForceClose`
-- 更新 Channel Object -> Closing + Timeout 状态
+- EventType: `ChannelForceClose`.
+- Updates Channel Object -> Closing + Timeout status.
 
-LND 逻辑:
+LND Logic:
 
-- `contractcourt.ChannelArbitrator` 触发
-- 监听 Setu Event 进行后续 HTLC Claim
+- `contractcourt.ChannelArbitrator` triggers.
+- Listens to Setu Events for subsequent HTLC Claims.
 
 ### 3.4 HTLCClaim / Timeout
 
-Setu 逻辑:
+Setu Logic:
 
-- EventType: `HTLCClaim` / `HTLCTimeout`
-- 修改 Channel Object 中 HTLC 状态
+- EventType: `HTLCClaim` / `HTLCTimeout`.
+- Modifies the HTLC state in the Channel Object.
 
-LND 逻辑:
+LND Logic:
 
-- `htlcswitch` 等模块根据 `ChainNotifier` 回调更新状态
+- Modules like `htlcswitch` update state based on `ChainNotifier` callbacks.
 
 ### 3.5 Penalize
 
-Setu 逻辑:
+Setu Logic:
 
-- EventType: `ChannelPenalize`
-- 扣减违约方余额 + 更新 Channel 状态
+- EventType: `ChannelPenalize`.
+- Deducts the breaching party's balance + updates Channel state.
 
-## 4. Setu 与 LND 类型映射
+## 4. Setu and LND Type Mapping
 
-| LND 类型              | Setu 内部语义    | 说明                  |
-| --------------------- | ---------------- | --------------------- |
-| `wire.OutPoint.Hash`  | `ObjectId`       | 32 字节直接映射       |
-| `wire.OutPoint.Index` | 0                | Setu 无 UTXO index    |
-| `btcutil.Amount`      | `u64`            | Setu 最小单位         |
-| `wire.MsgTx`          | Setu Event bytes | 用于承载 Event 序列化 |
-| `chainhash.Hash`      | EventId/AnchorId | 32B 或 hex 变体       |
+| LND Type              | Setu Internal Semantics | Description            |
+| --------------------- | ----------------------- | ---------------------- |
+| `wire.OutPoint.Hash`  | `ObjectId`              | 32-byte direct mapping |
+| `wire.OutPoint.Index` | 0                       | Setu has no UTXO index |
+| `btcutil.Amount`      | `u64`                   | Setu smallest unit     |
+| `wire.MsgTx`          | Setu Event bytes        | Carries Event serialization |
+| `chainhash.Hash`      | EventId/AnchorId        | 32B or hex variant     |
 
-## 5. LND 改造模块分解
+## 5. LND Adaptation Module Breakdown
 
-### 5.1 配置扩展
+### 5.1 Configuration Extension
 
-目标文件:
+Target Files:
 
 - `config.go`
-- `lncfg/` 新增 `setu.go`
+- `lncfg/` new `setu.go`
 - `chainreg/setu_params.go`
 - `chainreg/chainregistry.go`
 
-改造要点:
+Key points for refactoring:
 
-- 新增 `SetuChainName = "setu"`
-- 新增 `Setu *lncfg.Chain` 配置
-- 新增 Setu 网络参数 (genesis, chain_id, subnet_id)
+- Add `SetuChainName = "setu"`.
+- Add `Setu *lncfg.Chain` configuration.
+- Add Setu network parameters (genesis, chain_id, subnet_id).
 
-### 5.2 ChainControl 组装
+### 5.2 ChainControl Assembly
 
-目标文件:
+Target Files:
 
 - `chainreg/chainregistry.go`
 
-改造要点:
+Key points for refactoring:
 
-- `NewPartialChainControl` 新增 `case "setu"`
-- 初始化 Setu ChainNotifier / ChainSource / FeeEstimator
-- 构造 Setu WalletController + KeyRing + Signer
+- `NewPartialChainControl` add `case "setu"`.
+- Initialize Setu ChainNotifier / ChainSource / FeeEstimator.
+- Construct Setu WalletController + KeyRing + Signer.
 
-### 5.3 Wallet 与 Signer 适配
+### 5.3 Wallet and Signer Adaptation
 
-目标文件:
+Target Files:
 
-- `lnwallet/` 新增 `setu_wallet.go`
-- `input/` 新增 `setu_signer.go`
+- `lnwallet/` new `setu_wallet.go`
+- `input/` new `setu_signer.go`
 
-改造要点:
+Key points for refactoring:
 
-- 实现 Setu WalletController 逻辑
-- 通过 Setu RPC 提交 Event
-- 封装 Setu KeyStore 以适配 `SecretKeyRing`
+- Implement Setu WalletController logic.
+- Submit Events via Setu RPC.
+- Wrap Setu KeyStore to adapt `SecretKeyRing`.
 
-### 5.4 Channel & HTLC 状态同步
+### 5.4 Channel & HTLC State Synchronization
 
-目标文件:
+Target Files:
 
 - `contractcourt/`, `htlcswitch/`, `chanbackup/`
 
-改造要点:
+Key points for refactoring:
 
-- 监听 Setu Event -> 触发本地通道状态变化
-- `ChainNotifier` 提供通道级别 Event 回调
+- Listen to Setu Events -> trigger local channel state changes.
+- `ChainNotifier` provides channel-level Event callbacks.
 
-## 6. Setu 侧必要改造点 (对接 LND)
+## 6. Necessary Setu Side Refactoring Points (for LND Integration)
 
-> 仅列出 LND 依赖的最小增量, 详细数据结构见 Setu 交互文档。
+> Only the minimum increment depended on by LND is listed. For detailed data structures, see the Setu interaction document.
 
-- `EventType` 新增 Lightning 原语:
+- `EventType` adds Lightning primitives:
   - `ChannelOpen`, `ChannelClose`, `ChannelForceClose`
   - `HTLCAdd`, `HTLCClaim`, `HTLCTimeout`
   - `ChannelPenalize`
-- `RuntimeExecutor` 新增执行逻辑
-- `StateStore` 新增 Channel Object 持久化
-- `setu-rpc` 新增 Event 查询/订阅接口
+- `RuntimeExecutor` adds execution logic.
+- `StateStore` adds Channel Object persistence.
+- `setu-rpc` adds Event query/subscription interfaces.
 
-## 7. 测试验证流程
+## 7. Testing and Verification Process
 
-### 7.1 单元测试 (Go)
+### 7.1 Unit Testing (Go)
 
-- Setu WalletController 单测:
-  - coin selection
+- Setu WalletController Unit Tests:
+  - Coin selection
   - SendOutputs -> Event payload
   - PublishTransaction -> RPC submit
-- Setu ChainNotifier 单测:
-  - Anchor Finalized -> Confirmed 回调
-  - Channel Object 状态变更 -> Spend 回调
+- Setu ChainNotifier Unit Tests:
+  - Anchor Finalized -> Confirmed callback
+  - Channel Object state changes -> Spend callback
 
-### 7.2 单元测试 (Rust)
+### 7.2 Unit Testing (Rust)
 
-- Setu Runtime 执行器:
-  - ChannelOpen/Close/ForceClose/HTLCClaim/Timeout/penalize 执行逻辑
-  - StateChange 生成与序列化
-- Setu 状态存储:
-  - Channel Object 存取与版本更新
+- Setu Runtime Executors:
+  - ChannelOpen/Close/ForceClose/HTLCClaim/Timeout/penalize execution logic
+  - StateChange generation and serialization
+- Setu State Storage:
+  - Channel Object access and version updates
 
-### 7.3 集成测试
+### 7.3 Integration Testing
 
-- 2 节点 LND + Setu Validator
-- 测试项:
-  - 开通道 -> 确认
-  - HTLC 多跳支付
+- 2 Node LND + Setu Validator
+- Test Items:
+  - Open channel -> Confirm
+  - HTLC multi-hop payment
   - ForceClose + HTLC Timeout
-  - Penalize 流程
+  - Penalize flow
 
-### 7.4 回归验证
+### 7.4 Regression Testing
 
-- Bitcoin 模式回归测试 (确保无影响):
-  - 运行现有 LND itest (部分)
-  - 验证 chain=bitcoin 路径不受影响
+- Bitcoin mode regression tests (ensure no impact):
+  - Run existing LND itests (partial)
+  - Verify `chain=bitcoin` path is unaffected
 
-## 8. 风险与关键假设
+## 8. Risks and Key Assumptions
 
-- Setu Runtime 需支持 Channel Object 原子更新。
-- Event 确认语义必须与 LND 期望的 `numConfs` 对齐。
-- Setu 无 mempool 语义, 需在 ChainNotifier 做合理模拟。
+- Setu Runtime must support atomic updates of Channel Objects.
+- Event confirmation semantics must align with LND's expected `numConfs`.
+- Setu has no mempool semantics, so reasonable simulation is needed in `ChainNotifier`.

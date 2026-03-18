@@ -1,247 +1,247 @@
-# LND 适配 Sui/MoveVM 改造详细文档
+# Detailed Refactoring Plan for LND Adaptation to Sui/MoveVM
 
-> 目标: 在不改动 LND 现有接口签名的前提下, 以适配器模式接入 Sui, 使用 MoveVM 合约支持通道生命周期与 HTLC 流程。
-> 约束: 利用 Sui 成熟的 MoveVM 智能合约能力, 在 Sui 侧部署闪电网络合约以替代 Bitcoin 脚本逻辑。
+> Objective: Integrate Sui using an adapter pattern without modifying LND's existing interface signatures, and use MoveVM contracts to support channel lifecycles and HTLC processes.
+> Constraints: Utilize Sui's mature MoveVM smart contract capabilities to deploy Lightning Network contracts on the Sui side to replace Bitcoin script logic.
 
-## 1. 改造原则与总体路径
+## 1. Refactoring Principles and Overall Approach
 
-- 零侵入接口层: 不新增抽象层、不改 LND 既有接口签名, 仅在实现层新增 Sui 版本。
-- 类型复用: 适配层内部尽量复用 Bitcoin/LND 类型, 并在边界做语义转换。
-- 双链共存: Bitcoin 逻辑保持不变, 通过 `--chain=sui` 启动 Sui 后端。
-- 端到端闭环: 需要链上 Move Event/Object State 与 LND 通道状态机同步, 以及完整测试验证。
+- Zero-intrusion at the interface layer: Do not add new abstraction layers and do not change existing LND interface signatures; only add the Sui version at the implementation layer.
+- Type reuse: Reuse Bitcoin/LND types internally within the adapter layer as much as possible, and perform semantic conversions at the boundaries.
+- Dual-chain coexistence: Keep Bitcoin logic unchanged, and start the Sui backend via `--chain=sui`.
+- End-to-end closed loop: Requires synchronization between on-chain Move Event/Object State and the LND channel state machine, as well as comprehensive test validation.
 
-## 2. 关键接口与 Sui 适配实现清单
+## 2. Key Interfaces and Sui Adaptation Implementation List
 
-### 2.1 ChainNotifier (链事件通知)
+### 2.1 ChainNotifier (Chain Event Notification)
 
-LND 依赖 `chainntnfs.ChainNotifier` 以订阅确认、花费、区块等事件。
+LND relies on `chainntnfs.ChainNotifier` to subscribe to confirmations, spends, blocks, and other events.
 
-适配策略:
+Adaptation Strategy:
 
-- 将 Sui Checkpoint/Epoch 作为 “区块” 语义来源。
-- 将 Sui Transaction Digest 作为 `TxID` 语义来源。
-- 将 Sui Channel Object 的版本变更或 Move Event 触发模拟为 “花费”/“确认”。
+- Use Sui Checkpoint/Epoch as the "block" semantic source.
+- Use Sui Transaction Digest as the `TxID` semantic source.
+- Simulate the version changes of Sui Channel Objects or the triggering of Move Events as "spends"/"confirmations".
 
-需要实现:
+Needs to be implemented:
 
-- `RegisterConfirmationsNtfn`: 对 Move 合约调用的确认, 通过 Transaction Finalized 触发。
-- `RegisterSpendNtfn`: 对 Channel Object 的状态变更 (如 close_channel 调用) 触发。
-- `RegisterBlockEpochNtfn`: 对 Sui Checkpoint/Epoch 推进事件。
+- `RegisterConfirmationsNtfn`: For confirmation of Move contract calls, triggered via Transaction Finalized.
+- `RegisterSpendNtfn`: Triggered by state changes of the Channel Object (e.g., `close_channel` call).
+- `RegisterBlockEpochNtfn`: For Sui Checkpoint/Epoch advancement events.
 
-### 2.2 WalletController (钱包控制器)
+### 2.2 WalletController (Wallet Controller)
 
-LND 高度依赖 `lnwallet.WalletController` 进行 UTXO 选择、交易构造与签名。
+LND heavily relies on `lnwallet.WalletController` for UTXO selection, transaction construction, and signing.
 
-Sui 适配策略:
+Sui Adaptation Strategy:
 
-- 以 Sui `Coin<SUI>` + `ObjectId` 作为 UTXO 替代。
-- `wire.OutPoint.Hash` 内部存放 Sui `ObjectId` (32B) 并固定 `Index = 0`。
-- `btcutil.Amount` 直接映射为 Sui 最小单位 (Mist, u64)。
+- Use Sui `Coin<SUI>` + `ObjectId` as a UTXO replacement.
+- `wire.OutPoint.Hash` internally stores the Sui `ObjectId` (32B) with a fixed `Index = 0`.
+- `btcutil.Amount` maps directly to the Sui's smallest unit (Mist, u64).
 
-关键方法映射:
+Key method mapping:
 
-- `ListUnspentWitness`: 返回 Sui `Coin` -> `Utxo` 列表。
-- `SendOutputs`/`CreateSimpleTx`: 构建 Move Call 交易。
-- `PublishTransaction`: 提交 Sui 交易。
-- `GetTransactionDetails`: 通过 Digest 查询执行状态和确认高度。
+- `ListUnspentWitness`: Returns a list of Sui `Coin` -> `Utxo`.
+- `SendOutputs`/`CreateSimpleTx`: Builds Move Call transactions.
+- `PublishTransaction`: Submits Sui transactions.
+- `GetTransactionDetails`: Queries execution status and confirmation height via Digest.
 
-### 2.3 BlockChainIO (链读接口)
+### 2.3 BlockChainIO (Chain Read Interface)
 
-Sui 适配策略:
+Sui Adaptation Strategy:
 
-- `GetBestBlock`: 返回最新 Checkpoint/Epoch。
-- `GetUtxo`: 查询 ObjectID 对应的 Object 状态, 并构造 TxOut 语义。
-- `GetBlock`: 将 Checkpoint + Transactions 列表包装为 `wire.MsgBlock` 等效结构。
+- `GetBestBlock`: Returns the latest Checkpoint/Epoch.
+- `GetUtxo`: Queries the Object state corresponding to an ObjectID, and constructs TxOut semantics.
+- `GetBlock`: Wraps the Checkpoint + Transactions list into an equivalent `wire.MsgBlock` structure.
 
 ### 2.4 Signer + SecretKeyRing
 
-Sui 支持 Secp256k1 / Ed25519 / Secp256r1。
+Sui supports Secp256k1 / Ed25519 / Secp256r1.
 
-适配策略:
+Adaptation Strategy:
 
-- LND 内部签名默认基于 Secp256k1, 维持使用 Secp256k1。
-- Sui 接受 Secp256k1 签名进行交易授权。
-- 私钥派生路径复用 Sui `sui-keys` BIP32 路径。
+- LND internal signatures default to Secp256k1; maintain the use of Secp256k1.
+- Sui accepts Secp256k1 signatures for transaction authorization.
+- Private key derivation path reuses the Sui `sui-keys` BIP32 path.
 
 ### 2.5 Fee Estimator
 
-Sui 使用 Gas 机制。
+Sui uses a Gas mechanism.
 
-实现策略:
+Implementation Strategy:
 
-- `EstimateFeePerKW`: 返回当前 Gas Price 转换后的 SatPerKWeight。
-- `RelayFeePerKW`: 返回固定最小值。
+- `EstimateFeePerKW`: Returns SatPerKWeight converted from the current Gas Price.
+- `RelayFeePerKW`: Returns a fixed minimum value.
 
-## 3. 通道生命周期映射 (MoveVM 合约)
+## 3. Channel Lifecycle Mapping (MoveVM Contract)
 
 ### 3.1 ChannelOpen
 
-LND 逻辑:
+LND Logic:
 
-- Bitcoin: 构建 2-of-2 多签 funding tx, chain confirm
+- Bitcoin: Builds a 2-of-2 multisig funding tx, chain confirm.
 
-Sui 逻辑:
+Sui Logic:
 
-- 调用 `lightning::open_channel` 创建 Channel SharedObject (ObjectId = ChannelID)
-- 触发 `ChannelOpenEvent`
+- Calls `lightning::open_channel` to create a Channel SharedObject (ObjectId = ChannelID).
+- Triggers `ChannelOpenEvent`.
 
-数据流:
+Data Flow:
 
-1. LND 调用 `WalletController.SendOutputs` -> 生成 Move Call
-2. Sui 执行合约, 创建 Channel Object
-3. Transaction Finalize -> LND `ChainNotifier` 触发确认
+1. LND calls `WalletController.SendOutputs` -> Generates Move Call.
+2. Sui executes the contract, creating the Channel Object.
+3. Transaction Finalize -> LND `ChainNotifier` triggers confirmation.
 
 ### 3.2 ChannelClose
 
-Sui 逻辑:
+Sui Logic:
 
-- 调用 `lightning::close_channel`
-- 更新 Channel Object -> 状态标记为 Closed 并销毁/归档
+- Calls `lightning::close_channel`.
+- Updates Channel Object -> Status marked as Closed and destroyed/archived.
 
-触发:
+Trigger:
 
-- LND 主动调用合约进行协作关闭
-- LND 监控链上 Move Event
+- LND actively calls the contract for cooperative closure.
+- LND monitors on-chain Move Events.
 
 ### 3.3 ChannelForceClose
 
-Sui 逻辑:
+Sui Logic:
 
-- 调用 `lightning::force_close`
-- 更新 Channel Object -> 进入 Closing 状态并记录 `close_epoch`
+- Calls `lightning::force_close`.
+- Updates Channel Object -> Enters Closing state and records `close_epoch`.
 
-LND 逻辑:
+LND Logic:
 
-- `contractcourt.ChannelArbitrator` 触发
-- 监听 Sui Move Event 进行后续 HTLC Claim
+- `contractcourt.ChannelArbitrator` triggers.
+- Listens to Sui Move Events for subsequent HTLC Claims.
 
 ### 3.4 HTLCClaim / Timeout
 
-Sui 逻辑:
+Sui Logic:
 
-- 调用 `lightning::htlc_claim` / `lightning::htlc_timeout`
-- 修改 Channel Object 中关联的 HTLC 状态
+- Calls `lightning::htlc_claim` / `lightning::htlc_timeout`.
+- Modifies the associated HTLC state in the Channel Object.
 
-LND 逻辑:
+LND Logic:
 
-- `htlcswitch` 等模块根据 `ChainNotifier` (Move Event 回调) 更新状态
+- Modules like `htlcswitch` update state based on `ChainNotifier` (Move Event callbacks).
 
 ### 3.5 Penalize
 
-Sui 逻辑:
+Sui Logic:
 
-- 调用 `lightning::penalize`
-- 验证撤销证明, 转移全量余额
+- Calls `lightning::penalize`.
+- Validates the revocation proof, transfers the full balance.
 
-## 4. Sui 与 LND 类型映射
+## 4. Sui and LND Type Mapping
 
-| LND 类型              | Sui 内部语义    | 说明                  |
-| --------------------- | ---------------- | --------------------- |
-| `wire.OutPoint.Hash`  | `ObjectId`       | 32 字节直接映射       |
-| `wire.OutPoint.Index` | 0                | Sui 无 UTXO index    |
-| `btcutil.Amount`      | `u64`            | Sui 最小单位 (Mist) |
-| `wire.MsgTx`          | Move Call bytes | 用于承载 Move 调用序列化 |
-| `chainhash.Hash`      | Transaction Digest | 32B 通用             |
+| LND Type              | Sui Internal Semantics | Description            |
+| --------------------- | ---------------------- | ---------------------- |
+| `wire.OutPoint.Hash`  | `ObjectId`             | 32-byte direct mapping |
+| `wire.OutPoint.Index` | 0                      | Sui has no UTXO index  |
+| `btcutil.Amount`      | `u64`                  | Sui smallest unit (Mist)|
+| `wire.MsgTx`          | Move Call bytes        | Carries Move call serialization |
+| `chainhash.Hash`      | Transaction Digest     | 32B general mechanism  |
 
-## 5. LND 改造模块分解
+## 5. LND Adaptation Module Breakdown
 
-### 5.1 配置扩展
+### 5.1 Configuration Extension
 
-目标文件:
+Target Files:
 
 - `config.go`
-- `lncfg/` 新增 `sui.go`
+- `lncfg/` new `sui.go`
 - `chainreg/sui_params.go`
 - `chainreg/chainregistry.go`
 
-改造要点:
+Key points for refactoring:
 
-- 新增 `SuiChainName = "sui"`
-- 新增 `Sui *lncfg.Chain` 配置
-- 新增 Sui 网络参数 (package_id, gateway_rpc, etc.)
+- Add `SuiChainName = "sui"`.
+- Add `Sui *lncfg.Chain` configuration.
+- Add Sui network parameters (package_id, gateway_rpc, etc.).
 
-### 5.2 ChainControl 组装
+### 5.2 ChainControl Assembly
 
-目标文件:
+Target Files:
 
 - `chainreg/chainregistry.go`
 
-改造要点:
+Key points for refactoring:
 
-- `NewPartialChainControl` 新增 `case "sui"`
-- 初始化 Sui ChainNotifier / ChainSource / FeeEstimator
-- 构造 Sui WalletController + KeyRing + Signer
+- `NewPartialChainControl` add `case "sui"`.
+- Initialize Sui ChainNotifier / ChainSource / FeeEstimator.
+- Construct Sui WalletController + KeyRing + Signer.
 
-### 5.3 Wallet 与 Signer 适配
+### 5.3 Wallet and Signer Adaptation
 
-目标文件:
+Target Files:
 
-- `lnwallet/` 新增 `sui_wallet.go`
-- `input/` 新增 `sui_signer.go`
+- `lnwallet/` new `sui_wallet.go`
+- `input/` new `sui_signer.go`
 
-改造要点:
+Key points for refactoring:
 
-- 实现 Sui WalletController 逻辑 (调用 Sui Go SDK)
-- 通过 Sui RPC 提交 Move Call
-- 封装 Sui KeyStore 以适配 `SecretKeyRing`
+- Implement Sui WalletController logic (call Sui Go SDK).
+- Submit Move Call via Sui RPC.
+- Wrap Sui KeyStore to adapt `SecretKeyRing`.
 
-### 5.4 Channel & HTLC 状态同步
+### 5.4 Channel & HTLC State Synchronization
 
-目标文件:
+Target Files:
 
 - `contractcourt/`, `htlcswitch/`, `chanbackup/`
 
-改造要点:
+Key points for refactoring:
 
-- 监听 Sui Move Event -> 触发本地通道状态变化
-- `ChainNotifier` 提供合约级别 Event 回调
+- Listen to Sui Move Events -> trigger local channel state changes.
+- `ChainNotifier` provides contract-level Event callbacks.
 
-## 6. Sui 侧必要改造点 (Move 合约)
+## 6. Necessary Sui Side Refactoring Points (Move Contract)
 
-> 详见 Sui 闪电网络合约设计文档。
+> See the Sui Lightning Network Contract Design Document for details.
 
-- 核心 Move 模块 `lightning`:
-  - `struct Channel` (Shared Object)
-  - `open_channel`, `close_channel`, `force_close`
-  - `htlc_add`, `htlc_claim`, `htlc_timeout`
-  - `penalize`
-- Move Event 定义
-- 状态存储与版本管理
+- Core Move Module `lightning`:
+    - `struct Channel` (Shared Object)
+    - `open_channel`, `close_channel`, `force_close`
+    - `htlc_add`, `htlc_claim`, `htlc_timeout`
+    - `penalize`
+- Move Event definition
+- State storage and version management
 
-## 7. 测试验证流程
+## 7. Testing and Verification Process
 
-### 7.1 单元测试 (Go)
+### 7.1 Unit Testing (Go)
 
-- Sui WalletController 单测:
-  - Mist selection
-  - SendOutputs -> Move Call payload
-  - PublishTransaction -> RPC submit
-- Sui ChainNotifier 单测:
-  - Transaction Finalized -> Confirmed 回调
-  - Move Event -> Spend 回调
+- Sui WalletController Unit Tests:
+    - Mist selection
+    - SendOutputs -> Move Call payload
+    - PublishTransaction -> RPC submit
+- Sui ChainNotifier Unit Tests:
+    - Transaction Finalized -> Confirmed callback
+    - Move Event -> Spend callback
 
-### 7.2 单元测试 (Move)
+### 7.2 Unit Testing (Move)
 
-- Move 合约逻辑测试:
-  - 签名验证
-  - 时间锁逻辑
-  - 余额分配
+- Move contract logic tests:
+    - Signature validation
+    - Timelock logic
+    - Balance allocation
 
-### 7.3 集成测试
+### 7.3 Integration Testing
 
-- 2 节点 LND + Sui Local Network
-- 测试项:
-  - 开通道 -> 确认
-  - HTLC 多跳支付
-  - ForceClose + HTLC Timeout
-  - Penalize 流程
+- 2 Node LND + Sui Local Network
+- Test Items:
+    - Open channel -> Confirm
+    - HTLC multi-hop payment
+    - ForceClose + HTLC Timeout
+    - Penalize flow
 
-### 7.4 回归验证
+### 7.4 Regression Testing
 
-- Bitcoin 模式回归测试 (确保无影响)
+- Bitcoin mode regression tests (ensure no impact).
 
-## 8. 风险与关键假设
+## 8. Risks and Key Assumptions
 
-- Sui RPC 订阅的及时性。
-- Move 合约中 Secp256k1 签名校验的 Gas 成本。
-- ObjectID 与 OutPoint 映射的唯一性。
+- Timeliness of Sui RPC subscriptions.
+- Gas cost of Secp256k1 signature validation in Move contracts.
+- Uniqueness of mapping between ObjectID and OutPoint.

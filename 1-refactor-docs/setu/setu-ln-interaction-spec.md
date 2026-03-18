@@ -1,103 +1,103 @@
-# Setu 与 LND 交互数据结构与接口说明
+# Setu and LND Interaction Data Structure and Interface Specification
 
-> 目标: 结合 Setu 现有实现, 给出 LND 适配 Setu 所需的数据结构与接口约定, 包含 Event/State/Channel/HTLC/同步流程。
+> Objective: In conjunction with the existing Setu implementation, provide the data structures and interface conventions required for LND to adapt to Setu, including Event/State/Channel/HTLC/Synchronization flows.
 
-## 1. Setu 核心数据结构 (来自现有代码)
+## 1. Setu Core Data Structures (From Existing Code)
 
-### 1.1 Event 结构
+### 1.1 Event Structure
 
-Setu 的链上变化以 Event 表达, 并最终被 Anchor Finalize。
+On-chain changes in Setu are expressed as Events and are ultimately Finalized by Anchors.
 
-现有定义来源:
+Existing definition source:
 
 - `types/src/event.rs`
 
-关键字段:
+Key fields:
 
 - `Event { id, event_type, parent_ids, subnet_id, payload, vlc_snapshot, creator, status, execution_result, timestamp }`
-- `EventType` 目前包含: Genesis, System, Transfer, ValidatorRegister/Unregister, SolverRegister/Unregister, SubnetRegister, UserRegister, PowerConsume, TaskSubmit
+- `EventType` currently includes: Genesis, System, Transfer, ValidatorRegister/Unregister, SolverRegister/Unregister, SubnetRegister, UserRegister, PowerConsume, TaskSubmit
 - `EventStatus`: Pending → InWorkQueue → Executed → Confirmed → Finalized → Failed
 
-建议扩展:
+Suggested extensions:
 
-- 新增 Lightning 相关 `EventType`:
+- Add Lightning-related `EventType`s:
   - `ChannelOpen`, `ChannelClose`, `ChannelForceClose`
   - `HTLCAdd`, `HTLCClaim`, `HTLCTimeout`
   - `ChannelPenalize`
 
 ### 1.2 Object / Coin
 
-来源:
+Source:
 
 - `types/src/object.rs`
 - `types/src/coin.rs`
 
-关键点:
+Key points:
 
-- `ObjectId` / `Address`: 32 字节
-- `Object<T>`: 元数据 + data
+- `ObjectId` / `Address`: 32 bytes
+- `Object<T>`: Metadata + data
 - `Coin` = `Object<CoinData>`
-- `CoinState` 为链上持久化格式 (BCS 形式)
+- `CoinState` is the on-chain persistent format (BCS format)
 
-### 1.3 VLC (向量逻辑时钟)
+### 1.3 VLC (Vector Logical Clock)
 
-来源:
+Source:
 
 - `crates/setu-vlc/src/lib.rs`
 
-字段:
+Fields:
 
 - `VLCSnapshot { vector_clock, logical_time, physical_time }`
 
-用途:
+Usage:
 
-- LND 可将 `logical_time` 作为 Anchor/确认顺序参考
+- LND can use `logical_time` as a reference for Anchor/confirmation ordering
 
 ### 1.4 Runtime Executor
 
-来源:
+Source:
 
 - `crates/setu-runtime/src/executor.rs`
 
-当前执行能力:
+Current execution capabilities:
 
-- 仅支持 `Transfer` 与 `Query`
-- Storage 通过 `StateStore` 读写 `Object<CoinData>`
+- Only supports `Transfer` and `Query`
+- Storage reads and writes `Object<CoinData>` via `StateStore`
 
-需要新增:
+Needs to be added:
 
-- Channel 与 HTLC 的执行逻辑 (见下文)
+- Channel and HTLC execution logic (see below)
 
-## 2. LND 需要的 Setu 交互动作
+## 2. Setu Interaction Actions Required by LND
 
-LND 对链层的期望来自几个核心接口:
+LND's expectations for the chain layer come from several core interfaces:
 
-- `ChainNotifier` (确认/花费/区块)
-- `WalletController` (交易构造与发送)
-- `BlockChainIO` (链查询)
+- `ChainNotifier` (Confirmations/Spends/Blocks)
+- `WalletController` (Transaction construction and sending)
+- `BlockChainIO` (Chain querying)
 
-在 Setu 侧需要实现的动作抽象:
+Action abstractions that need to be implemented on the Setu side:
 
-### 2.1 State 同步
+### 2.1 State Synchronization
 
-LND 需要:
+LND needs:
 
-- 通道状态 (Open/Closing/Closed)
-- HTLC 状态 (Pending/Claimed/Timeout)
+- Channel state (Open/Closing/Closed)
+- HTLC state (Pending/Claimed/Timeout)
 
-Setu 侧建议:
+Setu side suggestions:
 
-- 使用 Channel SharedObject 存储通道状态
-- 每次 Event 执行更新 Channel Object 版本与 digest
+- Use a Channel SharedObject to store the channel state
+- Each Event execution updates the Channel Object version and digest
 
-同步方式:
+Synchronization method:
 
-- Anchor Finalized 时, LND 获取 Channel Object 最新状态
-- Event 级别回调由 Setu RPC 推送 (订阅或轮询)
+- When an Anchor is Finalized, LND gets the latest state of the Channel Object
+- Event-level callbacks are pushed by Setu RPC (subscription or polling)
 
 ### 2.2 Channel Open/Close/ForceClose
 
-需要的 Event Payload 结构如下 (建议):
+The required Event Payload structures are as follows (suggested):
 
 ```
 ChannelOpenPayload {
@@ -128,10 +128,10 @@ ChannelForceClosePayload {
 }
 ```
 
-执行结果:
+Execution results:
 
-- 更新 Channel Object 状态字段
-- 生成 `ExecutionResult.state_changes`
+- Update the status fields of the Channel Object
+- Generate `ExecutionResult.state_changes`
 
 ### 2.3 HTLC Add / Claim / Timeout
 
@@ -174,7 +174,7 @@ ChannelPenalizePayload {
 }
 ```
 
-## 3. Channel Object 建议结构
+## 3. Recommended Channel Object Structure
 
 ```
 ChannelObjectData {
@@ -201,25 +201,25 @@ HTLCEntry {
 }
 ```
 
-## 4. Setu RPC 交互扩展建议
+## 4. Setu RPC Interaction Extension Suggestions
 
-现有 RPC (setu-rpc/src/messages.rs) 尚未提供 Event 提交/订阅 API。
-建议扩展:
+The existing RPC (`setu-rpc/src/messages.rs`) does not yet provide an Event submission/subscription API.
+Suggested extensions:
 
 - `SubmitEventRequest { event: Event }`
 - `GetEventRequest { event_id }`
 - `GetObjectRequest { object_id }`
 - `SubscribeEventStream { filter }`
 
-LND 适配器需要:
+The LND adapter needs to:
 
-- 提交 Channel/HTLC Event
-- 轮询或订阅 EventStatus
-- 查询 Channel Object 状态
+- Submit Channel/HTLC Events
+- Poll or subscribe to EventStatus
+- Query the Channel Object state
 
-## 5. Event -> LND 语义映射
+## 5. Event -> LND Semantic Mapping
 
-| Setu 事件                   | LND 语义          | ChainNotifier 映射        |
+| Setu Event                  | LND Semantics     | ChainNotifier Mapping     |
 | --------------------------- | ----------------- | ------------------------- |
 | ChannelOpen Finalized       | Funding Confirmed | RegisterConfirmationsNtfn |
 | ChannelClose Finalized      | Cooperative Close | RegisterSpendNtfn         |
@@ -228,22 +228,22 @@ LND 适配器需要:
 | HTLCTimeout Finalized       | HTLC Timeout      | RegisterSpendNtfn         |
 | ChannelPenalize Finalized   | Breach            | RegisterSpendNtfn         |
 
-## 6. 状态同步流程
+## 6. State Synchronization Flow
 
-1. LND 提交 Event
-2. Setu 执行 -> EventStatus: Executed
+1. LND submits the Event
+2. Setu executes -> EventStatus: Executed
 3. Anchor Finalized -> EventStatus: Finalized
-4. LND 通过 RPC 获取 EventStatus + Channel Object 状态
-5. ChainNotifier 触发对应回调
+4. LND fetches the EventStatus + Channel Object state via RPC
+5. ChainNotifier triggers the corresponding callback
 
-## 7. 关键实现点检查
+## 7. Key Implementation Checks
 
-- Event `subnet_id` 路由必须正确 (ROOT/App Subnet)
-- Channel Object 需使用 SharedObject
-- 状态变更必须写入 Merkle 兼容格式
+- Event `subnet_id` routing must be correct (ROOT/App Subnet)
+- The Channel Object must use SharedObject
+- State changes must be written in a Merkle-compatible format
 
-## 8. 测试建议 (Setu 侧)
+## 8. Testing Suggestions (Setu Side)
 
-- ChannelOpen/Close/ForceClose 执行器单测
-- HTLCAdd/Claim/Timeout 状态机单测
-- Event/Anchor Finalize 流程与 LND 通知集成测试
+- Unit tests for ChannelOpen/Close/ForceClose executors
+- Unit tests for HTLCAdd/Claim/Timeout state machines
+- Integration tests for Event/Anchor Finalize flow and LND notifications

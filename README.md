@@ -6,58 +6,66 @@
 [![Status](https://img.shields.io/badge/status-Active-success.svg)](https://github.com/loka-network)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
 
-**This repository is a fork of [lightningnetwork/lnd](https://github.com/lightningnetwork/lnd)** that preserves full Bitcoin Lightning Network functionality while integrating **Sui** (a DAG-BFT high-performance distributed ledger from the Hetu Project) via a zero-intrusion adapter pattern, delivering a unified dual-chain Lightning Network payment node.
+**Loka AI Agentic Payment P2P Lightning Node** represents a new iteration and ambitious evolution built natively on top of the established Lightning Network infrastructure. By pushing the boundaries of traditional payment channels, we are building a superior, high-throughput P2P Payment Value Network.
+
+While preserving the full functionality and battle-tested architecture of the Bitcoin Lightning Network, we have fundamentally expanded its capabilities by integrating **Sui** (a DAG-BFT high-performance distributed ledger) and simultaneously laying the architectural groundwork for the upcoming zero-intrusion integration of **Setu** (the Hetu Project's dedicated payment consensus network).
 
 ---
 
 ## Project Overview
 
-`lnd` (Lightning Network Daemon) is a full Go implementation of a Lightning Network node, supporting channel creation, HTLC forwarding, pathfinding, and the complete feature set. This fork adds native support for the **Sui chain** on top of that foundation:
+Built upon the robust routing engine and HTLC state machine of the traditional Lightning Network daemon (`lnd`), this project introduces a unified, multi-chain P2P payment infrastructure:
 
-- **Bitcoin path**: Fully preserved, connected via `btcd` / `bitcoind` / `neutrino` backends
-- **Sui path**: Connected via newly added adapter modules (`suinotify/`, `suiwallet/`, etc.), selected with `--chain=sui`
+- **Bitcoin path**: Fully preserved, connected via traditional `btcd` / `bitcoind` / `neutrino` backends
+- **Sui path**: Connected via newly engineered adapter modules (`suinotify/`, `suiwallet/`, etc.), selected seamlessly with `--chain=sui`
+- **Setu path (Upcoming)**: Extending the adapter pattern to natively support Setu, providing a dedicated scaling layer for Lightning transactions
 
-Both chains share the same RPC interface, routing engine, HTLC Switch, and channel state machine — **one codebase, two chains**.
+All supported chains share the same powerful RPC interface, pathfinding engine, HTLC Switch, and channel state machine — **one unified codebase, seamlessly routing across multiple ledger backends**.
 
 ---
 
-## What is Sui?
+## Advantages & Features: The P2P Payment Value Network
 
-**Sui** is the next-generation distributed consensus network designed by the Hetu Project for high-throughput payment workloads. Key features:
+Integrating LND with Sui creates a truly scalable, high-throughput P2P payment value network that is capable of supporting global micro-transactions with optimal efficiency:
 
-| Feature                     | Description                                                                                          |
-| --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **DAG-BFT Consensus**       | Byzantine fault-tolerant protocol based on a directed acyclic graph; confirmation latency < 1 second |
-| **VLC Hybrid Clock**        | Vector Logic Clock (VLCSnapshot) for causal ordering of distributed events                           |
-| **TEE Trusted Execution**   | Secure on-chain computation backed by AWS Nitro Enclaves                                             |
-| **Object-Account Model**    | Sui-style object-oriented state management; channels identified by a 32-byte `ObjectID`              |
-| **Merkle State Commitment** | Binary + Sparse Merkle Trees for verifiable state                                                    |
+- **Instant Finality & High Throughput:** Sui's DAG-BFT consensus provides sub-second confirmation latency, ensuring that on-chain operations—like channel openings, closures, and dispute resolutions—are settled incredibly fast.
+- **Battle-Tested P2P Routing:** We preserve the complete, extensively tested Lightning Network (BOLT) logic. The P2P network, routing engine, and HTLC state machine remain fully intact.
+- **Smart Contract (Move) Enforced Lightning:** Channel primitives (open, close, HTLCs, penalties) are handled elegantly by native Sui Move smart contracts, avoiding the limitations of traditional Bitcoin scripting.
 
-The network consists of **Validator nodes** (verification + consensus) and **Solver nodes** (TEE execution + state transitions). Lightning channel primitives (`ChannelOpen`, `ChannelClose`, `ChannelForceClose`, `HTLCAdd`, `HTLCClaim`, `HTLCTimeout`, `ChannelPenalize`) are natively implemented in the Sui Runtime as **hardcoded EventTypes** — no general-purpose VM required.
+---
+
+## How LND Was Modified (Implementation)
+
+This project modifies LND using a **Zero-Intrusion Adapter Pattern**. Rather than altering the core Lightning Network state machine, we abstracted the native Bitcoin consensus, wallet, and cryptographic interactions. This allows high-performance networks like **Sui**—and soon, **Setu**—to be dynamically plugged in beneath LND's application layer.
+
+1. **Chain Abstraction & Adapter Layer**: We implemented new backends satisfying the `ChainNotifier`, `WalletController`, and `Signer` interfaces specifically for Sui (and architecturally prepared for Setu). 
+2. **Sui Adapters & RPC**: We introduced the `suinotify` package for event tracking via Sui RPC, `suiwallet` for key and address management, and `sui_estimator` for network fees.
+3. **Smart Contract Primitives**: Instead of relying on Bitcoin HTLC and Commitment scripts, we route operations through `suiwallet` which constructs `BuildMoveCall` requests to execute natively deployed Move Smart Contracts (handling events like `ChannelOpen`, `ChannelClose`, `HTLCClaim`, etc.).
+4. **Transparent Type Mapping**: We seamlessly map internal Bitcoin wire types to Sui constructs. For example, a 32-byte Sui `ObjectID` seamlessly maps to LND's `wire.OutPoint.Hash`, avoiding massive refactoring of LND's core logic.
+5. **Cryptographic Compatibility**: Extended Go's SECP256K1 logic to sign a deterministic `SHA256(Blake2B(intent))` payload, effectively matching the official Mysten Sui TS SDK and ensuring 100% compatibility with Sui Devnet validation requirements.
 
 ---
 
 ## Architecture: Zero-Intrusion Adapter Pattern
 
-```
-┌─────────────────────────────────────────────────────┐
-│          LND Application Layer (unchanged)           │
-│  RPC Server · Routing Engine · HTLC Switch · FSM    │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│          Chain Abstraction Interfaces (never modify) │
-│  ChainNotifier · WalletController · Signer          │
-│  BlockChainIO  · ChainControl                       │
-└────────┬──────────────────────────────┬─────────────┘
-         │ chain=bitcoin                 │ chain=sui
-┌────────▼───────────┐       ┌──────────▼────────────┐
-│  Bitcoin Backends   │       │  Sui Adapters (new)  │
-│  bitcoindnotify/   │       │  suinotify/           │
-│  btcdnotify/       │       │  suiwallet/           │
-│  neutrinonotify/   │       │  input/sui_channel.go │
-│  lnwallet/btcwallet│       │  chainfee/sui_estimator│
-└────────────────────┘       └────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│              LND Application Layer (unchanged)                  │
+│      RPC Server · Routing Engine · HTLC Switch · FSM            │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│          Chain Abstraction Interfaces (never modify)            │
+│  ChainNotifier · WalletController · Signer · BlockChainIO       │
+└────────┬─────────────────────┬───────────────────────┬──────────┘
+         │ chain=bitcoin       │ chain=sui             │ chain=setu
+┌────────▼───────────┐  ┌──────▼──────────────┐  ┌─────▼──────────┐
+│  Bitcoin Backends  │  │  Sui Adapters (new) │  │ Setu Adapters  │
+│  bitcoindnotify/   │  │  suinotify/         │  │ (Upcoming)     │
+│  btcdnotify/       │  │  suiwallet/         │  │                │
+│  neutrinonotify/   │  │  input/sui_channel  │  │                │
+│  lnwallet/btcwallet│  │  chainfee/sui       │  │                │
+└────────────────────┘  └─────────────────────┘  └────────────────┘
 ```
 
 ### Type Mapping Conventions
@@ -141,11 +149,11 @@ lnd --chain=sui --sui.rpc=<sui-node-endpoint> ...
 
 | Topic                                 | File                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Sui adaptation & integration plan    | [1-refactor-docs/lnd-and-sui-integration.md](1-refactor-docs/lnd-and-sui-integration.md) |
-| Sui chain architecture               | [1-refactor-docs/sui-architecture.md](1-refactor-docs/sui-architecture.md)               |
-| LND refactor plan                     | [1-refactor-docs/lnd-sui-refactor-plan.md](1-refactor-docs/lnd-sui-refactor-plan.md)     |
+| Sui adaptation & integration plan    | [1-refactor-docs/sui/lnd-and-sui-integration.md](1-refactor-docs/sui/lnd-and-sui-integration.md) |
+| Sui chain architecture               | [1-refactor-docs/sui/sui-architecture.md](1-refactor-docs/sui/sui-architecture.md)               |
+| LND refactor plan                     | [1-refactor-docs/sui/lnd-sui-refactor-plan.md](1-refactor-docs/sui/lnd-sui-refactor-plan.md)     |
 | LND engineering architecture overview | [1-refactor-docs/lnd-architecture.md](1-refactor-docs/lnd-architecture.md)                 |
-| Sui ↔ LND interaction interface spec | [1-refactor-docs/sui-ln-interaction-spec.md](1-refactor-docs/sui-ln-interaction-spec.md) |
+| Sui ↔ LND interaction interface spec | [1-refactor-docs/sui/sui-ln-interaction-spec.md](1-refactor-docs/sui/sui-ln-interaction-spec.md) |
 
 ---
 
