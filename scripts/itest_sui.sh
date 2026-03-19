@@ -216,6 +216,11 @@ INVOICE2=$($ALICE_CLI addinvoice --amt=500 --memo="reverse-sui-payment" | jq -r 
 echo "Alice Invoice: $INVOICE2"
 $BOB_CLI payinvoice --pay_req="$INVOICE2" --force
 
+echo "Alice Channel Balance:"
+$ALICE_CLI channelbalance
+echo "Bob Channel Balance:"
+$BOB_CLI channelbalance
+
 # 8. Cooperative Channel Closure
 echo "[9/9] Testing Cooperative and Force Channel Closures..."
 echo "Closing first channel cooperatively..."
