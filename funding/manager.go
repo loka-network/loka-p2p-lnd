@@ -91,13 +91,13 @@ const (
 	// currently accepted on the Bitcoin chain within the Lightning
 	// Protocol. This limit is defined in BOLT-0002, and serves as an
 	// initial precautionary limit while implementations are battle tested
-	// in the real world.
-	MaxBtcFundingAmount = btcutil.Amount(1<<24) - 1
+	// in the real world. For Sui, we increase this to 1000 SUI (Mist).
+	MaxBtcFundingAmount = btcutil.Amount(1000 * 1e9)
 
 	// MaxBtcFundingAmountWumbo is a soft-limit on the maximum size of wumbo
-	// channels. This limit is 10 BTC and is the only thing standing between
-	// you and limitless channel size (apart from 21 million cap).
-	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
+	// channels. For Sui, we strictly cap this at 9,000,000 SUI to prevent
+	// internal int64/uint64 overflows during MSat calculations.
+	MaxBtcFundingAmountWumbo = btcutil.Amount(9000000 * 1e9)
 
 	msgBufferSize = 50
 

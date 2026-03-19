@@ -2127,6 +2127,13 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 
+	// Prevent int64/uint64 overflow from Sui Mist -> MSat routing calculations.
+	// The absolute limit is ~9.22 million SUI. We cap at 9,000,000 SUI.
+	if localFundingAmt > 9000000*1e9 {
+		return nil, fmt.Errorf("funding amount %d Mist exceeds SUI safe limit "+
+			"of 9,000,000 SUI to prevent HTLC MSat overflow", localFundingAmt)
+	}
+
 	// If we are not committing the maximum viable balance towards a channel
 	// then the local funding amount must be specified. In case FundMax is
 	// set the funding amount is specified as the interval between minimum
