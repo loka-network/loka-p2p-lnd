@@ -416,18 +416,50 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 
 	go func() {
 		defer close(ch)
-		// Mock confirmation for testing. Wait 2 seconds and reliably confirm.
-		// The test script depends on the channel fully opening.
-		select {
-		case <-time.After(2 * time.Second):
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		txBase58 := base58.Encode(txID[:])
+
+		for {
 			select {
-			case ch <- ConfirmEvent{
-				TxID:         txID,
-				AnchorHeight: 100, // Placeholder
-			}:
+			case <-ticker.C:
+				result, err := s.call("sui_getTransactionBlock", []interface{}{
+					txBase58,
+					map[string]bool{"showEffects": true},
+				})
+				if err != nil {
+					continue
+				}
+
+				var response struct {
+					Effects struct {
+						Status struct {
+							Status string `json:"status"`
+						} `json:"status"`
+					} `json:"effects"`
+					Checkpoint string `json:"checkpoint"`
+				}
+				if err := json.Unmarshal(result, &response); err != nil {
+					continue
+				}
+
+				if response.Effects.Status.Status == "success" && response.Checkpoint != "" {
+					var checkpoint uint32
+					fmt.Sscanf(response.Checkpoint, "%d", &checkpoint)
+
+					select {
+					case ch <- ConfirmEvent{
+						TxID:         txID,
+						AnchorHeight: checkpoint,
+					}:
+					case <-quit:
+					}
+					return
+				}
 			case <-quit:
+				return
 			}
-		case <-quit:
 		}
 	}()
 
@@ -450,12 +482,11 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 		for {
 			select {
 			case <-ticker.C:
-				// sui_getEvents with a filter.
+				// suix_queryEvents with a filter.
 				// Filter for ChannelSpendEvent from our module.
-				// For now, we use a simple filter if possible, or poll and filter locally.
-				result, err := s.call("sui_getEvents", []interface{}{
+				result, err := s.call("suix_queryEvents", []interface{}{
 					map[string]interface{}{
-						"MoveEvent": fmt.Sprintf("%s::lightning::ChannelSpendEvent", s.packageID),
+						"MoveEventType": fmt.Sprintf("%s::lightning::ChannelSpendEvent", s.packageID),
 					},
 					cursor,
 					nil,   // limit
@@ -470,11 +501,7 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 						ID struct {
 							TxDigest string `json:"txDigest"`
 						} `json:"id"`
-						ParsedJson struct {
-							ChannelID string `json:"channel_id"`
-							HtlcID    string `json:"htlc_id"`
-							SpendType uint8  `json:"spend_type"`
-						} `json:"parsedJson"`
+						ParsedJson map[string]interface{} `json:"parsedJson"`
 						Checkpoint string `json:"checkpoint"`
 					} `json:"data"`
 					NextCursor interface{} `json:"nextCursor"`
@@ -484,18 +511,20 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 				}
 
 				for _, ev := range response.Data {
-					// Check if this event matches our objectID.
-					// objectID is stored as hex in LND.
-					if ev.ParsedJson.ChannelID != objectID.String() {
-						// Check with 0x prefix.
-						if ev.ParsedJson.ChannelID != "0x"+objectID.String() {
-							continue
-						}
+					// We must parse the flexible JSON since number formats can vary
+					channelIDStr, _ := ev.ParsedJson["channel_id"].(string)
+					
+					if channelIDStr != objectID.String() && channelIDStr != "0x"+objectID.String() {
+						continue
 					}
 
-					// If we are looking for a specific HTLC spend.
 					var htlcID uint64
-					fmt.Sscanf(ev.ParsedJson.HtlcID, "%d", &htlcID)
+					if htlcIDStr, ok := ev.ParsedJson["htlc_id"].(string); ok {
+						fmt.Sscanf(htlcIDStr, "%d", &htlcID)
+					} else if htlcIDNum, ok := ev.ParsedJson["htlc_id"].(float64); ok {
+						htlcID = uint64(htlcIDNum)
+					}
+
 					if htlcIndex > 0 && uint32(htlcID) != htlcIndex {
 						continue
 					}

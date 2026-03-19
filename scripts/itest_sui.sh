@@ -127,6 +127,9 @@ cleanup() {
     echo "Cleaning up LND nodes..."
     kill $ALICE_PID $BOB_PID 2>/dev/null || true
     wait $ALICE_PID $BOB_PID 2>/dev/null || true
+    
+    echo "Cleaning up dangling lncli stream clients..."
+    pkill -f "lncli-debug.*closechannel" || true
 
     if [ -n "$SUI_PID" ]; then
         echo "Stopping background local Sui node (PID: $SUI_PID)..."

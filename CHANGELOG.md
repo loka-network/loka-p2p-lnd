@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 - **Fixed `encoding/hex: invalid byte: U+007A 'z'` crash:** Swapped `chainhash` hexadecimal hex-decoding in `ExecuteTransactionBlock` with a native Base58 parser to properly decode Sui's Transaction Block `Digest` format.
 - Fixed panics and `invalid shutdown script` errors during Sui cooperative channel closures by bypassing strict Bitcoin payload length (`deliveryAddressMaxSize`) and script type validation for 66-byte hex Sui addresses.
 - **Fixed Sui Channel Capacity Overflow:** Increased default channel capacity to 1000 SUI and added a strict Wumbo limit at 9,000,000 SUI (as well as RPC interception) to prevent internal `int64`/`uint64` overflow vulnerabilities when mapping Mist to MSats.
+- **Fixed Channel Close Hanging:** Updated `SuiRPCClient` to correctly poll `suix_queryEvents` (instead of `sui_getEvents`) for mapping `.ObjectSpend` notifications, and removed mock delays in `SubscribeEventConfirmation` by introducing a real `sui_getTransactionBlock` checkpoint poller.
+- **Fixed zombie `lncli` processes:** Added `pkill` cleanup for long-running stream subscriptions (`closechannel`) in `itest_sui.sh` to prevent resource leaks during local testing.
 
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.
