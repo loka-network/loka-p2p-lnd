@@ -3,7 +3,7 @@ module lightning::lightning {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::coin::{Self, Coin};
-    use sui::balance::Balance;
+    use sui::balance::{Self, Balance};
     use sui::sui::SUI;
     use sui::event;
     use std::option::{Self, Option};
@@ -22,6 +22,7 @@ module lightning::lightning {
     const EInvalidPreimage: u64 = 4;
     const ENotExpired: u64 = 5;
     const EInvalidHash: u64 = 6;
+    const EInvalidStatus: u64 = 7;
 
     // --- Data Structures ---
 
@@ -122,7 +123,7 @@ module lightning::lightning {
          balance_b: u64,
         _sig_a: vector<u8>,
         _sig_b: vector<u8>,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
         // Verify both signatures over the new state.
@@ -133,6 +134,15 @@ module lightning::lightning {
         channel.balance_b = balance_b;
         channel.state_num = state_num;
         channel.status = 2; // CLOSED
+
+        if (balance_a > 0) {
+            let coin_a = coin::take(&mut channel.funding_balance, balance_a, ctx);
+            transfer::public_transfer(coin_a, channel.party_a);
+        };
+        if (balance_b > 0) {
+            let coin_b = coin::take(&mut channel.funding_balance, balance_b, ctx);
+            transfer::public_transfer(coin_b, channel.party_b);
+        };
 
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),
@@ -179,7 +189,7 @@ module lightning::lightning {
         _ctx: &mut TxContext
     ) {
         let htlc = table::borrow_mut(&mut channel.htlcs, htlc_id);
-        assert!(htlc.status == 0, 0); // PENDING
+        assert!(htlc.status == 0, EInvalidStatus); // PENDING
         
         let hash = hash::sha2_256(preimage);
         assert!(hash == htlc.payment_hash, EInvalidPreimage);
@@ -208,7 +218,7 @@ module lightning::lightning {
         ctx: &mut TxContext
     ) {
         let htlc = table::borrow_mut(&mut channel.htlcs, htlc_id);
-        assert!(htlc.status == 0, 0); // PENDING
+        assert!(htlc.status == 0, EInvalidStatus); // PENDING
         assert!(tx_context::epoch(ctx) >= htlc.expiry, ENotExpired);
 
         htlc.status = 2; // TIMEOUT
@@ -220,10 +230,11 @@ module lightning::lightning {
         });
     }
 
+    #[allow(lint(self_transfer))]
     public fun penalize(
         channel: &mut Channel,
         revocation_secret: vector<u8>,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         // Evaluate the SHA256 of the provided `revocation_secret` against the dynamically bound hash inside the channel
         let actual_hash = hash::sha2_256(revocation_secret);
@@ -233,6 +244,13 @@ module lightning::lightning {
         channel.balance_a = 0;
         channel.balance_b = channel.balance_a + channel.balance_b;
         channel.status = 2; // CLOSED
+
+        let remaining = balance::value(&channel.funding_balance);
+        if (remaining > 0) {
+            let honest_party = tx_context::sender(ctx);
+            let coin_all = coin::take(&mut channel.funding_balance, remaining, ctx);
+            transfer::public_transfer(coin_all, honest_party);
+        };
 
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),

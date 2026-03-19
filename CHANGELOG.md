@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
 - **Fixed Sui Channel Capacity Overflow:** Increased default channel capacity to 1000 SUI and added a strict Wumbo limit at 9,000,000 SUI (as well as RPC interception) to prevent internal `int64`/`uint64` overflow vulnerabilities when mapping Mist to MSats.
 - **Fixed Channel Close Hanging:** Updated `SuiRPCClient` to correctly poll `suix_queryEvents` (instead of `sui_getEvents`) for mapping `.ObjectSpend` notifications, and removed mock delays in `SubscribeEventConfirmation` by introducing a real `sui_getTransactionBlock` checkpoint poller.
 - **Fixed zombie `lncli` processes:** Added `pkill` cleanup for long-running stream subscriptions (`closechannel`) in `itest_sui.sh` to prevent resource leaks during local testing.
+- **Added Native SUI Coin Payouts:** Enhanced the `close_channel` and `penalize` functions in `sui-contracts/lightning` to explicitly split the internal `Balance<SUI>` state and execute `transfer::public_transfer` to sweep SUI physical coins directly back to the Alice and Bob wallet addresses upon channel teardown or breach.
+- Fixed `Transfer of an object to transaction sender address` and `abort without named constant` linter warnings in `sui-contracts/lightning` by applying `#[allow(lint(self_transfer))]` and defining `EInvalidStatus`.
 
 ### Changed
 - Refactored `htlc_timeout_resolver`, `htlc_success_resolver`, and `commit_sweep_resolver` in `contractcourt` to route through Sui via `IsSui` flag checking without modifying existing bitcoin logic.
