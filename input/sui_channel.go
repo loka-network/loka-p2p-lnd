@@ -125,23 +125,40 @@ type ChannelClosePayload struct {
 
 // ChannelForceClosePayload is the payload for SuiCallChannelForceClose.
 type ChannelForceClosePayload struct {
-	// StateNum is the commitment state number being force-closed.
+	// StateNum is the internal state number of the breached commitment.
 	StateNum uint64 `json:"state_num"`
 
-	// LocalBalance is the final balance agreed upon by both parties for the initiator.
+	// LocalBalance is the balance to be credited to the channel initiator.
 	LocalBalance uint64 `json:"local_balance"`
 
-	// RemoteBalance is the remote party's final balance.
+	// RemoteBalance is the balance to be credited to the non-initiator.
 	RemoteBalance uint64 `json:"remote_balance"`
 
 	// RevocationHash is the 32-byte secret hash.
 	RevocationHash [32]byte `json:"revocation_hash"`
 
-	// CommitmentSig is the ECDSA signature over the Bitcoin sighash.
+	// CommitmentSig is the ECDSA commitment signature from the remote party.
 	CommitmentSig []byte `json:"commitment_sig"`
 
-	// Sighash is the Bitcoin transaction sighash that was actually signed.
-	Sighash []byte `json:"sighash"`
+	// Sighash is the standard 32-byte hash of the commitment data to be verified.
+	Sighash [32]byte `json:"sighash"`
+
+	// --- HTLC Components ---
+
+	// HtlcIDs corresponds to the HTLC keys evaluated natively.
+	HtlcIDs []uint64 `json:"htlc_ids"`
+
+	// HtlcAmounts specifies the values for the respective HTLCs.
+	HtlcAmounts []uint64 `json:"htlc_amounts"`
+
+	// HtlcPaymentHashes lists the correlated SHA256 constraints.
+	HtlcPaymentHashes [][]byte `json:"htlc_payment_hashes"`
+
+	// HtlcExpiries translates absolute Expiry clock delays mapped in milliseconds natively out of LND arrays.
+	HtlcExpiries []uint64 `json:"htlc_expiries"`
+
+	// HtlcDirections dictates A->B constraints.
+	HtlcDirections []uint8 `json:"htlc_directions"`
 }
 
 

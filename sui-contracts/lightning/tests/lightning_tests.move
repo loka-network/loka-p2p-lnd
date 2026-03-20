@@ -3,6 +3,7 @@ module lightning::lightning_tests {
     use sui::test_scenario;
     use sui::coin;
     use sui::sui::SUI;
+    use sui::clock;
     use lightning::lightning::{Self, Channel};
 
     const ALICE: address = @0xA11CE;
@@ -14,14 +15,14 @@ module lightning::lightning_tests {
 
     #[test]
     fun test_open_channel() {
-        let scenario_val = test_scenario::begin(ALICE);
+        let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
         
         let local_amt = 10000;
         
         // Setup ALICE with some SUI
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
+        let mut coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
         let delay = 144;
         
@@ -37,7 +38,7 @@ module lightning::lightning_tests {
         
         // Check that channel was created
         test_scenario::next_tx(scenario, ALICE);
-        let channel = test_scenario::take_shared<Channel>(scenario);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
         
         // Return it
         test_scenario::return_shared(channel);
@@ -47,12 +48,12 @@ module lightning::lightning_tests {
     
     #[test]
     fun test_close_channel() {
-        let scenario_val = test_scenario::begin(ALICE);
+        let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
         
         let local_amt = 10000;
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
+        let mut coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
             &mut coin,
@@ -66,7 +67,7 @@ module lightning::lightning_tests {
         sui::transfer::public_transfer(coin, ALICE);
         
         test_scenario::next_tx(scenario, ALICE);
-        let channel = test_scenario::take_shared<Channel>(scenario);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
         
         // Close the channel
         // For now close channel doesn't check ECDSA sigs in prototype because we just simulate cooperative close
@@ -86,7 +87,7 @@ module lightning::lightning_tests {
 
     #[test]
     fun test_force_close() {
-        let scenario_val = test_scenario::begin(ALICE);
+        let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
         
         // ID of the channel will be deterministically derived from ALICE and nonce
@@ -101,7 +102,7 @@ module lightning::lightning_tests {
         // Let's print the ID in the Go script using 0x1111... for now. Wait, I'll pass the exact signature byte array from my Go script.
         
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
+        let mut coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
             &mut coin,
@@ -114,7 +115,7 @@ module lightning::lightning_tests {
         );
         sui::transfer::public_transfer(coin, ALICE);
         test_scenario::next_tx(scenario, ALICE);
-        let channel = test_scenario::take_shared<Channel>(scenario);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
 
         std::debug::print(&sui::object::id(&channel));
 
@@ -122,14 +123,30 @@ module lightning::lightning_tests {
         // force_close sig: af031946182971756ecb8cc164921c54dfbcba34376d5810f1cded65ecf2b7b340dd6fb83a4a1179babc463f31e9efb921759cb284c199892f8f6465fc7feee2
         let commitment_sig = x"af031946182971756ecb8cc164921c54dfbcba34376d5810f1cded65ecf2b7b340dd6fb83a4a1179babc463f31e9efb921759cb284c199892f8f6465fc7feee2";
         let revocation_hash = x"9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4";
+        let sighash = x"6cc38de366dcf7cbeb76dbf170afc0cfda4209bf2181af5ed862c974da605f63";
         
+        let empty_u64_vec = vector::empty<u64>();
+        let empty_vec_u8_vec = vector::empty<vector<u8>>();
+        let empty_u8_vec = vector::empty<u8>();
+        let clock = clock::create_for_testing(test_scenario::ctx(scenario));
+
         lightning::force_close(
             &mut channel,
             5, // state_num
+            5000, // local_balance
+            5000, // remote_balance
             revocation_hash,
             commitment_sig,
+            sighash,
+            empty_u64_vec, // htlc_ids
+            empty_u64_vec, // amounts
+            empty_vec_u8_vec, // hashes
+            empty_u64_vec, // expiries
+            empty_u8_vec, // directions
+            &clock,
             test_scenario::ctx(scenario)
         );
+        clock::destroy_for_testing(clock);
         
         test_scenario::return_shared(channel);
         test_scenario::end(scenario_val);
@@ -137,11 +154,11 @@ module lightning::lightning_tests {
 
     #[test]
     fun test_penalize() {
-        let scenario_val = test_scenario::begin(ALICE);
+        let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
         
         test_scenario::next_tx(scenario, ALICE);
-        let coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
+        let mut coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
             &mut coin,
@@ -155,20 +172,36 @@ module lightning::lightning_tests {
         sui::transfer::public_transfer(coin, ALICE);
         
         test_scenario::next_tx(scenario, ALICE);
-        let channel = test_scenario::take_shared<Channel>(scenario);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
 
         // Force close 
         // We first force close the channel with Alice's signature to inject the revocation hash.
         let commitment_sig = x"af031946182971756ecb8cc164921c54dfbcba34376d5810f1cded65ecf2b7b340dd6fb83a4a1179babc463f31e9efb921759cb284c199892f8f6465fc7feee2";
         let revocation_hash = x"9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4";
+        let sighash = x"6cc38de366dcf7cbeb76dbf170afc0cfda4209bf2181af5ed862c974da605f63";
         
+        let empty_u64_vec = vector::empty<u64>();
+        let empty_vec_u8_vec = vector::empty<vector<u8>>();
+        let empty_u8_vec = vector::empty<u8>();
+        let clock = clock::create_for_testing(test_scenario::ctx(scenario));
+
         lightning::force_close(
             &mut channel,
             5, // state_num
+            5000, 
+            5000,
             revocation_hash,
             commitment_sig,
+            sighash,
+            empty_u64_vec, 
+            empty_u64_vec,
+            empty_vec_u8_vec, 
+            empty_u64_vec,
+            empty_u8_vec,
+            &clock,
             test_scenario::ctx(scenario)
         );
+        clock::destroy_for_testing(clock);
         
         // penalize secret: 32 bytes of 0x22 -> sha256 -> revocation_hash
         let revocation_secret = x"2222222222222222222222222222222222222222222222222222222222222222";

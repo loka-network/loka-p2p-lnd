@@ -251,6 +251,28 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			return nil, err
 		}
 		channelObjID := hashToSuiHex(*channelID)
+		
+		htlcIDsStr := make([]string, len(p.HtlcIDs))
+		for i, v := range p.HtlcIDs {
+			htlcIDsStr[i] = fmt.Sprintf("%d", v)
+		}
+		htlcAmountsStr := make([]string, len(p.HtlcAmounts))
+		for i, v := range p.HtlcAmounts {
+			htlcAmountsStr[i] = fmt.Sprintf("%d", v)
+		}
+		htlcExpiriesStr := make([]string, len(p.HtlcExpiries))
+		for i, v := range p.HtlcExpiries {
+			htlcExpiriesStr[i] = fmt.Sprintf("%d", v)
+		}
+		htlcHashesNum := make([][]int, len(p.HtlcPaymentHashes))
+		for i, v := range p.HtlcPaymentHashes {
+			htlcHashesNum[i] = bytesToNumArray(v)
+		}
+		htlcDirsNum := make([]int, len(p.HtlcDirections))
+		for i, v := range p.HtlcDirections {
+			htlcDirsNum[i] = int(v)
+		}
+
 		args = []interface{}{
 			channelObjID,
 			fmt.Sprintf("%d", p.StateNum),
@@ -258,7 +280,12 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			fmt.Sprintf("%d", p.RemoteBalance),
 			bytesToNumArray(p.RevocationHash[:]),
 			bytesToNumArray(p.CommitmentSig),
-			bytesToNumArray(p.Sighash),
+			bytesToNumArray(p.Sighash[:]),
+			htlcIDsStr,
+			htlcAmountsStr,
+			htlcHashesNum,
+			htlcExpiriesStr,
+			htlcDirsNum,
 			"0x6", // sui::clock::Clock
 		}
 

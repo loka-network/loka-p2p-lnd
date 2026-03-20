@@ -24,6 +24,7 @@ module lightning::lightning {
     const ENotExpired: u64 = 5;
     const EInvalidHash: u64 = 6;
     const EInvalidStatus: u64 = 7;
+    const EInvalidLength: u64 = 8;
 
     // --- Data Structures ---
 
@@ -162,6 +163,11 @@ module lightning::lightning {
         revocation_hash: vector<u8>,
         commitment_sig: vector<u8>,
         sighash: vector<u8>,
+        htlc_ids: vector<u64>,
+        htlc_amounts: vector<u64>,
+        htlc_payment_hashes: vector<vector<u8>>,
+        htlc_expiries: vector<u64>,
+        htlc_directions: vector<u8>,
         clock: &Clock,
         _ctx: &mut TxContext
     ) {
@@ -181,6 +187,27 @@ module lightning::lightning {
         
         channel.close_timestamp_ms = clock::timestamp_ms(clock);
         channel.revocation_hash = revocation_hash;
+
+        let len = vector::length(&htlc_ids);
+        assert!(vector::length(&htlc_amounts) == len, EInvalidLength);
+        assert!(vector::length(&htlc_payment_hashes) == len, EInvalidLength);
+        assert!(vector::length(&htlc_expiries) == len, EInvalidLength);
+        assert!(vector::length(&htlc_directions) == len, EInvalidLength);
+
+        let mut i = 0;
+        while (i < len) {
+            let htlc_id = *vector::borrow(&htlc_ids, i);
+            let htlc = HTLC {
+                htlc_id,
+                amount: *vector::borrow(&htlc_amounts, i),
+                payment_hash: *vector::borrow(&htlc_payment_hashes, i),
+                expiry: *vector::borrow(&htlc_expiries, i),
+                direction: *vector::borrow(&htlc_directions, i),
+                status: 0, // PENDING
+            };
+            table::add(&mut channel.htlcs, htlc_id, htlc);
+            i = i + 1;
+        };
 
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),

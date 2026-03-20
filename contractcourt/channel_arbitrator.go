@@ -1215,13 +1215,51 @@ func (c *ChannelArbitrator) stateStep(
 			sBytes := sVal.Bytes()
 			copy(rawSig[:32], rBytes[:])
 			copy(rawSig[32:], sBytes[:])
+			htlcIDs := make([]uint64, 0)
+			htlcAmounts := make([]uint64, 0)
+			htlcHashes := make([][]byte, 0)
+			htlcExpiries := make([]uint64, 0)
+			htlcDirections := make([]uint8, 0)
+			
+			for _, htlc := range localCommit.Htlcs {
+				htlcIDs = append(htlcIDs, htlc.HtlcIndex)
+				htlcAmounts = append(htlcAmounts, uint64(htlc.Amt.ToSatoshis()))
+				
+				hashCopy := make([]byte, 32)
+				copy(hashCopy, htlc.RHash[:])
+				htlcHashes = append(htlcHashes, hashCopy)
+				
+				// SUI Clock requires absolute millisecond epoch: 
+				// The LND cltv_expiry is an absolute block height.
+				// For the prototype, we assume Genesis offset is 0, 
+				// and blocks map directly to 10-minute intervals.
+				suiExpiryMs := uint64(htlc.RefundTimeout) * 10 * 60 * 1000
+				htlcExpiries = append(htlcExpiries, suiExpiryMs)
+				
+				if htlc.Incoming {
+					// 1 = B_to_A (Remote to Local)
+					htlcDirections = append(htlcDirections, 1)
+				} else {
+					// 0 = A_to_B (Local to Remote)
+					htlcDirections = append(htlcDirections, 0)
+				}
+			}
+			
+			var sighash32 [32]byte
+			copy(sighash32[:], sighash)
+
 			payload := input.ChannelForceClosePayload{
 				StateNum:       localCommit.CommitHeight,
 				LocalBalance:   uint64(localCommit.LocalBalance.ToSatoshis()),
 				RemoteBalance:  uint64(localCommit.RemoteBalance.ToSatoshis()),
 				RevocationHash: revHash,
 				CommitmentSig:  rawSig[:],
-				Sighash:        sighash,
+				Sighash:        sighash32,
+				HtlcIDs:           htlcIDs,
+				HtlcAmounts:       htlcAmounts,
+				HtlcPaymentHashes: htlcHashes,
+				HtlcExpiries:      htlcExpiries,
+				HtlcDirections:    htlcDirections,
 			}
 			publishTx, err = input.BuildChannelForceCloseTx(c.cfg.ChanPoint.Hash, payload)
 			if err != nil {
