@@ -70,3 +70,8 @@ func (n *NoopSuiClient) BuildMoveCall(_ string, _ *chainhash.Hash, _ []byte) ([]
 func (n *NoopSuiClient) ExecuteTransactionBlock(_, _ []byte) (chainhash.Hash, error) {
 	return chainhash.Hash{}, nil
 }
+
+// ExecuteTransactionBlockFull does nothing.
+func (n *NoopSuiClient) ExecuteTransactionBlockFull(_, _ []byte) (chainhash.Hash, []chainhash.Hash, error) {
+	return chainhash.Hash{}, nil, nil
+}

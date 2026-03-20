@@ -3188,14 +3188,16 @@ func (m *mockChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	if m.forceCloseErr != nil {
 		return nil, m.forceCloseErr
 	}
-
 	return &wire.MsgTx{}, nil
+}
+
+func (m *mockChannel) FetchChannel() (*channeldb.OpenChannel, error) {
+	return &channeldb.OpenChannel{}, nil
 }
 
 func newBeatFromHeight(height int32) *chainio.Beat {
 	epoch := chainntnfs.BlockEpoch{
 		Height: height,
 	}
-
 	return chainio.NewBeat(epoch)
 }

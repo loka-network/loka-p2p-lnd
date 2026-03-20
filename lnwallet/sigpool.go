@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sync"
 
@@ -240,7 +241,16 @@ func (s *SigPool) poolWorker() {
 
 			rawSig := verifyMsg.Sig
 
-			if !rawSig.Verify(sigHash, verifyMsg.PubKey) {
+			isValid := rawSig.Verify(sigHash, verifyMsg.PubKey)
+			if !isValid {
+				// Sui Move VM enforces hashing on raw signature verification, so
+				// signatures generated natively on Sui will be over SHA256(sigHash).
+				// We add a fallback verification here.
+				suiHash := sha256.Sum256(sigHash)
+				isValid = rawSig.Verify(suiHash[:], verifyMsg.PubKey)
+			}
+
+			if !isValid {
 				err := fmt.Errorf("invalid signature "+
 					"sighash: %x, sig: %x", sigHash,
 					rawSig.Serialize())

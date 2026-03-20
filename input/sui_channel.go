@@ -128,11 +128,14 @@ type ChannelForceClosePayload struct {
 	// StateNum is the commitment state number being force-closed.
 	StateNum uint64 `json:"state_num"`
 
-	// RevocationHash is the 32 byte static hash for penalize checks.
+	// RevocationHash is the 32-byte secret hash.
 	RevocationHash [32]byte `json:"revocation_hash"`
 
-	// CommitmentSig is the owner's signature over this commitment state.
+	// CommitmentSig is the ECDSA signature over the Bitcoin sighash.
 	CommitmentSig []byte `json:"commitment_sig"`
+
+	// Sighash is the Bitcoin transaction sighash that was actually signed.
+	Sighash []byte `json:"sighash"`
 }
 
 // ChannelClaimLocalPayload is the payload for SuiCallChannelClaimLocal.

@@ -10,6 +10,7 @@ module lightning::lightning {
     use sui::table::{Self, Table};
     use sui::ecdsa_k1;
     use sui::bcs;
+    use sui::clock::{Self, Clock};
     use std::hash;
     use std::vector;
 
@@ -26,7 +27,7 @@ module lightning::lightning {
 
     // --- Data Structures ---
 
-    struct Channel has key {
+    public struct Channel has key {
         id: UID,
         party_a: address,
         party_b: address,
@@ -37,15 +38,15 @@ module lightning::lightning {
         pubkey_b: vector<u8>,
         status: u8,           // 0: OPEN, 1: CLOSING, 2: CLOSED
         state_num: u64,
-        to_self_delay: u64,   // checkpoint/epoch delay
-        close_epoch: u64,
+        to_self_delay: u64,   // ms delay from Clock
+        close_timestamp_ms: u64,
         htlcs: Table<u64, HTLC>,
         revocation_key: Option<vector<u8>>,
         revocation_hash: vector<u8>,
     }
 
     #[allow(unused_field)]
-    struct HTLC has store, drop {
+    public struct HTLC has store, drop {
         htlc_id: u64,
         amount: u64,
         payment_hash: vector<u8>, // sha256
@@ -56,14 +57,14 @@ module lightning::lightning {
 
     // --- Events ---
 
-    struct ChannelOpenEvent has copy, drop {
+    public struct ChannelOpenEvent has copy, drop {
         channel_id: ID,
         party_a: address,
         party_b: address,
         capacity: u64,
     }
 
-    struct ChannelSpendEvent has copy, drop {
+    public struct ChannelSpendEvent has copy, drop {
         channel_id: ID,
         htlc_id: u64,
         spend_type: u8, // 0: COOP, 1: FORCE, 2: CLAIM, 3: TIMEOUT, 4: PENALIZE
@@ -96,7 +97,7 @@ module lightning::lightning {
             status: 0, // OPEN
             state_num: 0,
             to_self_delay,
-            close_epoch: 0,
+            close_timestamp_ms: 0,
             htlcs: table::new(ctx),
             revocation_key: option::none(),
             revocation_hash: vector::empty<u8>(),
@@ -156,29 +157,50 @@ module lightning::lightning {
         state_num: u64,
         revocation_hash: vector<u8>,
         commitment_sig: vector<u8>,
-        ctx: &mut TxContext
+        sighash: vector<u8>,
+        clock: &Clock,
+        _ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
         assert!(state_num >= channel.state_num, EInvalidStateNum);
 
-        let payload = object::id_to_bytes(&object::id(channel));
-        let num_bytes = bcs::to_bytes(&state_num);
-        let mut_payload = payload;
-        vector::append(&mut mut_payload, num_bytes);
-        vector::append(&mut mut_payload, revocation_hash);
-        
         // Verify the commitment_sig against pubkey_b.
-        // Hash algorithms in ecdsa_k1 1: SHA256. 
-        assert!(ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_b, &mut_payload, 1), EInvalidSignature);
+        // Using hash algorithm `1` to enforce SHA256 validation equivalent to Bitcoin's Double-SHA.
+        assert!(ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_b, &sighash, 1), EInvalidSignature);
 
         channel.status = 1; // CLOSING
-        channel.close_epoch = tx_context::epoch(ctx);
+        
+        channel.close_timestamp_ms = clock::timestamp_ms(clock);
         channel.revocation_hash = revocation_hash;
 
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),
             htlc_id: 0,
             spend_type: 1, // FORCE
+        });
+    }
+
+    public fun claim_force_close(
+        channel: &mut Channel,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(channel.status == 1, EInvalidStatus); // CLOSING
+        assert!(clock::timestamp_ms(clock) >= channel.close_timestamp_ms + channel.to_self_delay, ENotExpired);
+
+        channel.status = 2; // CLOSED
+
+        let remaining = balance::value(&channel.funding_balance);
+        if (remaining > 0) {
+            let sender = tx_context::sender(ctx);
+            let coin_all = coin::take(&mut channel.funding_balance, remaining, ctx);
+            transfer::public_transfer(coin_all, sender);
+        };
+        
+        event::emit(ChannelSpendEvent {
+            channel_id: object::id(channel),
+            htlc_id: 0,
+            spend_type: 5, // SWEEP CLAIM
         });
     }
 
@@ -215,11 +237,12 @@ module lightning::lightning {
     public fun htlc_timeout(
         channel: &mut Channel,
         htlc_id: u64,
-        ctx: &mut TxContext
+        clock: &Clock,
+        _ctx: &mut TxContext
     ) {
         let htlc = table::borrow_mut(&mut channel.htlcs, htlc_id);
         assert!(htlc.status == 0, EInvalidStatus); // PENDING
-        assert!(tx_context::epoch(ctx) >= htlc.expiry, ENotExpired);
+        assert!(clock::timestamp_ms(clock) >= htlc.expiry, ENotExpired);
 
         htlc.status = 2; // TIMEOUT
 
@@ -230,7 +253,6 @@ module lightning::lightning {
         });
     }
 
-    #[allow(lint(self_transfer))]
     public fun penalize(
         channel: &mut Channel,
         revocation_secret: vector<u8>,

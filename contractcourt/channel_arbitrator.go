@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -105,6 +106,9 @@ type ArbChannel interface {
 	// NewAnchorResolutions returns the anchor resolutions for currently
 	// valid commitment transactions.
 	NewAnchorResolutions() (*lnwallet.AnchorResolutions, error)
+
+	// FetchChannel returns the underlying state of the active channel.
+	FetchChannel() (*channeldb.OpenChannel, error)
 }
 
 // ChannelArbitratorConfig contains all the functionality that the
@@ -1165,12 +1169,8 @@ func (c *ChannelArbitrator) stateStep(
 		if c.cfg.IsSui {
 			log.Infof("ChannelArbitrator(%v): wrapping force close tx "+
 				"in Sui envelope", c.cfg.ChanPoint)
-			var buf bytes.Buffer
-			if err := closeTx.Serialize(&buf); err != nil {
-				return StateError, closeTx, err
-			}
 			
-			chanState, err := c.cfg.FetchHistoricalChannel()
+			chanState, err := c.cfg.Channel.FetchChannel()
 			if err != nil {
 				return StateError, closeTx, err
 			}
@@ -1182,27 +1182,50 @@ func (c *ChannelArbitrator) stateStep(
 			copy(revHash[:], expectedHashBytes)
 			
 			localCommit := chanState.LocalCommitment
+
+			// Compute the Bitcoin sighash over the commitment transaction.
+			// The Move contract will verify the commitment signature against this exact digest.
+			witnessScript, err := input.GenMultiSigScript(
+				chanState.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed(),
+				chanState.RemoteChanCfg.MultiSigKey.PubKey.SerializeCompressed(),
+			)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+			nilFetcher := txscript.NewCannedPrevOutputFetcher(nil, 0)
+			hashCache := txscript.NewTxSigHashes(closeTx, nilFetcher)
+			sighash, err := txscript.CalcWitnessSigHash(
+				witnessScript, hashCache, txscript.SigHashAll,
+				closeTx, 0, int64(chanState.Capacity),
+			)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			// LND stores signatures in DER format, but Sui's ecdsa_k1::secp256k1_verify
+			// expects a raw 64-byte [R | S] format.
+			parsedSig, err := ecdsa.ParseDERSignature(localCommit.CommitSig)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+			var rawSig [64]byte
+			rVal := parsedSig.R()
+			sVal := parsedSig.S()
+			rBytes := rVal.Bytes()
+			sBytes := sVal.Bytes()
+			copy(rawSig[:32], rBytes[:])
+			copy(rawSig[32:], sBytes[:])
+
 			payload := input.ChannelForceClosePayload{
 				StateNum:       localCommit.CommitHeight,
 				RevocationHash: revHash,
-				CommitmentSig:  localCommit.CommitSig,
+				CommitmentSig:  rawSig[:],
+				Sighash:        sighash,
 			}
 			publishTx, err = input.BuildChannelForceCloseTx(c.cfg.ChanPoint.Hash, payload)
 			if err != nil {
 				return StateError, closeTx, err
 			}
-
-			// Sign the Sui Move call envelope using our funding key.
-			signDesc := &input.SignDescriptor{
-				KeyDesc: chanState.LocalChanCfg.MultiSigKey,
-			}
-			sig, err := c.cfg.Signer.SignOutputRaw(publishTx, signDesc)
-			if err != nil {
-				return StateError, closeTx, err
-			}
-
-			// Attach the signature to the transaction witness.
-			publishTx.TxIn[0].Witness = wire.TxWitness{sig.Serialize()}
 		}
 
 		if err := c.cfg.PublishTx(publishTx, label); err != nil {

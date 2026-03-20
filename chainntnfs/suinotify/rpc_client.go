@@ -17,6 +17,30 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 )
 
+// suiHexToHash converts a Sui hex string (e.g. "0xabcd...") to a chainhash.Hash
+// WITHOUT byte reversal. chainhash.NewHashFromStr() reverses bytes (Bitcoin
+// convention), but Sui ObjectIDs/addresses are plain big-endian hex, so we
+// must decode them directly.
+func suiHexToHash(hexStr string) (chainhash.Hash, error) {
+	var h chainhash.Hash
+	clean := strings.TrimPrefix(hexStr, "0x")
+	b, err := hex.DecodeString(clean)
+	if err != nil {
+		return h, err
+	}
+	if len(b) != 32 {
+		return h, fmt.Errorf("suiHexToHash: expected 32 bytes, got %d", len(b))
+	}
+	copy(h[:], b)
+	return h, nil
+}
+
+// hashToSuiHex converts a chainhash.Hash (stored in natural big-endian byte
+// order by suiHexToHash) to a Sui-style hex string with "0x" prefix.
+func hashToSuiHex(h chainhash.Hash) string {
+	return "0x" + hex.EncodeToString(h[:])
+}
+
 // rpcRequest represents a standard JSON-RPC 2.0 request.
 type rpcRequest struct {
 	JSONRPC string      `json:"jsonrpc"`
@@ -127,25 +151,16 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 
 	var coins []SuiCoin
 	for _, c := range response.Data {
-		objID, err := chainhash.NewHashFromStr(c.CoinObjectID)
+		objID, err := suiHexToHash(c.CoinObjectID)
 		if err != nil {
-			// Sui ObjectIDs are 32 bytes hex, similar to chainhash.
-			// If it has 0x prefix, we should strip it.
-			cleanID := c.CoinObjectID
-			if len(cleanID) > 2 && cleanID[:2] == "0x" {
-				cleanID = cleanID[2:]
-			}
-			objID, err = chainhash.NewHashFromStr(cleanID)
-			if err != nil {
-				continue
-			}
+			continue
 		}
 
 		var bal uint64
 		fmt.Sscanf(c.Balance, "%d", &bal)
 
 		coins = append(coins, SuiCoin{
-			ObjectID: *objID,
+			ObjectID: objID,
 			Balance:  bal,
 		})
 	}
@@ -202,7 +217,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if err != nil || len(coins) == 0 {
 			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
 		}
-		fundingCoinObjID := fmt.Sprintf("0x%s", coins[0].ObjectID.String())
+		fundingCoinObjID := hashToSuiHex(coins[0].ObjectID)
 
 		args = []interface{}{
 			fundingCoinObjID,
@@ -219,7 +234,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
 			return nil, err
 		}
-		channelObjID := fmt.Sprintf("0x%s", channelID.String())
+		channelObjID := hashToSuiHex(*channelID)
 		args = []interface{}{
 			channelObjID,
 			fmt.Sprintf("%d", p.StateNum),
@@ -235,12 +250,26 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
 			return nil, err
 		}
-		channelObjID := fmt.Sprintf("0x%s", channelID.String())
+		channelObjID := hashToSuiHex(*channelID)
 		args = []interface{}{
 			channelObjID,
 			fmt.Sprintf("%d", p.StateNum),
 			bytesToNumArray(p.RevocationHash[:]),
 			bytesToNumArray(p.CommitmentSig),
+			bytesToNumArray(p.Sighash),
+			"0x6", // sui::clock::Clock
+		}
+
+	case input.SuiCallChannelClaimLocal: // 3
+		functionName = "claim_force_close"
+		var p input.ChannelClaimLocalPayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		channelObjID := hashToSuiHex(*channelID)
+		args = []interface{}{
+			channelObjID,
+			"0x6", // sui::clock::Clock
 		}
 
 	case input.SuiCallChannelPenalize: // 7
@@ -249,7 +278,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
 			return nil, err
 		}
-		channelObjID := fmt.Sprintf("0x%s", channelID.String())
+		channelObjID := hashToSuiHex(*channelID)
 		args = []interface{}{
 			channelObjID,
 			bytesToNumArray(p.RevocationSecret[:]),
@@ -294,35 +323,74 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 
 // ExecuteTransactionBlock executes a Sui Move call transaction.
 func (s *SuiRPCClient) ExecuteTransactionBlock(txBytes []byte, signature []byte) (chainhash.Hash, error) {
+	digest, _, err := s.ExecuteTransactionBlockFull(txBytes, signature)
+	return digest, err
+}
+
+// ExecuteTransactionBlockFull executes a signed Sui transaction block and
+// returns both the transaction digest and any created object IDs. This is
+// needed so that ExecuteOpenChannelCall can extract the Channel ObjectID
+// from the response instead of using the tx digest as a placeholder.
+func (s *SuiRPCClient) ExecuteTransactionBlockFull(txBytes []byte, signature []byte) (chainhash.Hash, []chainhash.Hash, error) {
 	txBase64 := base64.StdEncoding.EncodeToString(txBytes)
 	sigBase64 := base64.StdEncoding.EncodeToString(signature)
 
 	result, err := s.call("sui_executeTransactionBlock", []interface{}{
 		txBase64,
 		[]string{sigBase64},
-		map[string]bool{"showEffects": true},
+		map[string]interface{}{
+			"showEffects":       true,
+			"showObjectChanges": true,
+		},
 		"WaitForLocalExecution",
 	})
 	if err != nil {
-		return chainhash.Hash{}, err
+		return chainhash.Hash{}, nil, err
 	}
 
 	var response struct {
-		Digest string `json:"digest"`
+		Digest  string `json:"digest"`
+		Effects struct {
+			Status struct {
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			} `json:"status"`
+		} `json:"effects"`
+		ObjectChanges []struct {
+			Type       string `json:"type"`
+			ObjectType string `json:"objectType"`
+			ObjectID   string `json:"objectId"`
+		} `json:"objectChanges"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil {
-		return chainhash.Hash{}, err
+		return chainhash.Hash{}, nil, err
+	}
+
+	if response.Effects.Status.Status == "failure" {
+		return chainhash.Hash{}, nil, fmt.Errorf("sui transaction failed on-chain: %s", response.Effects.Status.Error)
 	}
 
 	digestBytes := base58.Decode(response.Digest)
 	if len(digestBytes) != 32 {
-		return chainhash.Hash{}, fmt.Errorf("invalid digest length: %d for %s", len(digestBytes), response.Digest)
+		return chainhash.Hash{}, nil, fmt.Errorf("invalid digest length: %d for %s", len(digestBytes), response.Digest)
 	}
 
 	var digest chainhash.Hash
 	copy(digest[:], digestBytes)
 
-	return digest, nil
+	// Extract created object IDs.
+	var createdObjects []chainhash.Hash
+	for _, oc := range response.ObjectChanges {
+		if oc.Type == "created" {
+			obj, err := suiHexToHash(oc.ObjectID)
+			if err != nil {
+				continue
+			}
+			createdObjects = append(createdObjects, obj)
+		}
+	}
+
+	return digest, createdObjects, nil
 }
 func (s *SuiRPCClient) ExecuteMoveCall(txBytes []byte, signature []byte) (chainhash.Hash, error) {
 	// For the integration test, we don't have a native Sui Go BCS serializer.
@@ -409,6 +477,11 @@ func (s *SuiRPCClient) SubscribeEpochs(quit <-chan struct{}) (<-chan EpochEvent,
 }
 
 // SubscribeEventConfirmation monitors for transaction finalization.
+// The txID may be a Sui transaction digest OR an ObjectID (e.g. the funding
+// manager passes OutPoint.Hash which is the Channel ObjectID). When the
+// base58-encoded tx lookup fails, we fall back to checking if the ID is an
+// existing Object on chain. Sui has instant finality so once an object exists,
+// it is effectively confirmed.
 func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 	heightHint uint32, quit <-chan struct{}) (<-chan ConfirmEvent, error) {
 
@@ -420,43 +493,77 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 		defer ticker.Stop()
 
 		txBase58 := base58.Encode(txID[:])
+		objHex := hashToSuiHex(txID)
 
 		for {
 			select {
 			case <-ticker.C:
+				// First, try looking up as a transaction digest.
 				result, err := s.call("sui_getTransactionBlock", []interface{}{
 					txBase58,
 					map[string]bool{"showEffects": true},
 				})
-				if err != nil {
+				if err == nil {
+					var response struct {
+						Effects struct {
+							Status struct {
+								Status string `json:"status"`
+							} `json:"status"`
+						} `json:"effects"`
+						Checkpoint string `json:"checkpoint"`
+					}
+					if err := json.Unmarshal(result, &response); err == nil {
+						if response.Effects.Status.Status == "success" && response.Checkpoint != "" {
+							var checkpoint uint32
+							fmt.Sscanf(response.Checkpoint, "%d", &checkpoint)
+
+							select {
+							case ch <- ConfirmEvent{
+								TxID:         txID,
+								AnchorHeight: checkpoint,
+							}:
+							case <-quit:
+							}
+							return
+						}
+					}
 					continue
 				}
 
-				var response struct {
-					Effects struct {
-						Status struct {
-							Status string `json:"status"`
-						} `json:"status"`
-					} `json:"effects"`
-					Checkpoint string `json:"checkpoint"`
-				}
-				if err := json.Unmarshal(result, &response); err != nil {
+				// Fallback: check if this is an ObjectID instead of a tx digest.
+				// If the object exists on-chain, consider it confirmed (Sui instant finality).
+				objResult, objErr := s.call("sui_getObject", []interface{}{
+					objHex,
+					map[string]bool{"showContent": true},
+				})
+				if objErr != nil {
 					continue
 				}
 
-				if response.Effects.Status.Status == "success" && response.Checkpoint != "" {
-					var checkpoint uint32
-					fmt.Sscanf(response.Checkpoint, "%d", &checkpoint)
+				var objResponse struct {
+					Data *struct {
+						ObjectID string `json:"objectId"`
+					} `json:"data"`
+					Error interface{} `json:"error"`
+				}
+				if err := json.Unmarshal(objResult, &objResponse); err != nil {
+					continue
+				}
+
+				if objResponse.Data != nil && objResponse.Data.ObjectID != "" {
+					// Object exists! Get the current checkpoint for the anchor height.
+					currentHeight, _, _ := s.GetBestEpoch()
 
 					select {
 					case ch <- ConfirmEvent{
 						TxID:         txID,
-						AnchorHeight: checkpoint,
+						AnchorHeight: currentHeight,
 					}:
 					case <-quit:
 					}
 					return
 				}
+
 			case <-quit:
 				return
 			}
@@ -507,14 +614,19 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 					NextCursor interface{} `json:"nextCursor"`
 				}
 				if err := json.Unmarshal(result, &response); err != nil {
+					fmt.Printf("[SUINOTIFY] unmarshal error for events: %v, raw: %s\n", err, string(result))
 					continue
+				}
+
+				if len(response.Data) > 0 {
+					fmt.Printf("[SUINOTIFY] got %d events. First parsed: %+v\n", len(response.Data), response.Data[0].ParsedJson)
 				}
 
 				for _, ev := range response.Data {
 					// We must parse the flexible JSON since number formats can vary
 					channelIDStr, _ := ev.ParsedJson["channel_id"].(string)
 					
-					if channelIDStr != objectID.String() && channelIDStr != "0x"+objectID.String() {
+					if channelIDStr != hashToSuiHex(objectID) {
 						continue
 					}
 
@@ -529,7 +641,13 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 						continue
 					}
 
-					spendTxID, _ := chainhash.NewHashFromStr(ev.ID.TxDigest)
+					// TxDigest is base58-encoded, decode it directly.
+					digestBytes := base58.Decode(ev.ID.TxDigest)
+					var spendTxIDVal chainhash.Hash
+					if len(digestBytes) == 32 {
+						copy(spendTxIDVal[:], digestBytes)
+					}
+					spendTxID := &spendTxIDVal
 					var checkpoint uint32
 					fmt.Sscanf(ev.Checkpoint, "%d", &checkpoint)
 

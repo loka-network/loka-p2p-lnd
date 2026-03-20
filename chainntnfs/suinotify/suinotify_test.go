@@ -89,6 +89,10 @@ func (m *mockSuiClient) ExecuteTransactionBlock(txBytes []byte, suiSignature []b
 	return chainhash.Hash{}, nil
 }
 
+func (m *mockSuiClient) ExecuteTransactionBlockFull(txBytes []byte, suiSignature []byte) (chainhash.Hash, []chainhash.Hash, error) {
+	return chainhash.Hash{}, nil, nil
+}
+
 // sendEpoch fires a mock checkpoint event.
 func (m *mockSuiClient) sendEpoch(height uint32) {
 	hash := heightToHash(height)

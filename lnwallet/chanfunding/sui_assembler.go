@@ -1,6 +1,8 @@
 package chanfunding
 
 import (
+	"encoding/hex"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -124,10 +126,18 @@ func (s *SuiIntent) Outputs() []*wire.TxOut {
 // CompileFunds returns the final "funding transaction". For Sui, this is a
 // wire.MsgTx that carries the serialized lightning::open_channel Move call.
 func (s *SuiIntent) CompileFunds() (*wire.MsgTx, error) {
+	var localKeyHex, remoteKeyHex string
+	if s.localKey != nil && s.remoteKey != nil {
+		localKeyHex = hex.EncodeToString(s.localKey.PubKey.SerializeCompressed())
+		remoteKeyHex = hex.EncodeToString(s.remoteKey.PubKey.SerializeCompressed())
+	}
+
 	// Build the open_channel payload.
 	payload := input.ChannelOpenPayload{
 		LocalBalance:  uint64(s.localAmt),
 		RemoteBalance: uint64(s.remoteAmt),
+		LocalKey:      localKeyHex,
+		RemoteKey:     remoteKeyHex,
 		CSVDelay:      144,
 	}
 

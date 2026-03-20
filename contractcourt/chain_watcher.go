@@ -279,6 +279,9 @@ type chainWatcherConfig struct {
 	// the normal capacity-based scaling. This is only available in
 	// dev/integration builds for testing purposes.
 	chanCloseConfs fn.Option[uint32]
+
+	// isSui is true if the backend is the Sui network.
+	isSui bool
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -974,7 +977,13 @@ func (c *chainWatcher) handleKnownLocalState(
 	commitHash := commitTxBroadcast.TxHash()
 
 	// Check whether our latest local state hit the chain.
-	if chainSet.localCommit.CommitTx.TxHash() != commitHash {
+	if c.cfg.isSui {
+		// In Sui, the SpenderTxHash is the Sui digest, not the Bitcoin tx hash.
+		// Instead of verifying hashes, we check if the broadcasted state num matches ours.
+		if broadcastStateNum != chainSet.localCommit.CommitHeight {
+			return false, nil
+		}
+	} else if chainSet.localCommit.CommitTx.TxHash() != commitHash {
 		return false, nil
 	}
 
@@ -1007,12 +1016,21 @@ func (c *chainWatcher) handleKnownRemoteState(
 	commitTxBroadcast := commitSpend.SpendingTx
 	commitHash := commitTxBroadcast.TxHash()
 
+	var isRemoteCommit, isRemotePendingCommit bool
+	if c.cfg.isSui {
+		isRemoteCommit = broadcastStateNum == chainSet.remoteStateNum
+		isRemotePendingCommit = chainSet.remotePendingCommit != nil && broadcastStateNum == chainSet.remoteStateNum+1
+	} else {
+		isRemoteCommit = chainSet.remoteCommit.CommitTx.TxHash() == commitHash
+		isRemotePendingCommit = chainSet.remotePendingCommit != nil && chainSet.remotePendingCommit.CommitTx.TxHash() == commitHash
+	}
+
 	switch {
 	// If the spending transaction matches the current latest state, then
 	// they've initiated a unilateral close. So we'll trigger the
 	// unilateral close signal so subscribers can clean up the state as
 	// necessary.
-	case chainSet.remoteCommit.CommitTx.TxHash() == commitHash:
+	case isRemoteCommit:
 		log.Infof("Remote party broadcast base set, "+
 			"commit_num=%v", chainSet.remoteStateNum)
 
@@ -1035,8 +1053,7 @@ func (c *chainWatcher) handleKnownRemoteState(
 	// This case can arise when we initiate a state transition, but
 	// the remote party has a fail crash _after_ accepting the new
 	// state, but _before_ sending their signature to us.
-	case chainSet.remotePendingCommit != nil &&
-		chainSet.remotePendingCommit.CommitTx.TxHash() == commitHash:
+	case isRemotePendingCommit:
 
 		log.Infof("Remote party broadcast pending set, "+
 			"commit_num=%v", chainSet.remoteStateNum+1)

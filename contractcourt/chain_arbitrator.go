@@ -427,6 +427,13 @@ func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	return closeSummary.CloseTx, nil
 }
 
+// FetchChannel returns the underlying state of the active channel.
+//
+// NOTE: Part of the ArbChannel interface.
+func (a *arbChannel) FetchChannel() (*channeldb.OpenChannel, error) {
+	return a.channel, nil
+}
+
 // newActiveChannelArbitrator creates a new instance of an active channel
 // arbitrator given the state of the target channel.
 func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
@@ -1153,6 +1160,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			auxResolver:         c.cfg.AuxResolver,
 			auxCloser:           c.cfg.AuxCloser,
 			chanCloseConfs:      c.cfg.ChannelCloseConfs,
+			isSui:               c.cfg.IsSui,
 		},
 	)
 	if err != nil {
@@ -1332,6 +1340,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 				auxResolver:         c.cfg.AuxResolver,
 				auxCloser:           c.cfg.AuxCloser,
 				chanCloseConfs:      c.cfg.ChannelCloseConfs,
+				isSui:               c.cfg.IsSui,
 			},
 		)
 		if err != nil {

@@ -77,7 +77,18 @@ else
 fi
 echo "Waiting for $NETWORK faucet funding..."
 sleep 5
-PUBLISH_JSON=$(sui client publish --json --gas-budget 100000000 ./sui-contracts/lightning || echo "")
+
+# Sui CLI 1.68+ uses test-publish for ephemeral deployments (integration tests).
+# Delete stale Move.lock and build/ so the CLI regenerates them with correct chain-id.
+MOVE_PKG="./sui-contracts/lightning"
+rm -f "$MOVE_PKG/Move.lock"
+rm -f "$MOVE_PKG"/Pub.*.toml
+rm -f "$MOVE_PKG/Publications.toml"
+rm -f Pub.*.toml Publications.toml
+rm -rf "$MOVE_PKG/build"
+
+PUBLISH_JSON=$(sui client test-publish --build-env "$NETWORK" --json --gas-budget 100000000 "$MOVE_PKG" 2>/dev/null || echo "")
+
 echo "PUBLISH_JSON: $PUBLISH_JSON"
 PACKAGE_ID=$(echo "$PUBLISH_JSON" | grep -v 'Note' | grep -v 'INCLUDING' | grep -v 'BUILDING' | grep -v 'Skipping' | jq -r '.objectChanges[] | select(.type == "published") | .packageId')
 
@@ -124,7 +135,8 @@ cleanup() {
     cp "$BOB_DIR/lnd.log" .bob_lnd.log 2>/dev/null || true
     echo "Saving Alice's log to .alice_lnd.log..."
     cp "$ALICE_DIR/lnd.log" .alice_lnd.log 2>/dev/null || true
-    echo "Cleaning up LND nodes..."
+    echo "sleep 600
+Cleaning up LND nodes..."
     kill $ALICE_PID $BOB_PID 2>/dev/null || true
     wait $ALICE_PID $BOB_PID 2>/dev/null || true
     
@@ -185,6 +197,16 @@ $ALICE_CLI walletbalance
 echo "[4/7] Connecting Alice to Bob..."
 BOB_PUBKEY=$($BOB_CLI getinfo | jq -r '.identity_pubkey')
 echo "Bob Pubkey: $BOB_PUBKEY"
+
+# Fund Bob with SUI so he has gas for close transactions
+BOB_ADDR=$($BOB_CLI newaddress p2wkh | jq -r '.address')
+echo "Bob Address: $BOB_ADDR"
+if [ -n "$FAUCET_URL" ]; then
+    sui client faucet --url "$FAUCET_URL" --address "$BOB_ADDR" || true
+else
+    sui client faucet --address "$BOB_ADDR" || true
+fi
+sleep 5
 
 $ALICE_CLI connect "${BOB_PUBKEY}@127.0.0.1:${BOB_PORT}"
 sleep 5
@@ -261,6 +283,7 @@ sleep 10
 echo "Checking final node states:"
 $ALICE_CLI pendingchannels
 $ALICE_CLI listchannels
+$ALICE_CLI pendingchannels
 
 echo "=== Sui LND Integration Test SUCCESS ==="
 exit 0

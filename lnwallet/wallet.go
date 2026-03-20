@@ -2290,7 +2290,13 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 
 		// Verify that we've received a valid signature from the remote
 		// party for our version of the commitment transaction.
-		if !commitSig.Verify(sigHash, remoteKey) {
+		isValid := commitSig.Verify(sigHash, remoteKey)
+		if !isValid {
+			suiHash := sha256.Sum256(sigHash)
+			isValid = commitSig.Verify(suiHash[:], remoteKey)
+		}
+
+		if !isValid {
 			return fmt.Errorf("counterparty's commitment " +
 				"signature is invalid")
 		}

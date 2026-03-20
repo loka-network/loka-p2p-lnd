@@ -77,7 +77,15 @@ func (s *SuiSigner) SignOutputRaw(
 		if err != nil {
 			return nil, fmt.Errorf("sui_signer: failed to calc sighash: %v", err)
 		}
-		digest = hash
+		
+		// Sui's ecdsa_k1::secp256k1_verify function inherently hashes the 
+		// message parameter with SHA256 (if hash=0). In order for the Move
+		// verification to succeed, the signature must be generated over the
+		// SHA256 hash of the payload we pass it. Since we pass the internal
+		// Bitcoin sighash to the Move contract, we must sign SHA256(sighash)
+		// here so it securely aligns with the Move VM.
+		doubleHash := sha256.Sum256(hash)
+		digest = doubleHash[:]
 	}
 
 	fmt.Printf("SuiSigner.SignOutputRaw [txid=%v, value=%v]: computed sighash %x\n", tx.TxHash(), signDesc.Output.Value, digest)

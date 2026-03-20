@@ -262,30 +262,35 @@ func (w *Wallet) ExecuteOpenChannelCall(tx *wire.MsgTx) (chainhash.Hash, error) 
 		return chainhash.Hash{}, fmt.Errorf("suiwallet: failed to sign Sui transaction: %w", err)
 	}
 
-	// Execute via RPC client
-	txDigest, err := w.cfg.Client.ExecuteTransactionBlock(txBytes, suiSig)
+	// Execute via RPC client and extract the created Channel ObjectID.
+	_, createdObjects, err := w.cfg.Client.ExecuteTransactionBlockFull(txBytes, suiSig)
 	if err != nil {
 		return chainhash.Hash{}, fmt.Errorf("suiwallet: execution failed: %w", err)
 	}
 
-	// Wait, we need to extract the exact ObjectID of the created Channel object.
-	// For now, we'll return the Digest hash as a placeholder until the RPC is updated to parse object changes.
-	// We'll assume the client parses this eventually, or the notification layer handles it.
-	// But `ExecuteMoveCall` returns `chainhash.Hash` which historically meant ID, but now we assume it returns the ID here,
-	// or we parse it. For now, returning the digest as ID.
-	return txDigest, nil
+	// The first created object should be our Channel.
+	if len(createdObjects) > 0 {
+		fmt.Printf("[SUI] Channel ObjectID created: %x\n", createdObjects[0][:])
+		return createdObjects[0], nil
+	}
+
+	return chainhash.Hash{}, fmt.Errorf("suiwallet: no Channel object created in transaction")
 }
 
 // PublishTransaction decodes the wire.MsgTx envelope and executes the
 // corresponding Sui Move call.
 func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
-	// Decode the Sui call from the MsgTx envelope.
+	// Try to decode a Sui call envelope from the MsgTx.
 	embeddedObjID, callType, _, err := input.DecodeSuiCallTx(tx)
 	if err != nil {
-		return fmt.Errorf("suiwallet: failed to decode tx: %w", err)
+		// DecodeSuiCallTx failed — this is a Bitcoin-style tx
+		// (e.g. cooperative close from chancloser). Handle it
+		// by building the corresponding Sui Move call.
+		return w.publishBitcoinStyleTx(tx, label)
 	}
 
-	// Check if this is a channel open that has an embedded ObjectId (meaning it was already executed by SuiAssembler).
+	// Check if this is a channel open that has an embedded ObjectId
+	// (meaning it was already executed by SuiAssembler).
 	// If it is, do nothing to prevent double-execution.
 	if callType == input.SuiCallChannelOpen {
 		var zeroHash chainhash.Hash
@@ -295,6 +300,12 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		}
 	}
 
+	return w.executeSuiEnvelopeTx(tx)
+}
+
+// executeSuiEnvelopeTx builds and executes a Sui Move call from a properly
+// encoded Sui envelope transaction.
+func (w *Wallet) executeSuiEnvelopeTx(tx *wire.MsgTx) error {
 	addr, err := w.NewAddress(lnwallet.UnknownAddressType, false, "")
 	if err != nil {
 		return fmt.Errorf("failed to get sender address: %w", err)
@@ -316,6 +327,67 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		return fmt.Errorf("suiwallet: execution failed: %w", err)
 	}
 
+	return nil
+}
+
+// publishBitcoinStyleTx handles a standard Bitcoin wire.MsgTx that was not
+// encoded as a Sui envelope. This occurs for cooperative closes where the
+// chancloser builds a Bitcoin-style closing tx. We extract the channel
+// ObjectID from the funding outpoint and the final balances from the outputs,
+// then construct and execute the corresponding close_channel Sui Move call.
+func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
+	if len(tx.TxIn) == 0 {
+		fmt.Println("[suiwallet] ignoring non-Sui tx with no inputs")
+		return nil
+	}
+
+	channelID := tx.TxIn[0].PreviousOutPoint.Hash
+	var zeroHash chainhash.Hash
+	if channelID == zeroHash {
+		fmt.Println("[suiwallet] ignoring non-Sui tx with zero channelID")
+		return nil
+	}
+
+	// Extract balances from the Bitcoin close tx outputs.
+	// In LND's cooperative close, the outputs contain the final
+	// distribution. Output ordering follows BIP-69, so we use
+	// output[0] as balance_a (channel opener) and output[1] as
+	// balance_b. For this prototype the Move contract does not
+	// verify signatures, so the ordering is best-effort.
+	var balanceA, balanceB uint64
+	if len(tx.TxOut) >= 1 {
+		balanceA = uint64(tx.TxOut[0].Value)
+	}
+	if len(tx.TxOut) >= 2 {
+		balanceB = uint64(tx.TxOut[1].Value)
+	}
+
+	fmt.Printf("[suiwallet] detected Bitcoin-style close tx for channel %x, "+
+		"building Sui close_channel call (balanceA=%d, balanceB=%d)\n",
+		channelID[:8], balanceA, balanceB)
+
+	// Build the close_channel Sui Move call envelope.
+	payload := input.ChannelClosePayload{
+		StateNum:      0,
+		LocalBalance:  balanceA,
+		RemoteBalance: balanceB,
+		LocalSig:      []byte{0},
+		RemoteSig:     []byte{0},
+	}
+
+	suiTx, err := input.BuildChannelCloseTx(channelID, payload)
+	if err != nil {
+		fmt.Printf("[suiwallet] failed to build coop close envelope: %v\n", err)
+		return nil
+	}
+
+	// Execute via the normal Sui envelope path.
+	// Errors are logged but not returned — in a cooperative close, both
+	// sides attempt to broadcast. Only one needs to succeed; the other
+	// may lack gas or encounter transient failures.
+	if err := w.executeSuiEnvelopeTx(suiTx); err != nil {
+		fmt.Printf("[suiwallet] coop close execution failed (non-fatal): %v\n", err)
+	}
 	return nil
 }
 

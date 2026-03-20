@@ -54,6 +54,12 @@ type SuiClient interface {
 	// ExecuteTransactionBlock executes a signed Sui transaction block.
 	ExecuteTransactionBlock(txBytes []byte, suiSignature []byte) (chainhash.Hash, error)
 
+	// ExecuteTransactionBlockFull executes a signed Sui transaction block
+	// and returns both the digest and any created object IDs.
+	ExecuteTransactionBlockFull(txBytes []byte, suiSignature []byte) (
+		digest chainhash.Hash, createdObjects []chainhash.Hash, err error,
+	)
+
 	// SubscribeEpochs sends each newly finalised checkpoint on the returned
 	// channel. The channel is closed when quit is closed.
 	SubscribeEpochs(quit <-chan struct{}) (<-chan EpochEvent, error)
@@ -245,6 +251,12 @@ func (s *SuiChainNotifier) RegisterSpendNtfn(
 			}
 			spendTx := wire.NewMsgTx(wire.TxVersion)
 			spendTx.AddTxIn(&wire.TxIn{PreviousOutPoint: spentOut})
+			// Add a placeholder output so consumers that access
+			// SpendingTx.TxOut[0] (e.g. chain_watcher) don't panic.
+			spendTx.AddTxOut(&wire.TxOut{
+				Value:    0,
+				PkScript: []byte{0x6a}, // OP_RETURN
+			})
 
 			detail := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &spentOut,
