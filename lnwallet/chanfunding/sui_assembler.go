@@ -138,7 +138,9 @@ func (s *SuiIntent) CompileFunds() (*wire.MsgTx, error) {
 		RemoteBalance: uint64(s.remoteAmt),
 		LocalKey:      localKeyHex,
 		RemoteKey:     remoteKeyHex,
-		CSVDelay:      144,
+		// SUI clock uses milliseconds. A standard 144 block CSV translates to:
+		// 144 blocks * 10 minutes * 60 seconds * 1000 ms = 86,400,000 ms (24 hours).
+		CSVDelay:      144 * 10 * 60 * 1000,
 	}
 
 	return input.BuildChannelOpenTx(s.objectID, payload)

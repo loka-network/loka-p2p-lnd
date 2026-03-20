@@ -8313,7 +8313,34 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// If the output is non-existent (dust), have the sign descriptor be
 	// nil.
 	var commitResolution *CommitOutputResolution
-	if delayOut != nil {
+	isSui := len(commitTx.TxOut) > 0 && bytes.HasPrefix(commitTx.TxOut[0].PkScript, []byte{0x6a, 'S', 'U', 'I'})
+	
+	if isSui {
+		scriptPath := input.ScriptPathDelay
+		witnessScript, err := toLocalScript.WitnessScriptForPath(scriptPath)
+		if err != nil {
+			return nil, err
+		}
+
+		localBalance := int64(chanState.LocalCommitment.LocalBalance.ToSatoshis())
+		commitResolution = &CommitOutputResolution{
+			SelfOutPoint: wire.OutPoint{
+				Hash:  commitTx.TxHash(),
+				Index: 0,
+			},
+			SelfOutputSignDesc: input.SignDescriptor{
+				KeyDesc:       chanState.LocalChanCfg.DelayBasePoint,
+				SingleTweak:   keyRing.LocalCommitKeyTweak,
+				WitnessScript: witnessScript,
+				Output: &wire.TxOut{
+					PkScript: commitTx.TxOut[0].PkScript,
+					Value:    localBalance,
+				},
+				HashType: sweepSigHash(chanState.ChanType),
+			},
+			MaturityDelay: csvTimeout,
+		}
+	} else if delayOut != nil {
 		// When attempting to sweep our own output, we only need the
 		// witness script for the delay path
 		scriptPath := input.ScriptPathDelay

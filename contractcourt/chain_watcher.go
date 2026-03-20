@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"sync"
@@ -983,6 +984,13 @@ func (c *chainWatcher) handleKnownLocalState(
 		if broadcastStateNum != chainSet.localCommit.CommitHeight {
 			return false, nil
 		}
+		
+		// If both have CommitHeight == 0, we need to disambiguate.
+		// Currently, the Sui `force_close` contract only supports verifying pubkey_b 
+		// (so only the initiator, Alice, can force close).
+		if !c.cfg.chanState.IsInitiator {
+			return false, nil // Bob must treat this as a remote close, not local.
+		}
 	} else if chainSet.localCommit.CommitTx.TxHash() != commitHash {
 		return false, nil
 	}
@@ -1769,10 +1777,41 @@ func (c *chainWatcher) handleCommitSpend(
 
 	// Decode the state hint encoded within the commitment transaction to
 	// determine if this is a revoked state or not.
-	obfuscator := c.stateHintObfuscator
-	broadcastStateNum := c.cfg.extractStateNumHint(
-		commitTxBroadcast, obfuscator,
-	)
+	var broadcastStateNum uint64
+	var spendType uint8 // Tracks the type of SUI channel closing event
+	if c.cfg.isSui && len(commitTxBroadcast.TxOut) > 0 {
+		pkScript := commitTxBroadcast.TxOut[0].PkScript
+		if len(pkScript) == 13 && pkScript[0] == 0x6a && string(pkScript[1:4]) == "SUI" {
+			spendType = pkScript[4] // Extracted natively mapped SUI spend_type
+			broadcastStateNum = binary.BigEndian.Uint64(pkScript[5:13])
+			log.Warnf("SUI DIAGNOSTIC: Extracted state_num %v, spend_type %v from OP_RETURN",
+				broadcastStateNum, spendType)
+		} else {
+			log.Warnf("SUI DIAGNOSTIC: txOut[0].PkScript had wrong format: %x", pkScript)
+		}
+	} else if c.cfg.isSui {
+        log.Warnf("SUI DIAGNOSTIC: No TxOuts on SpenderTx in SUI mode!")
+	} else {
+		obfuscator := c.stateHintObfuscator
+		broadcastStateNum = c.cfg.extractStateNumHint(
+			commitTxBroadcast, obfuscator,
+		)
+	}
+
+	// SUI-Specific override: if spendType == 0 (Cooperative Close), route directly!
+	// This prevents handleKnownLocalState from misinterpreting a StateNum=0 Coop Close
+	// as an early Unilateral Force Close.
+	if c.cfg.isSui && spendType == 0 {
+		log.Infof("Cooperative close of ChannelPoint(%v) detected via SUI OpReturn",
+			c.cfg.chanState.FundingOutpoint)
+
+		if err := c.dispatchCooperativeClose(commitSpend); err != nil {
+			return fmt.Errorf("handle coop close: %w", err)
+		}
+		return nil
+	}
+
+	log.Warnf("SUI DIAGNOSTIC: Before KnownLocalState! broadcast=%v, localHeight=%v", broadcastStateNum, chainSet.localCommit.CommitHeight)
 
 	// We'll go on to check whether it could be our own commitment that was
 	// published and know is confirmed.

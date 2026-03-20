@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -66,6 +67,9 @@ type commitSweepResolver struct {
 	// over the rpc interface.
 	currentReport ContractReport
 
+	// suiSweepTxIDChan is pushed to by the goroutine in Launch when Sui Force Close Sweep completes.
+	suiSweepTxIDChan chan chainhash.Hash
+
 	// reportLock prevents concurrent access to the resolver report.
 	reportLock sync.Mutex
 
@@ -82,6 +86,7 @@ func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
 		commitResolution:    res,
 		confirmHeight:       confirmHeight,
 		chanPoint:           chanPoint,
+		suiSweepTxIDChan:    make(chan chainhash.Hash, 1),
 	}
 
 	r.initLogger(fmt.Sprintf("%T(%v)", r, r.commitResolution.SelfOutPoint))
@@ -146,16 +151,15 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	outcome := channeldb.ResolverOutcomeClaimed
 
 	if c.IsSui {
-		c.log.Infof("Sui: waiting for spend of commit output %v", c.commitResolution.SelfOutPoint)
-		spend, err := waitForSpend(
-			&c.commitResolution.SelfOutPoint,
-			c.commitResolution.SelfOutputSignDesc.Output.PkScript,
-			c.confirmHeight, c.Notifier, c.quit,
-		)
-		if err != nil {
-			return nil, err
+		// In Sui, the sweep transaction (claim_force_close) is published directly.
+		// We wait for the goroutine launched in Launch() to complete and pass the Sweep TxID.
+		c.log.Infof("Sui: waiting for async sweep resolution on abstract Channel Object %v", c.chanPoint)
+		select {
+		case sweepTxID = <-c.suiSweepTxIDChan:
+			c.log.Infof("Sui: sweep tx %v completely successfully", sweepTxID)
+		case <-c.quit:
+			return nil, errResolverShuttingDown
 		}
-		sweepTxID = *spend.SpenderTxHash
 	} else {
 		// Sweeper is going to join this input with other inputs if possible
 		// and publish the sweep tx. When the sweep tx confirms, it signals us
@@ -406,13 +410,25 @@ func (c *commitSweepResolver) Launch() error {
 
 		c.log.Infof("offering Sui commit sweep tx to wallet")
 		// Instead of offering to sweeper, we publish it directly.
-		// Then we wait for the spend in Resolve().
-		// We launch a goroutine inside Launch to not block or just rely on Resolve?
-		// Launch is called outside of Resolve, but Resolve waits for spend.
-		if err := c.PublishTx(tx, claimType); err != nil {
-			c.log.Errorf("unable to publish Sui claim tx: %v", err)
-			return err
-		}
+		// Since Sui enforces an absolute millisecond-based timelock via the Clock object, 
+		// if we try to sweep instantly (e.g. before the wait lock expires), we get MoveAbort(5) (ENotExpired).
+		// Launch a goroutine to poll PublishTx every 5s until the timelock mathematically lapses.
+		go func() {
+			for {
+				if err := c.PublishTx(tx, claimType); err != nil {
+					c.log.Warnf("Sui claim tx failed (timelock likely active): %v. Retrying in 3s...", err)
+					select {
+					case <-time.After(3 * time.Second):
+					case <-c.quit:
+						return
+					}
+				} else {
+					c.log.Infof("Successfully published Sui claim tx after timelock bypass")
+					c.suiSweepTxIDChan <- tx.TxHash()
+					return
+				}
+			}
+		}()
 		return nil
 	}
 

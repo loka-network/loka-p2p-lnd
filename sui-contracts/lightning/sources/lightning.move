@@ -67,7 +67,8 @@ module lightning::lightning {
     public struct ChannelSpendEvent has copy, drop {
         channel_id: ID,
         htlc_id: u64,
-        spend_type: u8, // 0: COOP, 1: FORCE, 2: CLAIM, 3: TIMEOUT, 4: PENALIZE
+        spend_type: u8, // 0: COOP, 1: FORCE, 2: CLAIM, 3: TIMEOUT, 4: PENALIZE, 5: SWEEP CLAIM
+        state_num: u64,
     }
 
     // --- Entry Functions ---
@@ -149,12 +150,15 @@ module lightning::lightning {
             channel_id: object::id(channel),
             htlc_id: 0,
             spend_type: 0, // COOP
+            state_num: channel.state_num,
         });
     }
 
     public fun force_close(
         channel: &mut Channel,
         state_num: u64,
+        local_balance: u64,
+        remote_balance: u64,
         revocation_hash: vector<u8>,
         commitment_sig: vector<u8>,
         sighash: vector<u8>,
@@ -170,6 +174,11 @@ module lightning::lightning {
 
         channel.status = 1; // CLOSING
         
+        // As Alice (Initiator) is the only one enforcing via pubkey_b inside the logic,
+        // local_balance is balance_a, and remote_balance is balance_b.
+        channel.balance_a = local_balance;
+        channel.balance_b = remote_balance;
+        
         channel.close_timestamp_ms = clock::timestamp_ms(clock);
         channel.revocation_hash = revocation_hash;
 
@@ -177,6 +186,7 @@ module lightning::lightning {
             channel_id: object::id(channel),
             htlc_id: 0,
             spend_type: 1, // FORCE
+            state_num: channel.state_num,
         });
     }
 
@@ -186,21 +196,38 @@ module lightning::lightning {
         ctx: &mut TxContext
     ) {
         assert!(channel.status == 1, EInvalidStatus); // CLOSING
-        assert!(clock::timestamp_ms(clock) >= channel.close_timestamp_ms + channel.to_self_delay, ENotExpired);
+        let sender = tx_context::sender(ctx);
 
-        channel.status = 2; // CLOSED
+        if (sender == channel.party_a) {
+            // Alice must wait for time lock!
+            assert!(clock::timestamp_ms(clock) >= channel.close_timestamp_ms + channel.to_self_delay, ENotExpired);
+            let amount = channel.balance_a;
+            assert!(amount > 0, EInsufficientBalance);
+            channel.balance_a = 0;
+            let coin_a = coin::take(&mut channel.funding_balance, amount, ctx);
+            transfer::public_transfer(coin_a, sender);
+        } else if (sender == channel.party_b) {
+            // Bob claims his balance immediately
+            let amount = channel.balance_b;
+            assert!(amount > 0, EInsufficientBalance);
+            channel.balance_b = 0;
+            let coin_b = coin::take(&mut channel.funding_balance, amount, ctx);
+            transfer::public_transfer(coin_b, sender);
+        } else {
+            abort EInvalidSignature // Or EInvalidStatus if unauthorized
+        };
 
-        let remaining = balance::value(&channel.funding_balance);
-        if (remaining > 0) {
-            let sender = tx_context::sender(ctx);
-            let coin_all = coin::take(&mut channel.funding_balance, remaining, ctx);
-            transfer::public_transfer(coin_all, sender);
+        if (balance::value(&channel.funding_balance) == 0) {
+            channel.status = 2; // CLOSED
+        } else {
+            channel.status = 1; // Still CLOSING, waiting for other party
         };
         
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),
             htlc_id: 0,
             spend_type: 5, // SWEEP CLAIM
+            state_num: channel.state_num,
         });
     }
 
@@ -231,6 +258,7 @@ module lightning::lightning {
             channel_id: object::id(channel),
             htlc_id,
             spend_type: 2, // CLAIM
+            state_num: channel.state_num,
         });
     }
 
@@ -250,6 +278,7 @@ module lightning::lightning {
             channel_id: object::id(channel),
             htlc_id,
             spend_type: 3, // TIMEOUT
+            state_num: channel.state_num,
         });
     }
 
@@ -278,6 +307,7 @@ module lightning::lightning {
             channel_id: object::id(channel),
             htlc_id: 0,
             spend_type: 4, // PENALIZE
+            state_num: channel.state_num,
         });
     }
 }

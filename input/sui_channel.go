@@ -128,6 +128,12 @@ type ChannelForceClosePayload struct {
 	// StateNum is the commitment state number being force-closed.
 	StateNum uint64 `json:"state_num"`
 
+	// LocalBalance is the final balance agreed upon by both parties for the initiator.
+	LocalBalance uint64 `json:"local_balance"`
+
+	// RemoteBalance is the remote party's final balance.
+	RemoteBalance uint64 `json:"remote_balance"`
+
 	// RevocationHash is the 32-byte secret hash.
 	RevocationHash [32]byte `json:"revocation_hash"`
 
@@ -137,6 +143,7 @@ type ChannelForceClosePayload struct {
 	// Sighash is the Bitcoin transaction sighash that was actually signed.
 	Sighash []byte `json:"sighash"`
 }
+
 
 // ChannelClaimLocalPayload is the payload for SuiCallChannelClaimLocal.
 type ChannelClaimLocalPayload struct {

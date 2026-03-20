@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 - Included correct signature passing for Sui HTLC payloads using `Serialize()`.
 
 ### Fixed
+- **Fixed Force Close Instant Sweeping Vulnerability:** Extrapolated the raw Bitcoin `144` block delay inside `sui_assembler.go` into real-time milliseconds (24 Hours) to enforce strict mathematically mature delays within the SUI clock (`CSVDelay`).
+- **Fixed Force Close SUI LND Panics:** Rewrote `Launch()` in `commit_sweep_resolver.go` to construct a robust asynchronous polling Goroutine preventing false-positive resolution `ENotExpired` flags. Force-closed channels now safely wait in Limbo instead of dropping natively out of `pending_force_closing_channels`.
 - Fixed `invalid_htlc_sig` during Sui cooperative and force closes by applying correct private key tweaks (`SingleTweak` and `DoubleTweak`) in `SuiSigner.SignOutputRaw`.
 - Fixed `counterparty's commitment signature is invalid` and `not all signatures empty on failed checkmultisig` crashes by bypassing strict Bitcoin `OP_CHECKMULTISIG` engine validations in `wallet.go` and `channel.go` using a safe manual `SHA256(sighash)` fallback mathematically equivalent for Sui Move signatures.
 - Fixed `failed to decode call envelope` during Sui force closes by having the `ChannelArbitrator` correctly wrap Bitcoin commitment transactions into Sui `force_close` Move Call envelopes.

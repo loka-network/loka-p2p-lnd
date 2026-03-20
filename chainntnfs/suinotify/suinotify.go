@@ -9,6 +9,7 @@
 package suinotify
 
 import (
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,8 @@ type SpendEvent struct {
 	OutPoint    wire.OutPoint
 	SpendTxID   chainhash.Hash
 	SpendHeight uint32
+	SpendType   uint8
+	StateNum    uint64
 }
 
 // SuiClient is the minimal interface required from a Sui network backend.
@@ -251,11 +254,18 @@ func (s *SuiChainNotifier) RegisterSpendNtfn(
 			}
 			spendTx := wire.NewMsgTx(wire.TxVersion)
 			spendTx.AddTxIn(&wire.TxIn{PreviousOutPoint: spentOut})
-			// Add a placeholder output so consumers that access
-			// SpendingTx.TxOut[0] (e.g. chain_watcher) don't panic.
+			// Add a placeholder output that sneaks the real Sui Move event metadata 
+			// into LND's Bitcoin `chain_watcher` subsystems via an OP_RETURN flag.
+			// Format: [0x6a, 'S','U','I', SpendType, StateNum(8 bytes)]
+			payload := make([]byte, 13)
+			payload[0] = 0x6a // OP_RETURN
+			copy(payload[1:4], []byte("SUI"))
+			payload[4] = ev.SpendType
+			binary.BigEndian.PutUint64(payload[5:13], ev.StateNum)
+
 			spendTx.AddTxOut(&wire.TxOut{
 				Value:    0,
-				PkScript: []byte{0x6a}, // OP_RETURN
+				PkScript: payload,
 			})
 
 			detail := &chainntnfs.SpendDetail{

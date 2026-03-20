@@ -254,6 +254,8 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		args = []interface{}{
 			channelObjID,
 			fmt.Sprintf("%d", p.StateNum),
+			fmt.Sprintf("%d", p.LocalBalance),
+			fmt.Sprintf("%d", p.RemoteBalance),
 			bytesToNumArray(p.RevocationHash[:]),
 			bytesToNumArray(p.CommitmentSig),
 			bytesToNumArray(p.Sighash),
@@ -641,6 +643,20 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 						continue
 					}
 
+					var spendType uint8
+					if typeStr, ok := ev.ParsedJson["spend_type"].(string); ok {
+						fmt.Sscanf(typeStr, "%d", &spendType)
+					} else if typeNum, ok := ev.ParsedJson["spend_type"].(float64); ok {
+						spendType = uint8(typeNum)
+					}
+
+					var stateNum uint64
+					if stateNumStr, ok := ev.ParsedJson["state_num"].(string); ok {
+						fmt.Sscanf(stateNumStr, "%d", &stateNum)
+					} else if stateNumNum, ok := ev.ParsedJson["state_num"].(float64); ok {
+						stateNum = uint64(stateNumNum)
+					}
+
 					// TxDigest is base58-encoded, decode it directly.
 					digestBytes := base58.Decode(ev.ID.TxDigest)
 					var spendTxIDVal chainhash.Hash
@@ -659,6 +675,8 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 						},
 						SpendTxID:   *spendTxID,
 						SpendHeight: checkpoint,
+						SpendType:   spendType,
+						StateNum:    stateNum,
 					}:
 					case <-quit:
 						return

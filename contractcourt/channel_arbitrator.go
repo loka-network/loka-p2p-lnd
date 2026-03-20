@@ -1215,9 +1215,10 @@ func (c *ChannelArbitrator) stateStep(
 			sBytes := sVal.Bytes()
 			copy(rawSig[:32], rBytes[:])
 			copy(rawSig[32:], sBytes[:])
-
 			payload := input.ChannelForceClosePayload{
 				StateNum:       localCommit.CommitHeight,
+				LocalBalance:   uint64(localCommit.LocalBalance.ToSatoshis()),
+				RemoteBalance:  uint64(localCommit.RemoteBalance.ToSatoshis()),
 				RevocationHash: revHash,
 				CommitmentSig:  rawSig[:],
 				Sighash:        sighash,

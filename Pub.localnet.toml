@@ -3,13 +3,13 @@
 # this file should not be committed to source control
 
 build-env = "localnet"
-chain-id = "e3177e60"
+chain-id = "d62a65d0"
 
 [[published]]
 source = { local = "/Users/blake/work/nagara/code/chain/loka-payment/lnd/sui-contracts/lightning" }
-published-at = "0x1e7ece0ddbab717323d892f2f4edeebf855fdb80de5434f668a94cc8b9629d3a"
-original-id = "0x1e7ece0ddbab717323d892f2f4edeebf855fdb80de5434f668a94cc8b9629d3a"
+published-at = "0xee0b0284bce79470add3af1a81b1b9c9883e627f7141cc372ba1a62316f4f471"
+original-id = "0xee0b0284bce79470add3af1a81b1b9c9883e627f7141cc372ba1a62316f4f471"
 version = 1
 toolchain-version = "1.68.0"
 build-config = { flavor = "sui", edition = "2024" }
-upgrade-capability = "0x6d2e7d6ff7eac837a1c6a5cef7312fbabc2f20c085575b4bd271e51f8ad57472"
+upgrade-capability = "0x93d29bae9a6db2227ffac63b02e3d51a22b2c317461b0269648de968bdd95739"
