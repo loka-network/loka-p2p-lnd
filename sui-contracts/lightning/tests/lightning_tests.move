@@ -24,7 +24,7 @@ module lightning::lightning_tests {
         test_scenario::next_tx(scenario, ALICE);
         let mut coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
-        let delay = 144;
+        let delay = 86_400_000;
         
         lightning::open_channel(
             &mut coin,
@@ -61,7 +61,7 @@ module lightning::lightning_tests {
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
-            144,
+            86_400_000,
             test_scenario::ctx(scenario)
         );
         sui::transfer::public_transfer(coin, ALICE);
@@ -110,7 +110,7 @@ module lightning::lightning_tests {
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
-            144,
+            86_400_000,
             test_scenario::ctx(scenario)
         );
         sui::transfer::public_transfer(coin, ALICE);
@@ -166,7 +166,7 @@ module lightning::lightning_tests {
             ALICE_PUBKEY,
             BOB_PUBKEY,
             BOB,
-            144,
+            86_400_000,
             test_scenario::ctx(scenario)
         );
         sui::transfer::public_transfer(coin, ALICE);

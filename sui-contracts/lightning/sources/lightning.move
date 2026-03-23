@@ -19,6 +19,9 @@ module lightning::lightning {
     const EInvalidHash: u64 = 6;
     const EInvalidStatus: u64 = 7;
     const EInvalidLength: u64 = 8;
+    const EDelayTooShort: u64 = 10;
+
+    const MIN_TO_SELF_DELAY_MS: u64 = 86_400_000; // 24 Hours Default
 
     // --- Data Structures ---
 
@@ -80,6 +83,9 @@ module lightning::lightning {
         let party_a = tx_context::sender(ctx);
         let split_coin = coin::split(funding_coin, amount, ctx);
         let capacity = amount;
+        
+        // Enforce the physical minimum Timelock on-chain unconditionally (24 Hours in Production)
+        assert!(to_self_delay >= MIN_TO_SELF_DELAY_MS, EDelayTooShort);
         
         let channel = Channel {
             id: object::new(ctx),

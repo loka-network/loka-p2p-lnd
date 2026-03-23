@@ -7,9 +7,9 @@ chain-id = "d9ee8428"
 
 [[published]]
 source = { local = "/Users/blake/work/nagara/code/chain/loka-payment/lnd/sui-contracts/lightning" }
-published-at = "0x152a851eb1c7cfe67ce62db3473224f66bbf7fd8e5a9a15b0ed1790ff59902dc"
-original-id = "0x152a851eb1c7cfe67ce62db3473224f66bbf7fd8e5a9a15b0ed1790ff59902dc"
+published-at = "0x80185ca7b0868009b5b410c03f7c50230db0751226315628acc98999cb80a89a"
+original-id = "0x80185ca7b0868009b5b410c03f7c50230db0751226315628acc98999cb80a89a"
 version = 1
 toolchain-version = "1.68.0"
 build-config = { flavor = "sui", edition = "2024" }
-upgrade-capability = "0x8bc0bc3dc9777c7b7f8cdb1ef809f6a45dcb6b28c38783f6aae00e45f958e9f6"
+upgrade-capability = "0x41ae3f3b280158d2c83bf5a19b1e4db96331ae634aab597572ee15c1f36377bd"

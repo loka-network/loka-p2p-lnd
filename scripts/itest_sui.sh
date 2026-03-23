@@ -71,6 +71,14 @@ if [ ! -f "$LND_BIN" ] || [ ! -f "$LNCLI_BIN" ]; then
 fi
 
 echo "[2.5/7] Funding default Sui CLI address and publishing Lightning Move package..."
+
+# Dynamic conditional compilation for Testnet Timelocks
+if [ "$ITEST_SUI_FAST_SWEEP" == "1" ]; then
+    echo "Applying FAST_SWEEP 15-second simulation overrides to Move VM contract..."
+    # Support both GNU and BSD/macOS sed syntax for in-place backups
+    sed -i.bak 's/MIN_TO_SELF_DELAY_MS: u64 = 86_400_000/MIN_TO_SELF_DELAY_MS: u64 = 15_000/g' sui-contracts/lightning/sources/lightning.move
+fi
+
 if [ -n "$FAUCET_URL" ]; then
     sui client faucet --url "$FAUCET_URL" > /dev/null || true
 else
@@ -90,8 +98,13 @@ rm -rf "$MOVE_PKG/build"
 
 PUBLISH_JSON=$(sui client test-publish --build-env "$NETWORK" --json --gas-budget 100000000 "$MOVE_PKG" 2>/dev/null || echo "")
 
-echo "PUBLISH_JSON: $PUBLISH_JSON"
+# echo "PUBLISH_JSON: $PUBLISH_JSON"
 PACKAGE_ID=$(echo "$PUBLISH_JSON" | grep -v 'Note' | grep -v 'INCLUDING' | grep -v 'BUILDING' | grep -v 'Skipping' | jq -r '.objectChanges[] | select(.type == "published") | .packageId')
+
+# Revert the Move VM simulation override to keep git clean
+if [ "$ITEST_SUI_FAST_SWEEP" == "1" ]; then
+    mv sui-contracts/lightning/sources/lightning.move.bak sui-contracts/lightning/sources/lightning.move 2>/dev/null || true
+fi
 
 if [ -z "$PACKAGE_ID" ] || [ "$PACKAGE_ID" == "null" ]; then
     echo "Error: Failed to publish Sui package or extract Package ID. Is your Devnet environment configured correctly?"
