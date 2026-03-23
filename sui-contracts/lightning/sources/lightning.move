@@ -1,18 +1,12 @@
 module lightning::lightning {
-    use sui::object::{Self, ID, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
     use sui::coin::{Self, Coin};
     use sui::balance::{Self, Balance};
     use sui::sui::SUI;
     use sui::event;
-    use std::option::{Self, Option};
     use sui::table::{Self, Table};
     use sui::ecdsa_k1;
-    use sui::bcs;
     use sui::clock::{Self, Clock};
     use std::hash;
-    use std::vector;
 
     // --- Errors ---
     const EInvalidSignature: u64 = 0;
@@ -217,6 +211,7 @@ module lightning::lightning {
         });
     }
 
+    #[allow(lint(self_transfer))]
     public fun claim_force_close(
         channel: &mut Channel,
         clock: &Clock,
@@ -309,6 +304,7 @@ module lightning::lightning {
         });
     }
 
+    #[allow(lint(self_transfer))]
     public fun penalize(
         channel: &mut Channel,
         revocation_secret: vector<u8>,

@@ -10,4 +10,4 @@ Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-fram
 lightning = "0x0"
 
 [environments]
-localnet = "localnet"
+localnet = "d9ee8428"

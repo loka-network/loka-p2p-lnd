@@ -38,7 +38,7 @@ module lightning::lightning_tests {
         
         // Check that channel was created
         test_scenario::next_tx(scenario, ALICE);
-        let mut channel = test_scenario::take_shared<Channel>(scenario);
+        let channel = test_scenario::take_shared<Channel>(scenario);
         
         // Return it
         test_scenario::return_shared(channel);
