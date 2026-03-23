@@ -2,6 +2,7 @@ package chanfunding
 
 import (
 	"encoding/hex"
+	"os"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -132,15 +133,20 @@ func (s *SuiIntent) CompileFunds() (*wire.MsgTx, error) {
 		remoteKeyHex = hex.EncodeToString(s.remoteKey.PubKey.SerializeCompressed())
 	}
 
+	// SUI clock uses milliseconds. A standard 144 block CSV translates to:
+	// 144 blocks * 10 minutes * 60 seconds * 1000 ms = 86,400,000 ms (24 hours).
+	delayMs := uint64(144 * 10 * 60 * 1000)
+	if os.Getenv("ITEST_SUI_FAST_SWEEP") == "1" {
+		delayMs = 15000 // 15 seconds
+	}
+
 	// Build the open_channel payload.
 	payload := input.ChannelOpenPayload{
 		LocalBalance:  uint64(s.localAmt),
 		RemoteBalance: uint64(s.remoteAmt),
 		LocalKey:      localKeyHex,
 		RemoteKey:     remoteKeyHex,
-		// SUI clock uses milliseconds. A standard 144 block CSV translates to:
-		// 144 blocks * 10 minutes * 60 seconds * 1000 ms = 86,400,000 ms (24 hours).
-		CSVDelay:      144 * 10 * 60 * 1000,
+		CSVDelay:      delayMs,
 	}
 
 	return input.BuildChannelOpenTx(s.objectID, payload)

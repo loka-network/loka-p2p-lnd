@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Phase 3C: Adapted Contract arbitration resolvers to bypass Sweeper and directly publish `sui-htlc-timeout-direct`, `sui-htlc-claim-direct`, and `sui-channel-claim-local` payload signatures to the Sui RPC node.
 - Phase 3D: Adapted Funding flow to directly publish Move Calls and obtain unique `ObjectID` prior to the remainder of channel setup.
 - Included correct signature passing for Sui HTLC payloads using `Serialize()`.
+- Added `ITEST_SUI_FAST_SWEEP` shell environment variable to dynamically downgrade `sui_assembler.go` force close CLTV `CSVDelay` bindings from 24 Hours to 15 Seconds during `./scripts/itest_sui.sh localnet` validations, enabling full automated lifecycle testing of `claim_force_close` executions.
 
 ### Fixed
 - **Fixed Force Close HTLC Burn Vulnerability:** Addressed a critical architectural flaw where in-flight Routed Payments (HTLCs) were entirely excluded from SUI cooperative and non-cooperative closures, permanently burning capital inside the funding abstraction. Rewrote the `lightning.move` `force_close` parameters to ingest `htlc_ids`, `amounts`, `payment_hashes`, `expiries`, and `directions` natively mapped as arrays into the contract's `channel.htlcs` `Table`. Refactored `sui_channel.go`'s `ChannelForceClosePayload` and `channel_arbitrator.go` to intercept Bitcoin `cltv_expiry` threshold blocks natively mutating them using absolute Millisecond SUI clock equivalents mapping seamlessly across JSON RPC integrations inside `rpc_client.go`.

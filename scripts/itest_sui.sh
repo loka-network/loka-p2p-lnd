@@ -3,6 +3,7 @@
 # End-to-end integration test for LND running on the Sui blockchain backend.
 
 set -e
+export ITEST_SUI_FAST_SWEEP=1
 
 # Configuration
 LND_BIN="./lnd-debug"
@@ -280,10 +281,25 @@ $ALICE_CLI closechannel --force $TXID2 $OUT_INDEX2 > /tmp/force_close.log &
 echo "Waiting 10s for force close to register..."
 sleep 10
 
-echo "Checking final node states:"
+echo "Checking node states immediately after force close broadcast:"
 $ALICE_CLI pendingchannels
+
+echo "Waiting for force close sweep (simulated ~15s CLTV delay)..."
+for i in {1..30}; do
+    PENDING_FC=$($ALICE_CLI pendingchannels 2>/dev/null | jq -r '.pending_force_closing_channels | length')
+    if [ "$PENDING_FC" == "0" ]; then
+        echo "Force close sweep completed successfully!"
+        break
+    fi
+    sleep 2
+done
+
+echo "Final Alice Node States after Sweep:"
 $ALICE_CLI listchannels
 $ALICE_CLI pendingchannels
+
+echo "Final Alice Wallet Balance:"
+$ALICE_CLI walletbalance
 
 echo "=== Sui LND Integration Test SUCCESS ==="
 exit 0
