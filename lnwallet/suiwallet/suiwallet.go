@@ -300,6 +300,28 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		}
 	}
 
+	// Intercept premature timelock sweeps to prevent burning SUI Gas on 0x5 failures.
+	// LND's physical mock ticks aggressively when `blocks_til_maturity` is large, 
+	// driving the Sweeper to submit transactions constantly.
+	if callType == input.SuiCallChannelClaimLocal {
+		channelID := &tx.TxIn[0].PreviousOutPoint.Hash
+		closeTs, delay, err := w.cfg.Client.GetChannelStatus(channelID)
+		if err == nil && closeTs > 0 {
+			target := closeTs + delay
+			now := uint64(time.Now().UnixMilli())
+			if now < target {
+				fmt.Printf("[suiwallet] Intercepted premature claim_force_close for channel %x. "+
+					"Physical SUI Time (%d) < Target (%d). Silently dropping to save Gas.\n", 
+					channelID[:4], now, target)
+				// Returning nil pretends to LND that it hit the Mempool, 
+				// avoiding LND panic loops while awaiting the physical maturity phase.
+				return nil
+			}
+		} else if err != nil {
+			fmt.Printf("[suiwallet] Warning: GetChannelStatus failed: %v\n", err)
+		}
+	}
+
 	return w.executeSuiEnvelopeTx(tx)
 }
 

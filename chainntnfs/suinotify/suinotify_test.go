@@ -81,6 +81,10 @@ func (m *mockSuiClient) GetCoins(address string) ([]SuiCoin, error) {
 	return nil, nil
 }
 
+func (m *mockSuiClient) GetChannelStatus(_ *chainhash.Hash) (uint64, uint64, error) {
+	return 0, 0, nil
+}
+
 func (m *mockSuiClient) BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error) {
 	return nil, nil
 }

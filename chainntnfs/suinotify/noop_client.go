@@ -62,6 +62,10 @@ func (n *NoopSuiClient) GetCoins(_ string) ([]SuiCoin, error) {
 	return nil, nil
 }
 
+func (n *NoopSuiClient) GetChannelStatus(_ *chainhash.Hash) (uint64, uint64, error) {
+	return 0, 0, nil
+}
+
 func (n *NoopSuiClient) BuildMoveCall(_ string, _ *chainhash.Hash, _ []byte) ([]byte, error) {
 	return nil, nil
 }

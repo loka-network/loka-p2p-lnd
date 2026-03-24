@@ -21,7 +21,7 @@ module lightning::lightning {
     const EInvalidLength: u64 = 8;
     const EDelayTooShort: u64 = 10;
 
-    const MIN_TO_SELF_DELAY_MS: u64 = 86_400_000; // 24 Hours Default
+    const MIN_TO_SELF_DELAY_MS: u64 = 15_000; // 24 Hours Default
 
     // --- Data Structures ---
 

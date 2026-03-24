@@ -36,7 +36,6 @@ if [ "$NETWORK" == "localnet" ]; then
 elif [ "$NETWORK" == "devnet" ]; then
     echo "=== Running in DEVNET mode ==="
     SUI_RPC_HOST="https://fullnode.devnet.sui.io:443"
-    FAUCET_URL="https://faucet.devnet.sui.io"
     sui client switch --env devnet || true
 else
     echo "Error: Unknown network parameter '$NETWORK'. Please use 'localnet' or 'devnet'."
@@ -99,7 +98,7 @@ rm -rf "$MOVE_PKG/build"
 PUBLISH_JSON=$(sui client test-publish --build-env "$NETWORK" --json --gas-budget 100000000 "$MOVE_PKG" 2>/dev/null || echo "")
 
 # echo "PUBLISH_JSON: $PUBLISH_JSON"
-PACKAGE_ID=$(echo "$PUBLISH_JSON" | grep -v 'Note' | grep -v 'INCLUDING' | grep -v 'BUILDING' | grep -v 'Skipping' | jq -r '.objectChanges[] | select(.type == "published") | .packageId')
+PACKAGE_ID=$(echo "$PUBLISH_JSON" | sed -n '/^{/,$p' | jq -r '.objectChanges[] | select(.type == "published") | .packageId')
 
 # Revert the Move VM simulation override to keep git clean
 if [ "$ITEST_SUI_FAST_SWEEP" == "1" ]; then

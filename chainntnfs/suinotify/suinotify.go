@@ -51,6 +51,9 @@ type SuiClient interface {
 	// GetCoins returns the list of SUI coins owned by the given address.
 	GetCoins(address string) ([]SuiCoin, error)
 
+	// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms and to_self_delay.
+	GetChannelStatus(channelID *chainhash.Hash) (uint64, uint64, error)
+
 	// BuildMoveCall requests the Sui Node to build an unsigned BCS PTB.
 	BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error)
 

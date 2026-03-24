@@ -168,6 +168,36 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 	return coins, nil
 }
 
+// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms and to_self_delay.
+func (s *SuiRPCClient) GetChannelStatus(channelID *chainhash.Hash) (uint64, uint64, error) {
+	objID := hashToSuiHex(*channelID)
+	options := map[string]bool{"showContent": true}
+	result, err := s.call("sui_getObject", []interface{}{objID, options})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var response struct {
+		Data struct {
+			Content struct {
+				Fields struct {
+					CloseTimestampMs string `json:"close_timestamp_ms"`
+					ToSelfDelay      string `json:"to_self_delay"`
+				} `json:"fields"`
+			} `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return 0, 0, err
+	}
+
+	var closeTs, delay uint64
+	fmt.Sscanf(response.Data.Content.Fields.CloseTimestampMs, "%d", &closeTs)
+	fmt.Sscanf(response.Data.Content.Fields.ToSelfDelay, "%d", &delay)
+	
+	return closeTs, delay, nil
+}
+
 // hexToNumArray converts a hex string to an array of integers for Sui RPC.
 func hexToNumArray(h string) []int {
 	if len(h) >= 2 && h[:2] == "0x" {
