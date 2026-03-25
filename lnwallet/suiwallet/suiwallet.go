@@ -313,9 +313,9 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 				fmt.Printf("[suiwallet] Intercepted premature claim_force_close for channel %x. "+
 					"Physical SUI Time (%d) < Target (%d). Silently dropping to save Gas.\n", 
 					channelID[:4], now, target)
-				// Returning nil pretends to LND that it hit the Mempool, 
-				// avoiding LND panic loops while awaiting the physical maturity phase.
-				return nil
+				// Returning an explicit error keeps LND's async Sweeper goroutines inside their 
+				// 3-second retry loops, preventing them from prematurely assuming the Channel is closed.
+				return fmt.Errorf("SUI Native OS Timelock Interceptor: physical maturity time not yet reached")
 			}
 		} else if err != nil {
 			fmt.Printf("[suiwallet] Warning: GetChannelStatus failed: %v\n", err)

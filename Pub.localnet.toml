@@ -2,14 +2,14 @@
 # this file contains metadata from ephemeral publications
 # this file should not be committed to source control
 
-build-env = "devnet"
-chain-id = "e9eed8f1"
+build-env = "localnet"
+chain-id = "1f7cf289"
 
 [[published]]
 source = { local = "/Users/blake/work/nagara/code/chain/loka-payment/lnd/sui-contracts/lightning" }
-published-at = "0xa4afed959d2278324565ca559c3fde226cbde2fcfa1eb1a47f05c7caa9d38e2f"
-original-id = "0xa4afed959d2278324565ca559c3fde226cbde2fcfa1eb1a47f05c7caa9d38e2f"
+published-at = "0x59672708c59677777de304b60feba19c931efbeb7dde42296ce5e8f878758d22"
+original-id = "0x59672708c59677777de304b60feba19c931efbeb7dde42296ce5e8f878758d22"
 version = 1
 toolchain-version = "1.68.0"
 build-config = { flavor = "sui", edition = "2024" }
-upgrade-capability = "0xf3a9f816f409ab56c97da9a11f7c06e723e4f97201b067d6be06f8d2e6d8dd61"
+upgrade-capability = "0xd61f981ff1efb4ca32a33e2ba2239ea20396b165af53a47da8b70cf2c992ceae"
