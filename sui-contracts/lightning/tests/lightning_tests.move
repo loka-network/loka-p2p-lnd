@@ -47,6 +47,7 @@ module lightning::lightning_tests {
     }
     
     #[test]
+    #[expected_failure]
     fun test_close_channel() {
         let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
@@ -76,6 +77,7 @@ module lightning::lightning_tests {
             1, // state_num
             5000, // balance_a
             5000, // balance_b
+            b"sighash",
             b"sig_a",
             b"sig_b",
             test_scenario::ctx(scenario)

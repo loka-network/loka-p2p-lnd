@@ -6,8 +6,9 @@ edition = "2024.beta"
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet" }
 
+[environments]
+devnet = "e9eed8f1"
+
 [addresses]
 lightning = "0x0"
 
-[environments]
-localnet = "d9ee8428"
