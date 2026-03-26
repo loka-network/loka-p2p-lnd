@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +77,9 @@ type SuiRPCClient struct {
 
 	idMu   sync.Mutex
 	nextID uint64
+
+	txDigestMap   sync.Map
+	pseudoHashMap sync.Map
 }
 
 // NewSuiRPCClient creates a new SuiRPCClient pointing to the given URL and
@@ -168,34 +172,58 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 	return coins, nil
 }
 
-// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms and to_self_delay.
-func (s *SuiRPCClient) GetChannelStatus(channelID *chainhash.Hash) (uint64, uint64, error) {
+// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms, to_self_delay, and capacity.
+func (s *SuiRPCClient) GetChannelStatus(channelID *chainhash.Hash) (uint64, uint64, uint64, error) {
 	objID := hashToSuiHex(*channelID)
 	options := map[string]bool{"showContent": true}
 	result, err := s.call("sui_getObject", []interface{}{objID, options})
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
+	fmt.Printf("[suinotify] ENTIRE SUI OBJECT DUMP: %s\n", string(result))
 
 	var response struct {
 		Data struct {
 			Content struct {
 				Fields struct {
-					CloseTimestampMs string `json:"close_timestamp_ms"`
-					ToSelfDelay      string `json:"to_self_delay"`
+					Status           uint8           `json:"status"`
+					CloseTimestampMs string          `json:"close_timestamp_ms"`
+					ToSelfDelay      string          `json:"to_self_delay"`
+					FundingBalance   json.RawMessage `json:"funding_balance"`
 				} `json:"fields"`
 			} `json:"content"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
-	var closeTs, delay uint64
+	var closeTs, delay, capacity uint64
 	fmt.Sscanf(response.Data.Content.Fields.CloseTimestampMs, "%d", &closeTs)
 	fmt.Sscanf(response.Data.Content.Fields.ToSelfDelay, "%d", &delay)
-	
-	return closeTs, delay, nil
+
+	var balanceStruct struct {
+		Fields struct {
+			Value string `json:"value"`
+		} `json:"fields"`
+	}
+	fmt.Printf("[suinotify] RAW FundingBalance json dump: %s\n", string(response.Data.Content.Fields.FundingBalance))
+	if err := json.Unmarshal(response.Data.Content.Fields.FundingBalance, &balanceStruct); err == nil {
+		fmt.Sscanf(balanceStruct.Fields.Value, "%d", &capacity)
+	} else {
+		// Fallback for simple string format if returned directly
+		var balStr string
+		if err := json.Unmarshal(response.Data.Content.Fields.FundingBalance, &balStr); err == nil {
+			fmt.Sscanf(balStr, "%d", &capacity)
+		}
+	}
+
+	// Fallback if balance is completely empty or 0 after parsing
+	if capacity == 0 {
+		fmt.Printf("[suinotify] Warning: funding_balance not found natively in JSON RPC response. Defaulting capacity to 0.\n")
+	}
+
+	return closeTs, delay, capacity, nil
 }
 
 // hexToNumArray converts a hex string to an array of integers for Sui RPC.
@@ -270,6 +298,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			fmt.Sprintf("%d", p.StateNum),
 			fmt.Sprintf("%d", p.LocalBalance),
 			fmt.Sprintf("%d", p.RemoteBalance),
+			bytesToNumArray(p.Sighash[:]),
 			bytesToNumArray(p.LocalSig),
 			bytesToNumArray(p.RemoteSig),
 		}
@@ -343,6 +372,32 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			bytesToNumArray(p.RevocationSecret[:]),
 		}
 
+	case input.SuiCallHTLCClaim: // 4
+		functionName = "htlc_claim"
+		var p input.HTLCClaimPayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		channelObjID := hashToSuiHex(*channelID)
+		args = []interface{}{
+			channelObjID,
+			fmt.Sprintf("%d", p.HtlcID),
+			bytesToNumArray(p.Preimage[:]),
+		}
+
+	case input.SuiCallHTLCTimeout: // 5
+		functionName = "htlc_timeout"
+		var p input.HTLCTimeoutPayload
+		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
+			return nil, err
+		}
+		channelObjID := hashToSuiHex(*channelID)
+		args = []interface{}{
+			channelObjID,
+			fmt.Sprintf("%d", p.HtlcID),
+			"0x6", // sui::clock::Clock
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported Sui Call Type: %v", envelope.Type)
 	}
@@ -386,12 +441,53 @@ func (s *SuiRPCClient) ExecuteTransactionBlock(txBytes []byte, signature []byte)
 	return digest, err
 }
 
-// ExecuteTransactionBlockFull executes a signed Sui transaction block and
-// returns both the transaction digest and any created object IDs. This is
+// RegisterTxDigest mappings bridging LND pseudo-Bitcoin hashes into actual
+// SUI Transaction Digests unblocking Confirmation notification loops.
+func (s *SuiRPCClient) RegisterTxDigest(pseudoHash chainhash.Hash, suiDigest chainhash.Hash) {
+	s.txDigestMap.Store(pseudoHash, suiDigest)
+}
+
+// RegisterPseudoToChannel maps a Bitcoin-style pseudo Hash to its SUI Channel ObjectID.
+func (s *SuiRPCClient) RegisterPseudoToChannel(pseudoHash chainhash.Hash, channelID chainhash.Hash) {
+	s.pseudoHashMap.Store(pseudoHash, channelID)
+}
+
+// IsChannelClosed checks if the SUI Channel object has status == 2 natively on chain.
+func (s *SuiRPCClient) IsChannelClosed(channelID *chainhash.Hash) (bool, error) {
+	objHex := hashToSuiHex(*channelID)
+	result, err := s.call("sui_getObject", []interface{}{
+		objHex,
+		map[string]bool{"showContent": true},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Data struct {
+			Content struct {
+				Fields struct {
+					Status uint8 `json:"status"`
+				} `json:"fields"`
+			} `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return false, err
+	}
+
+	return response.Data.Content.Fields.Status == 2, nil
+}
+
+// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms, to_self_delay, and capacity.urns both the transaction digest and any created object IDs. This is
 // needed so that ExecuteOpenChannelCall can extract the Channel ObjectID
 // from the response instead of using the tx digest as a placeholder.
 func (s *SuiRPCClient) ExecuteTransactionBlockFull(txBytes []byte, signature []byte) (chainhash.Hash, []chainhash.Hash, error) {
+	fmt.Fprintf(os.Stderr, "[SUI RPC] Executing TransactionBlock Full (size: %d bytes)\n", len(txBytes))
 	txBase64 := base64.StdEncoding.EncodeToString(txBytes)
+
+	fmt.Fprintf(os.Stderr, "[SUI RPC] Executing TransactionBlock ...\n")
+	// Encode signature explicitly based on MoveVM's required format.
 	sigBase64 := base64.StdEncoding.EncodeToString(signature)
 
 	result, err := s.call("sui_executeTransactionBlock", []interface{}{
@@ -551,8 +647,35 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		txBase58 := base58.Encode(txID[:])
-		objHex := hashToSuiHex(txID)
+		realTxID := txID
+		if val, ok := s.txDigestMap.Load(txID); ok {
+			realTxID = val.(chainhash.Hash)
+			fmt.Printf("[suinotify] SubscribeEventConfirmation: successfully MAPPED pseudo-hash %s to real SUI Digest %s (Base58: %s)\n", txID.String(), realTxID.String(), base58.Encode(realTxID[:]))
+		} else {
+			// FALLBACK: Is the channel already closed by a peer?
+			if chanVal, okChan := s.pseudoHashMap.Load(txID); okChan {
+				chanID := chanVal.(chainhash.Hash)
+				isClosed, err := s.IsChannelClosed(&chanID)
+				if err == nil && isClosed {
+					fmt.Printf("[suinotify] SubscribeEventConfirmation: Peer executed Co-Op close for channel %x! Faking confirmation.\n", chanID[:8])
+					
+					height := heightHint
+					if currSeq, _, errSeq := s.GetBestEpoch(); errSeq == nil {
+						height = currSeq
+					}
+					
+					ch <- ConfirmEvent{
+						TxID:         txID,
+						AnchorHeight: height,
+					}
+					return
+				}
+			}
+			fmt.Printf("[suinotify] SubscribeEventConfirmation: NO MAP FOUND for txID %s. Using it directly (Base58: %s)\n", txID.String(), base58.Encode(txID[:]))
+		}
+
+		txBase58 := base58.Encode(realTxID[:])
+		objHex := hashToSuiHex(realTxID)
 
 		for {
 			select {
@@ -562,19 +685,36 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 					txBase58,
 					map[string]bool{"showEffects": true},
 				})
+				if err != nil {
+					fmt.Printf("[suinotify] SubscribeEventConfirmation: err from sui_getTransactionBlock for %s: %v\n", txBase58, err)
+				}
 				if err == nil {
 					var response struct {
-						Effects struct {
+						Effects *struct {
 							Status struct {
 								Status string `json:"status"`
 							} `json:"status"`
 						} `json:"effects"`
-						Checkpoint string `json:"checkpoint"`
+						Checkpoint json.RawMessage `json:"checkpoint"`
 					}
-					if err := json.Unmarshal(result, &response); err == nil {
-						if response.Effects.Status.Status == "success" && response.Checkpoint != "" {
+					if err := json.Unmarshal(result, &response); err == nil && response.Effects != nil {
+						if response.Effects.Status.Status == "success" {
 							var checkpoint uint32
-							fmt.Sscanf(response.Checkpoint, "%d", &checkpoint)
+							if len(response.Checkpoint) > 0 {
+								// Attempt to parse strictly numerical or stringified integers flexibly
+								var cpString string
+								if err := json.Unmarshal(response.Checkpoint, &cpString); err == nil {
+									fmt.Sscanf(cpString, "%d", &checkpoint)
+								} else {
+									var cpInt uint32
+									if err := json.Unmarshal(response.Checkpoint, &cpInt); err == nil {
+										checkpoint = cpInt
+									}
+								}
+							}
+							if checkpoint == 0 {
+								checkpoint, _, _ = s.GetBestEpoch()
+							}
 
 							select {
 							case ch <- ConfirmEvent{
@@ -643,104 +783,90 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		var cursor interface{}
+		objHex := hashToSuiHex(objectID)
 
 		for {
 			select {
 			case <-ticker.C:
-				// suix_queryEvents with a filter.
-				// Filter for ChannelSpendEvent from our module.
-				result, err := s.call("suix_queryEvents", []interface{}{
-					map[string]interface{}{
-						"MoveEventType": fmt.Sprintf("%s::lightning::ChannelSpendEvent", s.packageID),
-					},
-					cursor,
-					nil,   // limit
-					false, // descending
-				})
+				// Rather than relying on the `suix_queryEvents` indexer which is frequently 
+				// disabled or lagging on `localnet`, we definitively poll the Channel object directly.
+				options := map[string]bool{
+					"showContent":             true,
+					"showPreviousTransaction": true,
+				}
+				result, err := s.call("sui_getObject", []interface{}{objHex, options})
 				if err != nil {
 					continue
 				}
 
 				var response struct {
-					Data []struct {
-						ID struct {
-							TxDigest string `json:"txDigest"`
-						} `json:"id"`
-						ParsedJson map[string]interface{} `json:"parsedJson"`
-						Checkpoint string `json:"checkpoint"`
+					Data *struct {
+						Content *struct {
+							Fields map[string]interface{} `json:"fields"`
+						} `json:"content"`
+						PreviousTransaction string `json:"previousTransaction"`
 					} `json:"data"`
-					NextCursor interface{} `json:"nextCursor"`
 				}
 				if err := json.Unmarshal(result, &response); err != nil {
-					fmt.Printf("[SUINOTIFY] unmarshal error for events: %v, raw: %s\n", err, string(result))
 					continue
 				}
 
-				if len(response.Data) > 0 {
-					fmt.Printf("[SUINOTIFY] got %d events. First parsed: %+v\n", len(response.Data), response.Data[0].ParsedJson)
+				if response.Data == nil || response.Data.Content == nil {
+					continue
 				}
 
-				for _, ev := range response.Data {
-					// We must parse the flexible JSON since number formats can vary
-					channelIDStr, _ := ev.ParsedJson["channel_id"].(string)
-					
-					if channelIDStr != hashToSuiHex(objectID) {
-						continue
+				var status uint8
+				if statusVal, ok := response.Data.Content.Fields["status"]; ok {
+					if sNum, isNum := statusVal.(float64); isNum {
+						status = uint8(sNum)
+					} else if sStr, isStr := statusVal.(string); isStr {
+						fmt.Sscanf(sStr, "%d", &status)
+					}
+				}
+
+				// The Move contract defines Channel.status: 0 (OPEN), 1 (CLOSING), 2 (CLOSED).
+				// Any status > 0 strictly signifies that a Force Close or Cooperative Close successfully occurred.
+				if status > 0 {
+					digestBytes := base58.Decode(response.Data.PreviousTransaction)
+					var spendTxID chainhash.Hash
+					if len(digestBytes) == 32 {
+						copy(spendTxID[:], digestBytes)
 					}
 
-					var htlcID uint64
-					if htlcIDStr, ok := ev.ParsedJson["htlc_id"].(string); ok {
-						fmt.Sscanf(htlcIDStr, "%d", &htlcID)
-					} else if htlcIDNum, ok := ev.ParsedJson["htlc_id"].(float64); ok {
-						htlcID = uint64(htlcIDNum)
-					}
-
-					if htlcIndex > 0 && uint32(htlcID) != htlcIndex {
-						continue
-					}
-
-					var spendType uint8
-					if typeStr, ok := ev.ParsedJson["spend_type"].(string); ok {
-						fmt.Sscanf(typeStr, "%d", &spendType)
-					} else if typeNum, ok := ev.ParsedJson["spend_type"].(float64); ok {
-						spendType = uint8(typeNum)
+					spendType := uint8(0) // 0 implies Cooperative Close (status == 2)
+					if status == 1 {
+						spendType = 1 // 1 implies Force Close (status == 1)
 					}
 
 					var stateNum uint64
-					if stateNumStr, ok := ev.ParsedJson["state_num"].(string); ok {
-						fmt.Sscanf(stateNumStr, "%d", &stateNum)
-					} else if stateNumNum, ok := ev.ParsedJson["state_num"].(float64); ok {
-						stateNum = uint64(stateNumNum)
+					if stateVal, ok := response.Data.Content.Fields["state_num"]; ok {
+						if sNum, isNum := stateVal.(float64); isNum {
+							stateNum = uint64(sNum)
+						} else if sStr, isStr := stateVal.(string); isStr {
+							fmt.Sscanf(sStr, "%d", &stateNum)
+						}
 					}
 
-					// TxDigest is base58-encoded, decode it directly.
-					digestBytes := base58.Decode(ev.ID.TxDigest)
-					var spendTxIDVal chainhash.Hash
-					if len(digestBytes) == 32 {
-						copy(spendTxIDVal[:], digestBytes)
-					}
-					spendTxID := &spendTxIDVal
-					var checkpoint uint32
-					fmt.Sscanf(ev.Checkpoint, "%d", &checkpoint)
+					currentHeight, _, _ := s.GetBestEpoch()
 
 					select {
 					case ch <- SpendEvent{
 						OutPoint: wire.OutPoint{
 							Hash:  objectID,
-							Index: uint32(htlcID),
+							Index: 0, // htlcIndex conceptually defaults to 0 for channel spends
 						},
-						SpendTxID:   *spendTxID,
-						SpendHeight: checkpoint,
+						SpendTxID:   spendTxID,
+						SpendHeight: currentHeight,
 						SpendType:   spendType,
 						StateNum:    stateNum,
 					}:
 					case <-quit:
 						return
 					}
-					return // Found it.
+					
+					// Successfully detected and dispatched the channel spend.
+					return 
 				}
-				cursor = response.NextCursor
 
 			case <-quit:
 				return

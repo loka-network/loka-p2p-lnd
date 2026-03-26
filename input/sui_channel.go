@@ -116,6 +116,9 @@ type ChannelClosePayload struct {
 	// RemoteBalance is the remote party's final balance.
 	RemoteBalance uint64 `json:"remote_balance"`
 
+	// Sighash is the standard 32-byte hash of the close negotiation data.
+	Sighash [32]byte `json:"sighash"`
+
 	// LocalSig is the local party's signature over the close payload.
 	LocalSig []byte `json:"local_sig"`
 

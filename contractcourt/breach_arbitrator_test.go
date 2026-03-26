@@ -1207,7 +1207,7 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 	}
 
 	// Create the justice transactions.
-	justiceTxs, err := brar.createJusticeTx(breachedOutputs)
+	justiceTxs, err := brar.createJusticeTx(&retributionInfo{}, breachedOutputs)
 	require.NoError(t, err)
 	require.NotNil(t, justiceTxs)
 

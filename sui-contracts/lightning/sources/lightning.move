@@ -123,15 +123,27 @@ module lightning::lightning {
         channel: &mut Channel,
         state_num: u64,
         balance_a: u64,
-         balance_b: u64,
+        balance_b: u64,
+        sighash: vector<u8>,
         _sig_a: vector<u8>,
         _sig_b: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
-        // Verify both signatures over the new state.
-        // In a real implementation, we'd hash (channel_id, state_num, balance_a, balance_b)
-        // and verify sig_a against pubkey_a and sig_b against pubkey_b.
+        
+        // Ecdsa_k1 Hash ID 1 = Sha256 strict binding (equivalent to Bitcoin's Double-SHA)
+        // Since Bitcoin 2-of-2 multisig arrays are sorted lexicographically, _sig_a and _sig_b can be swapped.
+        // We dynamically attempt both cryptographic combinations.
+        let mut valid = false;
+        if (ecdsa_k1::secp256k1_verify(&_sig_a, &channel.pubkey_a, &sighash, 1) &&
+            ecdsa_k1::secp256k1_verify(&_sig_b, &channel.pubkey_b, &sighash, 1)) {
+            valid = true;
+        } else if (ecdsa_k1::secp256k1_verify(&_sig_b, &channel.pubkey_a, &sighash, 1) &&
+                   ecdsa_k1::secp256k1_verify(&_sig_a, &channel.pubkey_b, &sighash, 1)) {
+            valid = true;
+        };
+        assert!(valid, EInvalidSignature);
+        
         
         channel.balance_a = balance_a;
         channel.balance_b = balance_b;
@@ -174,16 +186,23 @@ module lightning::lightning {
         assert!(channel.status == 0, EChannelNotOpen);
         assert!(state_num >= channel.state_num, EInvalidStateNum);
 
-        // Verify the commitment_sig against pubkey_b.
-        // Using hash algorithm `1` to enforce SHA256 validation equivalent to Bitcoin's Double-SHA.
-        assert!(ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_b, &sighash, 1), EInvalidSignature);
-
-        channel.status = 1; // CLOSING
+        // Dynamically deduce the broadcaster by evaluating which party's public key mathematically satisfies the signature.
+        // In a unilateral close, the broadcaster possesses the OTHER party's signature.
+        let mut valid = false;
+        if (ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_b, &sighash, 1)) {
+            // Alice broadcasted this, so local_balance is hers.
+            channel.balance_a = local_balance;
+            channel.balance_b = remote_balance;
+            valid = true;
+        } else if (ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_a, &sighash, 1)) {
+            // Bob broadcasted this, so local_balance is his.
+            channel.balance_b = local_balance;
+            channel.balance_a = remote_balance;
+            valid = true;
+        };
+        assert!(valid, EInvalidSignature);
         
-        // As Alice (Initiator) is the only one enforcing via pubkey_b inside the logic,
-        // local_balance is balance_a, and remote_balance is balance_b.
-        channel.balance_a = local_balance;
-        channel.balance_b = remote_balance;
+        channel.status = 1; // CLOSING
         
         channel.close_timestamp_ms = clock::timestamp_ms(clock);
         channel.revocation_hash = revocation_hash;
@@ -320,9 +339,9 @@ module lightning::lightning {
         let actual_hash = hash::sha2_256(revocation_secret);
         assert!(actual_hash == channel.revocation_hash, EInvalidHash);
 
-        // If valid, transfer all balances to the honest party.
+        // If valid, confiscate all remaining state values.
         channel.balance_a = 0;
-        channel.balance_b = channel.balance_a + channel.balance_b;
+        channel.balance_b = 0;
         channel.status = 2; // CLOSED
 
         let remaining = balance::value(&channel.funding_balance);

@@ -306,7 +306,17 @@ for i in {1..30}; do
     sleep 2
 done
 
-echo "Final Alice Node States after Sweep:"
+echo "Waiting for waiting_close_channels to fully archive (SUI checkpoints confirming)..."
+for i in {1..30}; do
+    WAITING_CLOSE=$($ALICE_CLI pendingchannels 2>/dev/null | jq -r '.waiting_close_channels | length')
+    if [ "$WAITING_CLOSE" == "0" ]; then
+        echo "All closed channels successfully archived!"
+        break
+    fi
+    sleep 2
+done
+
+echo "Final Alice Node States after Sweep & Archives:"
 $ALICE_CLI listchannels
 $ALICE_CLI pendingchannels
 

@@ -62,8 +62,8 @@ func (n *NoopSuiClient) GetCoins(_ string) ([]SuiCoin, error) {
 	return nil, nil
 }
 
-func (n *NoopSuiClient) GetChannelStatus(_ *chainhash.Hash) (uint64, uint64, error) {
-	return 0, 0, nil
+func (n *NoopSuiClient) GetChannelStatus(_ *chainhash.Hash) (uint64, uint64, uint64, error) {
+	return 0, 0, 0, nil
 }
 
 func (n *NoopSuiClient) BuildMoveCall(_ string, _ *chainhash.Hash, _ []byte) ([]byte, error) {
@@ -78,4 +78,17 @@ func (n *NoopSuiClient) ExecuteTransactionBlock(_, _ []byte) (chainhash.Hash, er
 // ExecuteTransactionBlockFull does nothing.
 func (n *NoopSuiClient) ExecuteTransactionBlockFull(_, _ []byte) (chainhash.Hash, []chainhash.Hash, error) {
 	return chainhash.Hash{}, nil, nil
+}
+
+// RegisterTxDigest does nothing.
+func (n *NoopSuiClient) RegisterTxDigest(_, _ chainhash.Hash) {
+}
+
+// RegisterPseudoToChannel does nothing.
+func (n *NoopSuiClient) RegisterPseudoToChannel(_, _ chainhash.Hash) {
+}
+
+// IsChannelClosed returns false.
+func (n *NoopSuiClient) IsChannelClosed(_ *chainhash.Hash) (bool, error) {
+	return false, nil
 }

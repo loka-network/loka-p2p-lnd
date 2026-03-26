@@ -2766,6 +2766,18 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	// validate that this channel is indeed what we expect, and can be
 	// used.
 	if fundingTx != nil {
+		// Native SUI Object Check: 
+		// SUI channels are bridged via `suinotify` mapping into 0-input Tx structures 
+		// containing the remote Object capacity. Double-SHA256 `TxHash` verification
+		// is incompatible with SUI Object IDs, so we enforce the capacity bounds here directly.
+		if len(fundingTx.TxIn) == 0 && len(fundingTx.TxOut) == 1 {
+			fundingValue := fundingTx.TxOut[0].Value
+			if btcutil.Amount(fundingValue) != channel.Capacity {
+				return chanvalidate.ErrInvalidSize
+			}
+			return nil
+		}
+
 		_, err = chanvalidate.Validate(&chanvalidate.Context{
 			Locator: &chanvalidate.OutPointChanLocator{
 				ChanPoint: channelState.FundingOutpoint,

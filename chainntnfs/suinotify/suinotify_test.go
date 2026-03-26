@@ -81,8 +81,8 @@ func (m *mockSuiClient) GetCoins(address string) ([]SuiCoin, error) {
 	return nil, nil
 }
 
-func (m *mockSuiClient) GetChannelStatus(_ *chainhash.Hash) (uint64, uint64, error) {
-	return 0, 0, nil
+func (m *mockSuiClient) GetChannelStatus(_ *chainhash.Hash) (uint64, uint64, uint64, error) {
+	return 0, 0, 0, nil
 }
 
 func (m *mockSuiClient) BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error) {
@@ -95,6 +95,16 @@ func (m *mockSuiClient) ExecuteTransactionBlock(txBytes []byte, suiSignature []b
 
 func (m *mockSuiClient) ExecuteTransactionBlockFull(txBytes []byte, suiSignature []byte) (chainhash.Hash, []chainhash.Hash, error) {
 	return chainhash.Hash{}, nil, nil
+}
+
+func (m *mockSuiClient) RegisterTxDigest(pseudoHash chainhash.Hash, suiDigest chainhash.Hash) {
+}
+
+func (m *mockSuiClient) RegisterPseudoToChannel(pseudoHash chainhash.Hash, channelID chainhash.Hash) {
+}
+
+func (m *mockSuiClient) IsChannelClosed(channelID *chainhash.Hash) (bool, error) {
+	return false, nil
 }
 
 // sendEpoch fires a mock checkpoint event.

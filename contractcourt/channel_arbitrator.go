@@ -1213,8 +1213,9 @@ func (c *ChannelArbitrator) stateStep(
 			sVal := parsedSig.S()
 			rBytes := rVal.Bytes()
 			sBytes := sVal.Bytes()
-			copy(rawSig[:32], rBytes[:])
-			copy(rawSig[32:], sBytes[:])
+			// Pad arrays cleanly ensuring big-endian constraints are maintained
+			copy(rawSig[32-len(rBytes):32], rBytes[:])
+			copy(rawSig[64-len(sBytes):64], sBytes[:])
 			htlcIDs := make([]uint64, 0)
 			htlcAmounts := make([]uint64, 0)
 			htlcHashes := make([][]byte, 0)

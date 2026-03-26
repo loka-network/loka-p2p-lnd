@@ -180,6 +180,8 @@ type BreachConfig struct {
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
 	AuxSweeper fn.Option[sweep.AuxSweeper]
+
+	IsSui bool
 }
 
 // BreachArbitrator is a special subsystem which is responsible for watching and
@@ -733,7 +735,7 @@ justiceTxBroadcast:
 	// With the breach transaction confirmed, we now create the
 	// justice tx which will claim ALL the funds within the
 	// channel.
-	justiceTxs, err := b.createJusticeTx(breachInfo.breachedOutputs)
+	justiceTxs, err := b.createJusticeTx(breachInfo, breachInfo.breachedOutputs)
 	if err != nil {
 		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
@@ -1236,6 +1238,9 @@ type retributionInfo struct {
 	chainHash    chainhash.Hash
 	breachHeight uint32
 
+	revokedStateNum  uint64
+	revocationSecret []byte
+
 	breachedOutputs []breachedOutput
 }
 
@@ -1381,9 +1386,11 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	return &retributionInfo{
 		commitHash:      breachInfo.BreachTxHash,
 		chainHash:       breachInfo.ChainHash,
-		chanPoint:       *chanPoint,
-		breachedOutputs: breachedOutputs,
-		breachHeight:    breachInfo.BreachHeight,
+		chanPoint:        *chanPoint,
+		breachedOutputs:  breachedOutputs,
+		breachHeight:     breachInfo.BreachHeight,
+		revokedStateNum:  breachInfo.RevokedStateNum,
+		revocationSecret: breachInfo.RevocationSecret,
 	}
 }
 
@@ -1418,7 +1425,33 @@ type justiceTxVariants struct {
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
 func (b *BreachArbitrator) createJusticeTx(
+	retInfo *retributionInfo,
 	breachedOutputs []breachedOutput) (*justiceTxVariants, error) {
+
+	if b.cfg.IsSui {
+		// In the SUI-LND Zero-Intrusion integration, Justice Transactions are conceptually replaced by
+		// a single `claim_penalty` Move call encompassing all balances instantly, bypassing Bitcoin sweeps entirely.
+		payload := input.ChannelPenalizePayload{
+			RevocationKey:    nil, // SUI doesn't need the composite Secp256k1 key
+			BreachStateNum:   retInfo.revokedStateNum,
+			RevocationSecret: retInfo.revocationSecret,
+		}
+
+		tx, err := input.BuildChannelPenalizeTx(retInfo.chanPoint.Hash, payload)
+		if err != nil {
+			return nil, err
+		}
+
+		justiceCtx := &justiceTxCtx{
+			justiceTx: tx,
+			inputs:    nil,
+			fee:       0,
+		}
+
+		return &justiceTxVariants{
+			spendAll: justiceCtx,
+		}, nil
+	}
 
 	var (
 		allInputs         []input.Input

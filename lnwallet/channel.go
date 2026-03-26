@@ -2068,6 +2068,10 @@ type BreachRetribution struct {
 	// RemoteResolutionBlob is a blob used for aux channels that permits an
 	// honest party to sweep the remote commitment output.
 	RemoteResolutionBlob fn.Option[tlv.Blob]
+
+	// RevocationSecret is the natively extracted 32-byte secret explicitly designed
+	// for routing penalty logic natively across SUI Blockchain execution blocks.
+	RevocationSecret []byte
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -2371,6 +2375,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	br.RevokedStateNum = stateNum
 	br.LocalDelay = ourDelay
 	br.RemoteDelay = theirDelay
+	br.RevocationSecret = revocationPreimage[:]
 
 	return br, nil
 }

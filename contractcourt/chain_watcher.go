@@ -1446,13 +1446,18 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		return err
 	}
 
+	closingTxID := forceClose.CloseTx.TxHash()
+	if c.cfg.isSui && commitSpend.SpenderTxHash != nil {
+		closingTxID = *commitSpend.SpenderTxHash
+	}
+
 	// As we've detected that the channel has been closed, immediately
 	// creating a close summary for future usage by related sub-systems.
 	chanSnapshot := forceClose.ChanSnapshot
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:               chanSnapshot.ChannelPoint,
 		ChainHash:               chanSnapshot.ChainHash,
-		ClosingTXID:             forceClose.CloseTx.TxHash(),
+		ClosingTXID:             closingTxID,
 		RemotePub:               &chanSnapshot.RemoteIdentity,
 		Capacity:                chanSnapshot.Capacity,
 		CloseType:               channeldb.LocalForceClose,

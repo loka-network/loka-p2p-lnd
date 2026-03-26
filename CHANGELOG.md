@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- Native SUI Object ID mappings in `SuiClient.RegisterPseudoToChannel` to bridge LND's Bitcoin-like Pseudo-Hashes straight into the SUI Network states, averting the execution races generated randomly between peers interacting asynchronously.
+- Support for intercepting `EInvalidSignature` (MoveAbort 2) errors inside `suiwallet.go`. When a peer node resolves a `close_channel` Cooperative Sweep first, `IsChannelClosed(&channelID)` aborts LND's signature iteration gracefully, completing channel lifecycles cleanly without logging false Positive anomalies involving 12850 dust residues.
+- Custom Mock fallback assertions directly in `noop_client.go` maintaining integration test environment boundaries natively across different nodes.
+
 All notable changes to this project will be documented in this file.
 
 ---

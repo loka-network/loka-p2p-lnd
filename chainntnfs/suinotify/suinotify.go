@@ -51,8 +51,8 @@ type SuiClient interface {
 	// GetCoins returns the list of SUI coins owned by the given address.
 	GetCoins(address string) ([]SuiCoin, error)
 
-	// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms and to_self_delay.
-	GetChannelStatus(channelID *chainhash.Hash) (uint64, uint64, error)
+	// GetChannelStatus fetches the Channel object and returns its close_timestamp_ms, to_self_delay, and current capacity.
+	GetChannelStatus(channelID *chainhash.Hash) (uint64, uint64, uint64, error)
 
 	// BuildMoveCall requests the Sui Node to build an unsigned BCS PTB.
 	BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error)
@@ -65,6 +65,16 @@ type SuiClient interface {
 	ExecuteTransactionBlockFull(txBytes []byte, suiSignature []byte) (
 		digest chainhash.Hash, createdObjects []chainhash.Hash, err error,
 	)
+
+	// RegisterTxDigest mappings bridging LND pseudo-Bitcoin hashes into actual
+	// SUI Transaction Digests unblocking Confirmation notification loops.
+	RegisterTxDigest(pseudoHash chainhash.Hash, suiDigest chainhash.Hash)
+
+	// RegisterPseudoToChannel maps a Bitcoin-style pseudo Hash to its SUI Channel ObjectID.
+	RegisterPseudoToChannel(pseudoHash chainhash.Hash, channelID chainhash.Hash)
+
+	// IsChannelClosed checks if the SUI Channel object has status == 2 natively on chain.
+	IsChannelClosed(channelID *chainhash.Hash) (bool, error)
 
 	// SubscribeEpochs sends each newly finalised checkpoint on the returned
 	// channel. The channel is closed when quit is closed.
@@ -193,11 +203,31 @@ func (s *SuiChainNotifier) RegisterConfirmationsNtfn(
 			if !ok {
 				return
 			}
+			// Query the SUI RPC for the true on-chain channel parameters
+			// (such as its actual coin capacity) to inject into LND's contract arbiter.
+			_, _, capacity, err := s.client.GetChannelStatus(txid)
+			var fakeTx *wire.MsgTx
+			if err == nil {
+				// Bridge the SUI object capacity into a mock Bitcoin transaction
+				// so that `lnwallet` chanvalidate package verifies remote node integrity.
+				fakeTx = &wire.MsgTx{
+					Version: 2,
+					TxIn:    []*wire.TxIn{},
+					TxOut: []*wire.TxOut{
+						{
+							Value:    int64(capacity),
+							PkScript: pkScript,
+						},
+					},
+				}
+			}
+
 			bh := heightToHash(ev.AnchorHeight)
 			txConf := &chainntnfs.TxConfirmation{
 				BlockHash:   &bh,
 				BlockHeight: ev.AnchorHeight,
 				TxIndex:     0,
+				Tx:          fakeTx,
 			}
 			select {
 			case confEvent.Confirmed <- txConf:

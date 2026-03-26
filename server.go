@@ -1253,6 +1253,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				dbs.ChanStateDB,
 			),
 			AuxSweeper: s.implCfg.AuxSweeper,
+			IsSui:      cc.Wallet.BackEnd() == "sui",
 		},
 	)
 
