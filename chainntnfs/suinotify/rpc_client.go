@@ -783,7 +783,15 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		objHex := hashToSuiHex(objectID)
+		// SUI-LND Map: When LND monitors a Force Close TxID for Justice spends,
+		// we must reverse-map it back to the native SUI Channel ObjectID.
+		realObjectID := objectID
+		if val, ok := s.pseudoHashMap.Load(objectID); ok {
+			realObjectID = val.(chainhash.Hash)
+			fmt.Printf("[suinotify] SubscribeObjectSpend: Mapped Pseudo-Hash/Digest %x -> Channel ID %x\n", objectID[:4], realObjectID[:4])
+		}
+
+		objHex := hashToSuiHex(realObjectID)
 
 		for {
 			select {
@@ -824,8 +832,8 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 					}
 				}
 
-				// The Move contract defines Channel.status: 0 (OPEN), 1 (CLOSING), 2 (CLOSED).
-				// Any status > 0 strictly signifies that a Force Close or Cooperative Close successfully occurred.
+				// The Move contract defines Channel.status: 0 (OPEN), 1 (CLOSING), 2 (CLOSED), 5 (PENALIZED).
+				// Any status > 0 strictly signifies that a Force Close, Cooperative Close, or Justice successfully occurred.
 				if status > 0 {
 					digestBytes := base58.Decode(response.Data.PreviousTransaction)
 					var spendTxID chainhash.Hash
@@ -836,6 +844,28 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 					spendType := uint8(0) // 0 implies Cooperative Close (status == 2)
 					if status == 1 {
 						spendType = 1 // 1 implies Force Close (status == 1)
+					} else {
+						// For Cooperative Close, Timeout, Penalize, or Default sweeps, status == 2 (CLOSED).
+						// We MUST parse the exact `ChannelSpendEvent` from `sui_getTransactionBlock`!
+						txOpts := map[string]bool{"showEvents": true}
+						if txRes, err := s.call("sui_getTransactionBlock", []interface{}{response.Data.PreviousTransaction, txOpts}); err == nil {
+							var txResp struct {
+								Events []struct {
+									Type   string `json:"type"`
+									Parsed struct {
+										SpendType uint8 `json:"spend_type"`
+									} `json:"parsedJson"`
+								} `json:"events"`
+							}
+							if json.Unmarshal(txRes, &txResp) == nil {
+								for _, ev := range txResp.Events {
+									if strings.Contains(ev.Type, "::ChannelSpendEvent") {
+										spendType = ev.Parsed.SpendType
+										break
+									}
+								}
+							}
+						}
 					}
 
 					var stateNum uint64
@@ -848,6 +878,11 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 					}
 
 					currentHeight, _, _ := s.GetBestEpoch()
+
+					// Dynamically map the resulted SUI Digest back to this Channel Object! 
+					// When LND's chain_watcher subsequently registers a new watcher for the 
+					// output of `spendTxID`, we will successfully intercept it!
+					s.RegisterPseudoToChannel(spendTxID, realObjectID)
 
 					select {
 					case ch <- SpendEvent{

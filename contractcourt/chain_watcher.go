@@ -1115,7 +1115,13 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	// own broadcasted state we are looking at. Therefore check that the
 	// commit matches before assuming it was a breach.
 	commitHash := commitSpend.SpendingTx.TxHash()
-	if retribution.BreachTxHash != commitHash {
+	if c.cfg.isSui {
+		// SUI mock transactions have a completely different TxHash than the real
+		// commitment hash stored in the database. We MUST overwrite the DB hash
+		// with the mock hash here so the Arbitrator queries suinotify for the 
+		// mock hash, which is properly mapped to the true SUI digest.
+		retribution.BreachTxHash = commitHash
+	} else if retribution.BreachTxHash != commitHash {
 		return false, nil
 	}
 

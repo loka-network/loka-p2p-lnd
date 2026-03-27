@@ -1,12 +1,22 @@
 # Changelog
 
 ## [Unreleased]
+
+
+All notable changes to this project will be documented in this file.
+
+---
+
+## [Unreleased] — 2026-03-27
+
 ### Added
 - Native SUI Object ID mappings in `SuiClient.RegisterPseudoToChannel` to bridge LND's Bitcoin-like Pseudo-Hashes straight into the SUI Network states, averting the execution races generated randomly between peers interacting asynchronously.
 - Support for intercepting `EInvalidSignature` (MoveAbort 2) errors inside `suiwallet.go`. When a peer node resolves a `close_channel` Cooperative Sweep first, `IsChannelClosed(&channelID)` aborts LND's signature iteration gracefully, completing channel lifecycles cleanly without logging false Positive anomalies involving 12850 dust residues.
 - Custom Mock fallback assertions directly in `noop_client.go` maintaining integration test environment boundaries natively across different nodes.
 
-All notable changes to this project will be documented in this file.
+### Fixed
+- **Fixed SUI Breach Arbitrator Deadlocks:** Identified and eliminated a critical execution freeze inside `contractcourt/breach_arbitrator.go` where Bob's Watchtower would infinitely hang awaiting `waitForSpendEvent` confirmations. SUI's bypass of physical Output UTXOs caused `len(breachedOutputs)` to structurally equal 0, perpetually forcing the Justice Transaction executor into a wait-loop stall. Implemented a zero-intrusion `IsSui` dynamic output injector that mocks the root SUI Channel Object as the sweep target, immediately triggering the native event watch-loop and successfully allowing `penalize` transaction executions to definitively close cheated channels.
+- **Fixed `itest_sui.sh` Terminal Output Assertion Race:** Revised the Watchtower detection integration checks to actively grep the live `$BOB_DIR/lnd.log` buffer natively rather than erroneously evaluating the post-mortem `.bob_lnd.log` cleanup archive, strictly synchronizing stdout `make itest` assertions.
 
 ---
 

@@ -300,6 +300,24 @@ func (s *SuiChainNotifier) RegisterSpendNtfn(
 				Value:    0,
 				PkScript: payload,
 			})
+			// Pad the mock Bitcoin transaction with 1000 blank outputs.
+			// Why 1000? In SUI's Object model, there are no physical Bitcoin UTXOs. 
+			// LND's Bitcoin-centric chain watchers (like the Arbitrator or Sweepers) 
+			// frequently query specific output indices using `spendTx.TxOut[index]`.
+			// If `TxOut` only has 1 element, querying index 5 will throw a Go slice 
+			// out-of-bounds panic, crashing the node. 
+			// Under BOLT 2 specifications, `max_accepted_htlcs` per side is 483.
+			// 483 (Local) + 483 (Remote) + 2 (Balances) + 2 (Anchors) = 970 absolute 
+			// maximum possible outputs in any legal Lightning Commitment Transaction.
+			// Therefore, a structural padding of 1000 is mathematically guaranteed 
+			// to protect LND against all conceivable index-out-of-range crashes 
+			// during non-UTXO channel close resolutions.
+			for i := 1; i < 1000; i++ {
+				spendTx.AddTxOut(&wire.TxOut{
+					Value:    0,
+					PkScript: nil,
+				})
+			}
 
 			detail := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &spentOut,
@@ -308,6 +326,14 @@ func (s *SuiChainNotifier) RegisterSpendNtfn(
 				SpenderInputIndex: 0,
 				SpendingHeight:    int32(ev.SpendHeight),
 			}
+			
+			// Map the mock bitcoin hash to the real Sui digest so later
+			// We map BOTH the true SUI execution digest for backwards resolution, AND
+			// we statically connect LND's generated Mock TxHash back to this exact 
+			// Channel Object so future spend-listeners natively redirect downwards!
+			s.client.RegisterTxDigest(spendTx.TxHash(), ev.SpendTxID)
+			s.client.RegisterPseudoToChannel(spendTx.TxHash(), ev.OutPoint.Hash)
+
 			select {
 			case spendEvent.Spend <- detail:
 			case <-s.quit:

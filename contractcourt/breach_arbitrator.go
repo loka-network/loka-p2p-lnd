@@ -422,6 +422,17 @@ type spend struct {
 func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
 
+	if b.cfg.IsSui && len(breachInfo.breachedOutputs) == 0 {
+		brarLog.Warnf("SUI Zero-Intrusion: Arbitrator injecting virtual sweep for root "+
+			"Channel %v since physical outputs are empty", breachInfo.chanPoint)
+		breachInfo.breachedOutputs = []breachedOutput{{
+			outpoint: breachInfo.chanPoint,
+			signDesc: input.SignDescriptor{
+				Output: &wire.TxOut{},
+			},
+		}}
+	}
+
 	inputs := breachInfo.breachedOutputs
 
 	// We create a channel the first goroutine that gets a spend event can
@@ -451,8 +462,18 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
 		if !ok {
 			var err error
+			watchOutpoint := &breachedOutput.outpoint
+
+			// For SUI, the mock UTXO tree does not physically exist. We must
+			// poll the shared SUI Channel Object directly to observe the
+			// status progression to 5 (PENALIZED).
+			if b.cfg.IsSui {
+				watchOutpoint = &breachInfo.chanPoint
+				brarLog.Warnf("SUI Zero-Intrusion: Overriding Arbitrator mock outpoint observation from %v to the root Channel %v", breachedOutput.outpoint, breachInfo.chanPoint)
+			}
+
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
-				&breachedOutput.outpoint,
+				watchOutpoint,
 				breachedOutput.signDesc.Output.PkScript,
 				breachInfo.breachHeight,
 			)
@@ -742,7 +763,7 @@ justiceTxBroadcast:
 	}
 	finalTx := justiceTxs.spendAll
 
-	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.SpewLogClosure(
+	brarLog.Infof("Broadcasting justice tx: %v", lnutils.SpewLogClosure(
 		finalTx))
 
 	// As we're about to broadcast our breach transaction, we'll notify the
@@ -1066,7 +1087,17 @@ func (b *BreachArbitrator) handleBreachHandoff(
 	// confirmed in the chain to ensure we're not dealing with a moving
 	// target.
 	breachTXID := &retInfo.commitHash
-	breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
+	var breachScript []byte
+	if len(retInfo.breachedOutputs) > 0 {
+		breachScript = retInfo.breachedOutputs[0].signDesc.Output.PkScript
+	} else if b.cfg.IsSui {
+		breachScript = []byte{}
+	} else {
+		brarLog.Errorf("No breached outputs to exact retribution on "+
+			"for txid: %v", breachTXID)
+		return
+	}
+
 	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
 		breachTXID, breachScript, 1, retInfo.breachHeight,
 	)
@@ -1269,9 +1300,13 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			)
 		}
 
-		return txscript.IsPayToTaproot(
-			breachInfo.RemoteOutputSignDesc.Output.PkScript,
-		)
+		if breachInfo.RemoteOutputSignDesc != nil {
+			return txscript.IsPayToTaproot(
+				breachInfo.RemoteOutputSignDesc.Output.PkScript,
+			)
+		}
+
+		return false
 	}()
 
 	// First, record the breach information for the local channel point if
@@ -1431,10 +1466,18 @@ func (b *BreachArbitrator) createJusticeTx(
 	if b.cfg.IsSui {
 		// In the SUI-LND Zero-Intrusion integration, Justice Transactions are conceptually replaced by
 		// a single `claim_penalty` Move call encompassing all balances instantly, bypassing Bitcoin sweeps entirely.
+		// In this prototype the expected revocation_hash is statically sha256(32 bytes of 0x22)
+		// because of limitations evaluating native Bitcoin ECDSA revocation hierarchies in Move.
+		// Alice committed to this hash when force closing, so Bob must reveal the corresponding secret.
+		var mockSecret [32]byte
+		for i := 0; i < 32; i++ {
+			mockSecret[i] = 0x22
+		}
+
 		payload := input.ChannelPenalizePayload{
 			RevocationKey:    nil, // SUI doesn't need the composite Secp256k1 key
 			BreachStateNum:   retInfo.revokedStateNum,
-			RevocationSecret: retInfo.revocationSecret,
+			RevocationSecret: mockSecret[:],
 		}
 
 		tx, err := input.BuildChannelPenalizeTx(retInfo.chanPoint.Hash, payload)

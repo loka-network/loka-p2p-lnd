@@ -323,5 +323,116 @@ $ALICE_CLI pendingchannels
 echo "Final Alice Wallet Balance:"
 $ALICE_CLI walletbalance
 
+# 9. Watchtower Breach Arbitrator Test
+echo "[10/10] Testing Watchtower Breach Arbitrator (Justice Transaction)..."
+echo "Funding Alice for the third channel (Breach Test)..."
+if [ -n "$FAUCET_URL" ]; then
+    sui client faucet --url "$FAUCET_URL" --address "$ALICE_ADDR" || true
+else
+    sui client faucet --address "$ALICE_ADDR" || true
+fi
+sleep 5
+
+echo "Alice opening third channel to Bob..."
+$ALICE_CLI openchannel --node_key=$BOB_PUBKEY --local_amt=5000000
+
+echo "Waiting for third channel to open..."
+for i in {1..20}; do
+    ACTIVE_C=$($ALICE_CLI listchannels | jq -r '.channels | length')
+    if [ "$ACTIVE_C" == "1" ]; then
+        echo "Channel 3 is fully operational!"
+        break
+    fi
+    sleep 3
+done
+
+CHAN_POINT3=$($ALICE_CLI listchannels | jq -r '.channels[0].channel_point')
+TXID3=$(echo "$CHAN_POINT3" | cut -d':' -f1)
+OUT_INDEX3=$(echo "$CHAN_POINT3" | cut -d':' -f2)
+
+DB_PATH="$ALICE_DIR/data/graph/regtest/channel.db"
+echo "Backing up Alice's channel state at $DB_PATH..."
+cp "$DB_PATH" "$DB_PATH.bak"
+
+echo "Alice sending 1,000,000 SUI (MIST) to Bob to advance the state..."
+INV_BREACH=$($BOB_CLI addinvoice --amt=1000000 --memo="breach-bait" | jq -r '.payment_request')
+$ALICE_CLI payinvoice --pay_req="$INV_BREACH" --force
+sleep 5
+
+echo "Stopping Bob's node to simulate an offline victim..."
+kill $BOB_PID
+wait $BOB_PID 2>/dev/null || true
+
+echo "Stopping Alice's node to inject malicious state..."
+kill $ALICE_PID
+wait $ALICE_PID 2>/dev/null || true
+
+echo "Restoring Alice's stale state (Pre-Payment)..."
+cp "$DB_PATH.bak" "$DB_PATH"
+
+echo "Restarting Alice's node..."
+$LND_BIN \
+    --lnddir="$ALICE_DIR" \
+    --listen="127.0.0.1:$ALICE_PORT" \
+    --rpclisten="127.0.0.1:$ALICE_RPC" \
+    --restlisten="127.0.0.1:$ALICE_REST" \
+    --suinode.active \
+    --suinode.devnet \
+    --suinode.rpchost="$SUI_RPC_HOST" \
+    --suinode.packageid="$PACKAGE_ID" \
+    --noseedbackup \
+    >> "$ALICE_DIR/lnd.log" 2>&1 &
+ALICE_PID=$!
+
+echo "Waiting for Alice to boot up..."
+for i in {1..30}; do
+    if $ALICE_CLI getinfo &>/dev/null; then 
+        echo "Alice broadcasting malicious force close (stale state) while Bob is offline..."
+        while ! $ALICE_CLI closechannel --force $TXID3 $OUT_INDEX3; do
+            sleep 0.5
+        done
+        break
+    fi
+    sleep 0.5
+done
+
+sleep 3
+echo "Restarting Bob's node (Watchtower Recovery)..."
+$LND_BIN \
+    --lnddir="$BOB_DIR" \
+    --listen="127.0.0.1:$BOB_PORT" \
+    --rpclisten="127.0.0.1:$BOB_RPC" \
+    --restlisten="127.0.0.1:$BOB_REST" \
+    --suinode.active \
+    --suinode.devnet \
+    --suinode.rpchost="$SUI_RPC_HOST" \
+    --suinode.packageid="$PACKAGE_ID" \
+    --noseedbackup \
+    >> "$BOB_DIR/lnd.log" 2>&1 &
+BOB_PID=$!
+
+
+
+echo "Waiting for Bob's Breach Arbitrator to detect the cheat and execute Justice Transaction..."
+sleep 15
+BREACH_SUCCESS=0
+for i in {1..30}; do
+    if grep -q "Broadcasting justice tx" "$BOB_DIR/lnd.log"; then
+        echo "Bob's Watchtower successfully resolved the breach!"
+        echo "Justice Transaction natively published to SUI!"
+        BREACH_SUCCESS=1
+        break
+    fi
+    sleep 2
+done
+
+if [ "$BREACH_SUCCESS" -eq 0 ]; then
+    echo "ERROR: Watchtower failed to detect breach and broadcast Justice Transaction!"
+    exit 1
+fi
+
+echo "Verifying Bob's Wallet Balance. He should have confiscated all of Alice's channel funds!"
+$BOB_CLI walletbalance
+
 echo "=== Sui LND Integration Test SUCCESS ==="
 exit 0
