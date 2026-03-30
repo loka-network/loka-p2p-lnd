@@ -3,10 +3,11 @@ package contractcourt
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1175,13 +1176,23 @@ func (c *ChannelArbitrator) stateStep(
 				return StateError, closeTx, err
 			}
 
-			// In this prototype the expected revocation_hash is statically sha256(32 bytes of 0x22)
-			expectedHashHex := "9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4"
-			expectedHashBytes, _ := hex.DecodeString(expectedHashHex)
-			var revHash [32]byte
-			copy(revHash[:], expectedHashBytes)
-			
 			localCommit := chanState.LocalCommitment
+
+			// Compute the actual RevocationHash using the correct key ring derivation
+			commitSecret, err := chanState.RevocationProducer.AtIndex(
+				localCommit.CommitHeight,
+			)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+			commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
+			keyRing := lnwallet.DeriveCommitmentKeys(
+				commitPoint, lntypes.Local, chanState.ChanType,
+				&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+			)
+			var revHash [32]byte
+			revHash = sha256.Sum256(keyRing.RevocationKey.SerializeCompressed())
+
 
 			// Compute the Bitcoin sighash over the commitment transaction.
 			// The Move contract will verify the commitment signature against this exact digest.
@@ -1221,31 +1232,39 @@ func (c *ChannelArbitrator) stateStep(
 			htlcHashes := make([][]byte, 0)
 			htlcExpiries := make([]uint64, 0)
 			htlcDirections := make([]uint8, 0)
-			
+			var outgoing []channeldb.HTLC
+			var incoming []channeldb.HTLC
 			for _, htlc := range localCommit.Htlcs {
-				htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-				htlcAmounts = append(htlcAmounts, uint64(htlc.Amt.ToSatoshis()))
-				
-				hashCopy := make([]byte, 32)
-				copy(hashCopy, htlc.RHash[:])
-				htlcHashes = append(htlcHashes, hashCopy)
-				
-				// SUI Clock requires absolute millisecond epoch: 
-				// The LND cltv_expiry is an absolute block height.
-				// For the prototype, we assume Genesis offset is 0, 
-				// and blocks map directly to 10-minute intervals.
-				suiExpiryMs := uint64(htlc.RefundTimeout) * 10 * 60 * 1000
-				htlcExpiries = append(htlcExpiries, suiExpiryMs)
-				
 				if htlc.Incoming {
-					// 1 = B_to_A (Remote to Local)
-					htlcDirections = append(htlcDirections, 1)
+					incoming = append(incoming, htlc)
 				} else {
-					// 0 = A_to_B (Local to Remote)
-					htlcDirections = append(htlcDirections, 0)
+					outgoing = append(outgoing, htlc)
 				}
 			}
 			
+			// Match exact order used in channel.go signatures 
+			sort.Slice(outgoing, func(i, j int) bool { return outgoing[i].HtlcIndex < outgoing[j].HtlcIndex })
+			sort.Slice(incoming, func(i, j int) bool { return incoming[i].HtlcIndex < incoming[j].HtlcIndex })
+			
+			for _, htlc := range outgoing {
+				htlcIDs = append(htlcIDs, htlc.HtlcIndex)
+				htlcAmounts = append(htlcAmounts, uint64(htlc.Amt.ToSatoshis()))
+				hashCopy := make([]byte, 32)
+				copy(hashCopy, htlc.RHash[:])
+				htlcHashes = append(htlcHashes, hashCopy)
+				htlcExpiries = append(htlcExpiries, uint64(htlc.RefundTimeout)*10*60*1000)
+				htlcDirections = append(htlcDirections, 0)
+			}
+			
+			for _, htlc := range incoming {
+				htlcIDs = append(htlcIDs, htlc.HtlcIndex)
+				htlcAmounts = append(htlcAmounts, uint64(htlc.Amt.ToSatoshis()))
+				hashCopy := make([]byte, 32)
+				copy(hashCopy, htlc.RHash[:])
+				htlcHashes = append(htlcHashes, hashCopy)
+				htlcExpiries = append(htlcExpiries, uint64(htlc.RefundTimeout)*10*60*1000)
+				htlcDirections = append(htlcDirections, 1)
+			}
 			var sighash32 [32]byte
 			copy(sighash32[:], sighash)
 
@@ -1255,7 +1274,6 @@ func (c *ChannelArbitrator) stateStep(
 				RemoteBalance:  uint64(localCommit.RemoteBalance.ToSatoshis()),
 				RevocationHash: revHash,
 				CommitmentSig:  rawSig[:],
-				Sighash:        sighash32,
 				HtlcIDs:           htlcIDs,
 				HtlcAmounts:       htlcAmounts,
 				HtlcPaymentHashes: htlcHashes,

@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -1880,16 +1881,32 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 			InputIndex: 0,
 		}
 
-		fmt.Printf("signCommitTx: witnessScript=%x channelValue=%v remoteKey=%x commitTx=%v\n",
-			fundingWitnessScript, fundingOutput.Value, theirContribution.MultiSigKey.PubKey.SerializeCompressed(), commitTx.TxHash())
+		if l.BackEnd() == "sui" {
+			keyRing := DeriveCommitmentKeys(
+				theirContribution.FirstCommitmentPoint, lntypes.Remote,
+				pendingReservation.partialState.ChanType,
+				ourContribution.ChannelConfig, theirContribution.ChannelConfig,
+			)
+			h := sha256.Sum256(keyRing.RevocationKey.SerializeCompressed())
+
+			payload := input.ChannelForceClosePayload{
+				StateNum:      0,
+				LocalBalance:  uint64(pendingReservation.partialState.RemoteCommitment.RemoteBalance.ToSatoshis()),
+				RemoteBalance: uint64(pendingReservation.partialState.RemoteCommitment.LocalBalance.ToSatoshis()),
+				RevocationHash: h,
+			}
+			payloadBytes, _ := json.Marshal(payload)
+			commitTx.TxIn[0].SignatureScript = append([]byte("SUI_PAYLOAD:"), payloadBytes...)
+		}
 
 		sigTheirCommit, err = l.Cfg.Signer.SignOutputRaw(
 			commitTx, &signDesc,
 		)
 
-		if err == nil {
-			fmt.Printf("signCommitTx AFTER SignOutputRaw: sigTheirCommit=%x\n", sigTheirCommit.Serialize())
+		if l.BackEnd() == "sui" {
+			commitTx.TxIn[0].SignatureScript = nil
 		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -2277,16 +2294,33 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 			return err
 		}
 
-		sigHash, err := txscript.CalcWitnessSigHash(
-			witnessScript, hashCache, txscript.SigHashAll,
-			commitTx, 0, channelValue,
-		)
-		if err != nil {
-			return err
-		}
+		var sigHash []byte
+		if l.BackEnd() == "sui" {
+			keyRing := DeriveCommitmentKeys(
+				res.ourContribution.FirstCommitmentPoint, lntypes.Local,
+				res.partialState.ChanType,
+				res.ourContribution.ChannelConfig, res.theirContribution.ChannelConfig,
+			)
+			h := sha256.Sum256(keyRing.RevocationKey.SerializeCompressed())
 
-		fmt.Printf("verifyCommitSig: witnessScript=%x channelValue=%v sigHash=%x remoteKey=%x commitTx=%v commitSig=%x\n",
-			witnessScript, channelValue, sigHash, remoteKey.SerializeCompressed(), commitTx.TxHash(), commitSig.Serialize())
+			payload := input.ChannelForceClosePayload{
+				StateNum:      0,
+				LocalBalance:  uint64(res.partialState.LocalCommitment.LocalBalance.ToSatoshis()),
+				RemoteBalance: uint64(res.partialState.LocalCommitment.RemoteBalance.ToSatoshis()),
+				RevocationHash: h,
+			}
+			suiHash := input.GenerateSuiPayloadHash(payload)
+			doubleHash := sha256.Sum256(suiHash[:])
+			sigHash = doubleHash[:]
+		} else {
+			sigHash, err = txscript.CalcWitnessSigHash(
+				witnessScript, hashCache, txscript.SigHashAll,
+				commitTx, 0, channelValue,
+			)
+			if err != nil {
+				return err
+			}
+		}
 
 		// Verify that we've received a valid signature from the remote
 		// party for our version of the commitment transaction.

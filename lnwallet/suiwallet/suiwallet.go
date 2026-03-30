@@ -15,7 +15,6 @@ import (
     "sync"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
@@ -423,7 +422,6 @@ func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
 	}
 
 	var localSig, remoteSig []byte
-	var sighash [32]byte
 	if len(tx.TxIn) > 0 && len(tx.TxIn[0].Witness) >= 4 {
 		wit := tx.TxIn[0].Witness
 		
@@ -459,16 +457,6 @@ func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
 			localSig = sig2
 			remoteSig = sig1
 		}
-		
-		hash, errHash := txscript.CalcWitnessSigHash(
-			script, txscript.NewTxSigHashes(tx, txscript.NewCannedPrevOutputFetcher(nil, 0)),
-			txscript.SigHashAll, tx, 0, int64(capacity),
-		)
-		if errHash == nil {
-			copy(sighash[:], hash)
-		} else {
-			fmt.Printf("[suiwallet] Failed to hash coop close witness: %v\n", errHash)
-		}
 	} else {
 		localSig = []byte{0}
 		remoteSig = []byte{0}
@@ -483,7 +471,6 @@ func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
 		StateNum:      0,
 		LocalBalance:  localBalance,
 		RemoteBalance: remoteBalance,
-		Sighash:       sighash,
 		LocalSig:      localSig,
 		RemoteSig:     remoteSig,
 	}

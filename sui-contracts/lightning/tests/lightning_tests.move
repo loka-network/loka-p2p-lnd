@@ -77,7 +77,6 @@ module lightning::lightning_tests {
             1, // state_num
             5000, // balance_a
             5000, // balance_b
-            b"sighash",
             b"sig_a",
             b"sig_b",
             test_scenario::ctx(scenario)
@@ -139,7 +138,6 @@ module lightning::lightning_tests {
             5000, // remote_balance
             revocation_hash,
             commitment_sig,
-            sighash,
             empty_u64_vec, // htlc_ids
             empty_u64_vec, // amounts
             empty_vec_u8_vec, // hashes
@@ -194,7 +192,6 @@ module lightning::lightning_tests {
             5000,
             revocation_hash,
             commitment_sig,
-            sighash,
             empty_u64_vec, 
             empty_u64_vec,
             empty_vec_u8_vec, 

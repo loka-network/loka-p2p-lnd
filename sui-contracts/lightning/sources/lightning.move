@@ -6,6 +6,7 @@ module lightning::lightning {
     use sui::table::{Self, Table};
     use sui::ecdsa_k1;
     use sui::clock::{Self, Clock};
+    use sui::bcs;
     use std::hash;
 
     // --- Errors ---
@@ -124,13 +125,18 @@ module lightning::lightning {
         state_num: u64,
         balance_a: u64,
         balance_b: u64,
-        sighash: vector<u8>,
         _sig_a: vector<u8>,
         _sig_b: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
         
+        let mut preimage: vector<u8> = vector::empty();
+        vector::append(&mut preimage, bcs::to_bytes(&state_num));
+        vector::append(&mut preimage, bcs::to_bytes(&balance_a));
+        vector::append(&mut preimage, bcs::to_bytes(&balance_b));
+        let sighash = hash::sha2_256(preimage);
+
         // Ecdsa_k1 Hash ID 1 = Sha256 strict binding (equivalent to Bitcoin's Double-SHA)
         // Since Bitcoin 2-of-2 multisig arrays are sorted lexicographically, _sig_a and _sig_b can be swapped.
         // We dynamically attempt both cryptographic combinations.
@@ -174,7 +180,6 @@ module lightning::lightning {
         remote_balance: u64,
         revocation_hash: vector<u8>,
         commitment_sig: vector<u8>,
-        sighash: vector<u8>,
         htlc_ids: vector<u64>,
         htlc_amounts: vector<u64>,
         htlc_payment_hashes: vector<vector<u8>>,
@@ -185,6 +190,24 @@ module lightning::lightning {
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
         assert!(state_num >= channel.state_num, EInvalidStateNum);
+
+        let len = vector::length(&htlc_ids);
+        assert!(vector::length(&htlc_amounts) == len, EInvalidLength);
+        assert!(vector::length(&htlc_payment_hashes) == len, EInvalidLength);
+        assert!(vector::length(&htlc_expiries) == len, EInvalidLength);
+        assert!(vector::length(&htlc_directions) == len, EInvalidLength);
+
+        let mut preimage = vector::empty<u8>();
+        vector::append(&mut preimage, bcs::to_bytes(&state_num));
+        vector::append(&mut preimage, bcs::to_bytes(&local_balance));
+        vector::append(&mut preimage, bcs::to_bytes(&remote_balance));
+        vector::append(&mut preimage, bcs::to_bytes(&revocation_hash));
+        vector::append(&mut preimage, bcs::to_bytes(&htlc_ids));
+        vector::append(&mut preimage, bcs::to_bytes(&htlc_amounts));
+        vector::append(&mut preimage, bcs::to_bytes(&htlc_payment_hashes));
+        vector::append(&mut preimage, bcs::to_bytes(&htlc_expiries));
+        vector::append(&mut preimage, bcs::to_bytes(&htlc_directions));
+        let sighash = hash::sha2_256(preimage);
 
         // Dynamically deduce the broadcaster by evaluating which party's public key mathematically satisfies the signature.
         // In a unilateral close, the broadcaster possesses the OTHER party's signature.
@@ -206,12 +229,6 @@ module lightning::lightning {
         
         channel.close_timestamp_ms = clock::timestamp_ms(clock);
         channel.revocation_hash = revocation_hash;
-
-        let len = vector::length(&htlc_ids);
-        assert!(vector::length(&htlc_amounts) == len, EInvalidLength);
-        assert!(vector::length(&htlc_payment_hashes) == len, EInvalidLength);
-        assert!(vector::length(&htlc_expiries) == len, EInvalidLength);
-        assert!(vector::length(&htlc_directions) == len, EInvalidLength);
 
         let mut i = 0;
         while (i < len) {

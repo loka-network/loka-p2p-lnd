@@ -298,7 +298,6 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			fmt.Sprintf("%d", p.StateNum),
 			fmt.Sprintf("%d", p.LocalBalance),
 			fmt.Sprintf("%d", p.RemoteBalance),
-			bytesToNumArray(p.Sighash[:]),
 			bytesToNumArray(p.LocalSig),
 			bytesToNumArray(p.RemoteSig),
 		}
@@ -339,7 +338,6 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			fmt.Sprintf("%d", p.RemoteBalance),
 			bytesToNumArray(p.RevocationHash[:]),
 			bytesToNumArray(p.CommitmentSig),
-			bytesToNumArray(p.Sighash[:]),
 			htlcIDsStr,
 			htlcAmountsStr,
 			htlcHashesNum,
@@ -647,46 +645,44 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		realTxID := txID
-		if val, ok := s.txDigestMap.Load(txID); ok {
-			realTxID = val.(chainhash.Hash)
-			fmt.Printf("[suinotify] SubscribeEventConfirmation: successfully MAPPED pseudo-hash %s to real SUI Digest %s (Base58: %s)\n", txID.String(), realTxID.String(), base58.Encode(realTxID[:]))
-		} else {
-			// FALLBACK: Is the channel already closed by a peer?
-			if chanVal, okChan := s.pseudoHashMap.Load(txID); okChan {
-				chanID := chanVal.(chainhash.Hash)
-				isClosed, err := s.IsChannelClosed(&chanID)
-				if err == nil && isClosed {
-					fmt.Printf("[suinotify] SubscribeEventConfirmation: Peer executed Co-Op close for channel %x! Faking confirmation.\n", chanID[:8])
-					
-					height := heightHint
-					if currSeq, _, errSeq := s.GetBestEpoch(); errSeq == nil {
-						height = currSeq
-					}
-					
-					ch <- ConfirmEvent{
-						TxID:         txID,
-						AnchorHeight: height,
-					}
-					return
-				}
-			}
-			fmt.Printf("[suinotify] SubscribeEventConfirmation: NO MAP FOUND for txID %s. Using it directly (Base58: %s)\n", txID.String(), base58.Encode(txID[:]))
-		}
-
-		txBase58 := base58.Encode(realTxID[:])
-		objHex := hashToSuiHex(realTxID)
-
 		for {
 			select {
 			case <-ticker.C:
+				realTxID := txID
+				if val, ok := s.txDigestMap.Load(txID); ok {
+					realTxID = val.(chainhash.Hash)
+				} else {
+					// FALLBACK: Is the channel already closed by a peer?
+					if chanVal, okChan := s.pseudoHashMap.Load(txID); okChan {
+						chanID := chanVal.(chainhash.Hash)
+						isClosed, err := s.IsChannelClosed(&chanID)
+						if err == nil && isClosed {
+							fmt.Printf("[suinotify] SubscribeEventConfirmation: Peer/Self executed Co-Op close for channel %x! Faking confirmation.\n", chanID[:8])
+							
+							height := heightHint
+							if currSeq, _, errSeq := s.GetBestEpoch(); errSeq == nil {
+								height = currSeq
+							}
+							
+							ch <- ConfirmEvent{
+								TxID:         txID,
+								AnchorHeight: height,
+							}
+							return
+						}
+					}
+				}
+
+				txBase58 := base58.Encode(realTxID[:])
+				objHex := hashToSuiHex(realTxID)
+
 				// First, try looking up as a transaction digest.
 				result, err := s.call("sui_getTransactionBlock", []interface{}{
 					txBase58,
 					map[string]bool{"showEffects": true},
 				})
 				if err != nil {
-					fmt.Printf("[suinotify] SubscribeEventConfirmation: err from sui_getTransactionBlock for %s: %v\n", txBase58, err)
+					// Silent suppress inside loop
 				}
 				if err == nil {
 					var response struct {

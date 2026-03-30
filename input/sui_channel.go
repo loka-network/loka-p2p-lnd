@@ -18,6 +18,8 @@
 package input
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 
@@ -116,9 +118,6 @@ type ChannelClosePayload struct {
 	// RemoteBalance is the remote party's final balance.
 	RemoteBalance uint64 `json:"remote_balance"`
 
-	// Sighash is the standard 32-byte hash of the close negotiation data.
-	Sighash [32]byte `json:"sighash"`
-
 	// LocalSig is the local party's signature over the close payload.
 	LocalSig []byte `json:"local_sig"`
 
@@ -143,9 +142,6 @@ type ChannelForceClosePayload struct {
 	// CommitmentSig is the ECDSA commitment signature from the remote party.
 	CommitmentSig []byte `json:"commitment_sig"`
 
-	// Sighash is the standard 32-byte hash of the commitment data to be verified.
-	Sighash [32]byte `json:"sighash"`
-
 	// --- HTLC Components ---
 
 	// HtlcIDs corresponds to the HTLC keys evaluated natively.
@@ -162,6 +158,104 @@ type ChannelForceClosePayload struct {
 
 	// HtlcDirections dictates A->B constraints.
 	HtlcDirections []uint8 `json:"htlc_directions"`
+}
+
+// GenerateSuiPayloadHash reproduces SUI Move's `bcs::to_bytes` vector encoding mathematically,
+// ensuring Signature Payload verification aligns with SUI's runtime parameters independently from
+// the arbitrary and decoupled Bitcoin Protocol `Wire.MsgTx`.
+func GenerateSuiPayloadHash(p ChannelForceClosePayload) [32]byte {
+	var buf []byte
+
+	// Helper to write u64 as little endian (matching Move's BCS)
+	writeU64 := func(val uint64) {
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, val)
+		buf = append(buf, b...)
+	}
+
+	// Helper for ULEB128 Vector Length
+	writeUleb128 := func(val int) { // SUI arrays will virtually never exceed 127 in channel capacity mapping
+		var b []byte
+		v := uint32(val)
+		for {
+			c := byte(v & 0x7f)
+			v >>= 7
+			if v != 0 {
+				c |= 0x80
+			}
+			b = append(b, c)
+			if v == 0 {
+				break
+			}
+		}
+		buf = append(buf, b...)
+	}
+
+	// 1. vector::append(&mut preimage, bcs::to_bytes(&state_num)) -> length + u64
+	writeU64(p.StateNum)
+	
+	// 2. local_balance
+	writeU64(p.LocalBalance)
+	
+	// 3. remote_balance
+	writeU64(p.RemoteBalance)
+
+	// 4. revocation_hash (vector<u8>)
+	writeUleb128(len(p.RevocationHash))
+	buf = append(buf, p.RevocationHash[:]...)
+
+	// 5. htlc_ids (vector<u64>)
+	writeUleb128(len(p.HtlcIDs))
+	for _, id := range p.HtlcIDs {
+		writeU64(id)
+	}
+
+	// 6. htlc_amounts (vector<u64>)
+	writeUleb128(len(p.HtlcAmounts))
+	for _, amt := range p.HtlcAmounts {
+		writeU64(amt)
+	}
+
+	// 7. htlc_payment_hashes (vector<vector<u8>>)
+	writeUleb128(len(p.HtlcPaymentHashes))
+	for _, ph := range p.HtlcPaymentHashes {
+		writeUleb128(len(ph))
+		buf = append(buf, ph...)
+	}
+
+	// 8. htlc_expiries (vector<u64>)
+	writeUleb128(len(p.HtlcExpiries))
+	for _, exp := range p.HtlcExpiries {
+		writeU64(exp)
+	}
+
+	// 9. htlc_directions (vector<u8>)
+	writeUleb128(len(p.HtlcDirections))
+	for _, dir := range p.HtlcDirections {
+		buf = append(buf, dir)
+	}
+
+	// Finally, execute the SHA-256 equivalent
+	return sha256.Sum256(buf)
+}
+
+// GenerateSuiClosePayloadHash exactly replicates the bcs::to_bytes
+// serialization of lightning::close_channel arguments.
+func GenerateSuiClosePayloadHash(p ChannelClosePayload) [32]byte {
+	var buf []byte
+
+	// Helper to write a 64-bit integer
+	writeU64 := func(val uint64) {
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, val)
+		buf = append(buf, b...)
+	}
+
+	writeU64(p.StateNum)
+	writeU64(p.LocalBalance)
+	writeU64(p.RemoteBalance)
+
+	return sha256.Sum256(buf)
 }
 
 

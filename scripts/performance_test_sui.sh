@@ -131,9 +131,20 @@ BOB_PID=$!
 cleanup() {
     echo "Cleaning up LND nodes..."
     kill $ALICE_PID $BOB_PID 2>/dev/null || true
-    wait $ALICE_PID $BOB_PID 2>/dev/null || true
+    
+    # Wait locally in the background so we don't block forceful termination
+    (wait $ALICE_PID $BOB_PID 2>/dev/null || true) &
+    
     pkill -f "lncli-debug.*closechannel" || true
-    if [ -n "$SUI_PID" ]; then kill $SUI_PID 2>/dev/null || true; wait $SUI_PID 2>/dev/null || true; fi
+    if [ -n "$SUI_PID" ]; then 
+        kill $SUI_PID 2>/dev/null || true
+    fi
+
+    echo "Force killing any dangling processes..."
+    pkill -9 -f "sui start" || true
+    pkill -9 -f "lnd-debug" || true
+    pkill -9 -f "lnd " || true
+    pkill -9 -f "bench_tps" || true
 }
 trap cleanup EXIT
 

@@ -2,6 +2,7 @@ package suiwallet
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -63,7 +64,28 @@ func (s *SuiSigner) SignOutputRaw(
 	}
 
 	var digest []byte
-	if len(tx.TxIn[0].SignatureScript) > 0 {
+	// If the signDesc specifies a custom payload wrapper directly inside SignatureScript 
+	// (like during `channel.go`'s intercepted SignCommitmentTx phase), we bypass txscript
+	// entirely and generate the raw SUI Native Payload hash to guarantee parameter binding.
+	// We flag intercepted SUI parameters using a magic byte sequence `SUI_PAYLOAD:`.
+	if len(tx.TxIn[0].SignatureScript) > 12 && string(tx.TxIn[0].SignatureScript[:12]) == "SUI_PAYLOAD:" {
+		// Deserialize the internal JSON blob representation of the ChannelForceClosePayload
+		var forceClose input.ChannelForceClosePayload
+		if err := json.Unmarshal(tx.TxIn[0].SignatureScript[12:], &forceClose); err != nil {
+			return nil, fmt.Errorf("sui_signer: failed to decode intercepted payload: %w", err)
+		}
+		hash := input.GenerateSuiPayloadHash(forceClose)
+		doubleHash := sha256.Sum256(hash[:])
+		digest = doubleHash[:]
+	} else if len(tx.TxIn[0].SignatureScript) > 11 && string(tx.TxIn[0].SignatureScript[:11]) == "SUI_COOPCL:" {
+		var coopClose input.ChannelClosePayload
+		if err := json.Unmarshal(tx.TxIn[0].SignatureScript[11:], &coopClose); err != nil {
+			return nil, fmt.Errorf("sui_signer: failed to decode intercepted coop close payload: %w", err)
+		}
+		hash := input.GenerateSuiClosePayloadHash(coopClose)
+		doubleHash := sha256.Sum256(hash[:])
+		digest = doubleHash[:]
+	} else if len(tx.TxIn[0].SignatureScript) > 0 {
 		hash := sha256.Sum256(tx.TxIn[0].SignatureScript)
 		digest = hash[:]
 	} else {
