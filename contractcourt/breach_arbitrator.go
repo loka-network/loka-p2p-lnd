@@ -1271,6 +1271,7 @@ type retributionInfo struct {
 
 	revokedStateNum  uint64
 	revocationSecret []byte
+	revocationPubKey []byte
 
 	breachedOutputs []breachedOutput
 }
@@ -1426,6 +1427,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		breachHeight:     breachInfo.BreachHeight,
 		revokedStateNum:  breachInfo.RevokedStateNum,
 		revocationSecret: breachInfo.RevocationSecret,
+		revocationPubKey: breachInfo.KeyRing.RevocationKey.SerializeCompressed(),
 	}
 }
 
@@ -1466,18 +1468,10 @@ func (b *BreachArbitrator) createJusticeTx(
 	if b.cfg.IsSui {
 		// In the SUI-LND Zero-Intrusion integration, Justice Transactions are conceptually replaced by
 		// a single `claim_penalty` Move call encompassing all balances instantly, bypassing Bitcoin sweeps entirely.
-		// In this prototype the expected revocation_hash is statically sha256(32 bytes of 0x22)
-		// because of limitations evaluating native Bitcoin ECDSA revocation hierarchies in Move.
-		// Alice committed to this hash when force closing, so Bob must reveal the corresponding secret.
-		var mockSecret [32]byte
-		for i := 0; i < 32; i++ {
-			mockSecret[i] = 0x22
-		}
-
 		payload := input.ChannelPenalizePayload{
 			RevocationKey:    nil, // SUI doesn't need the composite Secp256k1 key
 			BreachStateNum:   retInfo.revokedStateNum,
-			RevocationSecret: mockSecret[:],
+			RevocationSecret: retInfo.revocationPubKey,
 		}
 
 		tx, err := input.BuildChannelPenalizeTx(retInfo.chanPoint.Hash, payload)
