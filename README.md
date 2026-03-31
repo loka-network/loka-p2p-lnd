@@ -6,43 +6,83 @@
 [![Status](https://img.shields.io/badge/status-Active-success.svg)](https://github.com/loka-network)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
 
-**Loka AI Agentic Payment P2P Lightning Node** represents a new iteration and ambitious evolution built natively on top of the established Lightning Network infrastructure. By pushing the boundaries of traditional payment channels, we are building a superior, high-throughput P2P Payment Value Network.
+## Vision & Positioning
 
-While preserving the full functionality and battle-tested architecture of the Bitcoin Lightning Network, we have fundamentally expanded its capabilities by integrating **Sui** (a DAG-BFT high-performance distributed ledger) and simultaneously laying the architectural groundwork for the upcoming zero-intrusion integration of **Setu** (the Hetu Project's dedicated payment consensus network).
+The next frontier of value transfer is not human-to-human — it is **agent-to-agent**.
+
+As autonomous AI agents begin to coordinate, negotiate, and transact on behalf of individuals and institutions, the underlying payment infrastructure must evolve to match. **Loka AI Agentic Payment P2P Lightning Node** is built for this moment: a high-throughput, multi-chain P2P payment value network designed natively for agentic economies, built on top of the **Bitcoin battle-tested Lightning Network**.
+
+We preserve everything that makes Lightning powerful. We extend it for everything that comes next.
+
+Loka AI Agentic Payment P2P Lightning Node is infrastructure for the **intent economy** — where value flows not just between wallets, but between agents, protocols, and semantic trust networks. It is the payment primitive for a world where AI agents transact autonomously, verifiably, and at scale.
+
+One routing engine. Multiple chains. Infinite agents.
 
 ---
 
 ## Project Overview
 
-Built upon the robust routing engine and HTLC state machine of the traditional Lightning Network daemon (`lnd`), this project introduces a unified, multi-chain P2P payment infrastructure:
+Loka's Lightning Node is not a fork — it is an architectural evolution. Built upon the proven routing engine and HTLC state machine of `lnd`, this project introduces a unified, multi-chain P2P payment infrastructure capable of supporting AI agent micropayments, cross-chain settlement, and programmable trust at global scale.
 
-- **Bitcoin path**: Fully preserved, connected via traditional `btcd` / `bitcoind` / `neutrino` backends
-- **Sui path**: Connected via newly engineered adapter modules (`suinotify/`, `suiwallet/`, etc.), selected seamlessly with `--chain=sui`
-- **Setu path (Upcoming)**: Extending the adapter pattern to natively support Setu, providing a dedicated scaling layer for Lightning transactions
+**Three supported chains share one unified codebase:**
 
-All supported chains share the same powerful RPC interface, pathfinding engine, HTLC Switch, and channel state machine — **one unified codebase, seamlessly routing across multiple ledger backends**.
+| Path | Backend | Status |
+|------|---------|--------|
+| **Bitcoin** | `btcd` / `bitcoind` / `neutrino` | ✅ Live |
+| **Sui** | Custom adapter modules (`suinotify`, `suiwallet`, `sui_estimator`) | ✅ Live |
+| **Setu** | Hetu Project's dedicated payment consensus layer | 🔜 Upcoming |
 
----
-
-## Advantages & Features: The P2P Payment Value Network
-
-Integrating LND with Sui creates a truly scalable, high-throughput P2P payment value network that is capable of supporting global micro-transactions with optimal efficiency:
-
-- **Instant Finality & High Throughput:** Setu's DAG-BFT consensus provides sub-second confirmation latency, ensuring that on-chain operations—like channel openings, closures, and dispute resolutions—are settled incredibly fast.
-- **Battle-Tested P2P Routing:** We preserve the complete, extensively tested Lightning Network (BOLT) logic. The P2P network, routing engine, and HTLC state machine remain fully intact.
-- **Smart Contract (Move) Enforced Lightning:** Channel primitives (open, close, HTLCs, penalties) are handled elegantly by native Sui Move smart contracts, avoiding the limitations of traditional Bitcoin scripting.
+All chains share the same RPC interface, pathfinding engine, HTLC Switch, and channel state machine. One codebase. Multiple ledger backends. Seamless routing.
 
 ---
 
-## How LND Was Modified (Implementation)
+## Why This Architecture
 
-This project modifies LND using a **Zero-Intrusion Adapter Pattern**. Rather than altering the core Lightning Network state machine, we abstracted the native Bitcoin consensus, wallet, and cryptographic interactions. This allows high-performance networks like **Sui**—and soon, **Setu**—to be dynamically plugged in beneath LND's application layer.
+### The Agentic Payment Problem
 
-1. **Chain Abstraction & Adapter Layer**: We implemented new backends satisfying the `ChainNotifier`, `WalletController`, and `Signer` interfaces specifically for Sui (and architecturally prepared for Setu). 
-2. **Sui Adapters & RPC**: We introduced the `suinotify` package for event tracking via Sui RPC, `suiwallet` for key and address management, and `sui_estimator` for network fees.
-3. **Smart Contract Primitives**: Instead of relying on Bitcoin HTLC and Commitment scripts, we route operations through `suiwallet` which constructs `BuildMoveCall` requests to execute natively deployed Move Smart Contracts (handling events like `ChannelOpen`, `ChannelClose`, `HTLCClaim`, etc.).
-4. **Transparent Type Mapping**: We seamlessly map internal Bitcoin wire types to Sui constructs. For example, a 32-byte Sui `ObjectID` seamlessly maps to LND's `wire.OutPoint.Hash`, avoiding massive refactoring of LND's core logic.
-5. **Cryptographic Compatibility**: Extended Go's SECP256K1 logic to sign a deterministic `SHA256(Blake2B(intent))` payload, effectively matching the official Mysten Sui TS SDK and ensuring 100% compatibility with Sui Devnet validation requirements.
+Traditional payment rails were designed for humans operating at human speed: seconds, minutes, hours. Autonomous AI agents operate at machine speed — thousands of micro-intents per second, each requiring programmable, verifiable, instant settlement. No existing infrastructure was built for this.
+
+Loka's P2P Lightning Node solves this by combining:
+- **Lightning's routing maturity** — battle-tested HTLC logic, BOLT-compliant P2P networking, and proven channel state machines
+- **Sui's execution performance** — DAG-BFT consensus delivering sub-second finality, Move smart contract enforceability, and high-throughput on-chain operations
+- **Setu's protocol alignment** — a dedicated payment consensus layer designed specifically for the Hetu ecosystem's trust and intent infrastructure
+
+### Core Advantages
+
+**Instant Finality & High Throughput**
+Sui's DAG-BFT consensus provides sub-second confirmation latency. Channel openings, closures, and dispute resolutions settle in near-real-time — enabling agentic payment loops that would be impossible on traditional Bitcoin L1.
+
+**Battle-Tested P2P Routing**
+The complete Lightning Network BOLT logic is fully preserved. The P2P network topology, onion-routed pathfinding engine, and HTLC state machine remain intact and unmodified — maintaining full compatibility with the broader Lightning ecosystem.
+
+**Move-Enforced Channel Primitives**
+Channel operations (open, close, HTLC claim, penalty enforcement) are handled by natively deployed Sui Move smart contracts. This eliminates the scripting limitations of Bitcoin while retaining Lightning's security model — enforceability without trusted intermediaries.
+
+**Programmable for Agents**
+The unified RPC interface exposes the full channel and routing layer to AI agents via structured APIs. Agents can open channels, route payments, and settle value autonomously — without human intervention in the payment loop.
+
+---
+
+## Technical Implementation
+
+Loka's implementation follows a **Zero-Intrusion Adapter Pattern**: rather than modifying `lnd`'s core Lightning state machine, we abstract the consensus, wallet, and cryptographic layers beneath it. High-performance chains plug in as backends; the Lightning application layer remains untouched.
+
+### 1. Chain Abstraction & Adapter Layer
+New backends implement `lnd`'s `ChainNotifier`, `WalletController`, and `Signer` interfaces for Sui — and are architecturally pre-structured for Setu integration. The adapter boundary is clean: the Lightning layer never needs to know which chain is running beneath it.
+
+### 2. Sui Adapter Modules
+- **`suinotify`** — Event tracking and block notification via Sui RPC
+- **`suiwallet`** — Key management, address derivation, and transaction construction
+- **`sui_estimator`** — Dynamic fee estimation against Sui network conditions
+
+### 3. Move Smart Contract Primitives
+All channel lifecycle events — `ChannelOpen`, `ChannelClose`, `HTLCClaim`, penalty enforcement — are routed through `suiwallet`, which constructs `BuildMoveCall` requests to on-chain Move contracts. No Bitcoin HTLC scripts. Full programmability.
+
+### 4. Transparent Type Mapping
+Internal Bitcoin wire types map seamlessly to Sui constructs. A 32-byte Sui `ObjectID` maps directly to `wire.OutPoint.Hash` — enabling Sui integration without refactoring LND's core wire protocol or forcing type-system conflicts across the codebase.
+
+### 5. Cryptographic Compatibility
+Extended Go's SECP256K1 signing logic to produce a deterministic `SHA256(Blake2B(intent))` payload — matching the Mysten Sui TypeScript SDK specification precisely and ensuring 100% compatibility with Sui Devnet validation requirements.
 
 ---
 
@@ -83,7 +123,6 @@ Sui adapters reuse Bitcoin/LND types internally, performing semantic translation
 ---
 
 ## Core Features
-
 - Channel open and close (cooperative / force-close / breach penalty)
 - Full channel state machine management
 - Multi-hop HTLC payment forwarding (including timeout and claim)
@@ -97,7 +136,6 @@ Sui adapters reuse Bitcoin/LND types internally, performing semantic translation
 ---
 
 ## Lightning Network Specification Compliance
-
 `lnd` fully implements the following BOLT specifications:
 
 - [x] BOLT 1: Base Protocol
@@ -112,6 +150,16 @@ Sui adapters reuse Bitcoin/LND types internally, performing semantic translation
 - [x] BOLT 11: Invoice Protocol for Lightning Payments
 
 ---
+
+## Setu Integration (Upcoming)
+
+Setu — the Hetu Project's dedicated payment consensus network — extends this architecture further. Where Sui provides high-performance general execution, Setu is purpose-built for intent-carrying payment flows: each transaction can carry semantic metadata, trust attestations, and IFC-compatible value signals natively at the protocol layer.
+
+The adapter pattern is already in place. Setu integration requires no changes to the Lightning core — only a new backend satisfying the same three interfaces. This is the architectural bet: the Lightning routing layer becomes a universal payment router, and the consensus layer becomes swappable.
+
+---
+
+
 
 ## Build & Run
 

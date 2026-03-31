@@ -90,6 +90,7 @@ coverage.txt
 sui-contracts/**/build/
 sui-contracts/**/Move.lock
 sui-contracts/lightning/build/
+sui-contracts/**/deploy_state_*.json
 
 .alice_lnd.log
 .bob_lnd.log
