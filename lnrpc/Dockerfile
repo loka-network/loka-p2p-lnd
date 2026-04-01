@@ -17,6 +17,7 @@ ENV PROTOC_GEN_GO_GRPC_VERSION="v1.1.0"
 ENV FALAFEL_VERSION="v0.9.2"
 ENV GOCACHE=/tmp/build/.cache
 ENV GOMODCACHE=/tmp/build/.modcache
+ENV GOPROXY="https://goproxy.cn,direct"
 
 RUN cd /tmp \
   && mkdir -p /tmp/build/.cache \
