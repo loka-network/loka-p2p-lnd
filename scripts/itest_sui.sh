@@ -187,7 +187,9 @@ done
 # 3. Requesting coins for Alice on Sui Devnet
 echo "[3/7] Generating address and requesting Sui Faucet for Alice..."
 ALICE_ADDR=$($ALICE_CLI newaddress p2wkh | jq -r '.address')
+ALICE_PUBKEY=$($ALICE_CLI getinfo | jq -r '.identity_pubkey')
 echo "Alice Address: $ALICE_ADDR"
+echo "Alice Pubkey: $ALICE_PUBKEY"
 
 # Assuming local faucet is running. If interacting with public testnet, we'd use 'sui client faucet'
 if [ -n "$FAUCET_URL" ]; then
@@ -435,4 +437,22 @@ echo "Verifying Bob's Wallet Balance. He should have confiscated all of Alice's 
 $BOB_CLI walletbalance
 
 echo "=== Sui LND Integration Test SUCCESS ==="
+
+echo "=================================================================================="
+echo "✅ Test workflow completed! Nodes are now in [Suspended Mode], waiting for external RPC / REST requests."
+echo "You can import lnrpc/lightning.swagger.json into Postman,"
+echo "and interact with the local nodes below (remember to disable SSL certificate verification in Postman):"
+echo ""
+echo " -> Alice REST Address: https://127.0.0.1:$ALICE_REST"
+echo " -> Alice Macaroon (Hex):"
+echo "    \$(xxd -ps -u -c 1000 \$ALICE_DIR/data/chain/sui/devnet/admin.macaroon)"
+echo ""
+echo " -> Bob REST Address:   https://127.0.0.1:$BOB_REST"
+echo " -> Bob Macaroon (Hex):"
+echo "    \$(xxd -ps -u -c 1000 \$BOB_DIR/data/chain/sui/devnet/admin.macaroon)"
+echo ""
+echo "Once you are done testing, press [Enter] in this terminal to terminate nodes and exit..."
+echo "=================================================================================="
+read -p ""
+
 exit 0
