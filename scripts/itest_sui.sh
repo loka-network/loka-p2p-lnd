@@ -124,6 +124,8 @@ $LND_BIN \
     --suinode.devnet \
     --suinode.rpchost="$SUI_RPC_HOST" \
     --suinode.packageid="$PACKAGE_ID" \
+    --protocol.wumbo-channels \
+    --protocol.no-anchors \
     --noseedbackup \
     > "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
@@ -138,6 +140,8 @@ $LND_BIN \
     --suinode.devnet \
     --suinode.rpchost="$SUI_RPC_HOST" \
     --suinode.packageid="$PACKAGE_ID" \
+    --protocol.wumbo-channels \
+    --protocol.no-anchors \
     --noseedbackup \
     > "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!
@@ -188,8 +192,8 @@ done
 echo "[3/7] Generating address and requesting Sui Faucet for Alice..."
 ALICE_ADDR=$($ALICE_CLI newaddress p2wkh | jq -r '.address')
 ALICE_PUBKEY=$($ALICE_CLI getinfo | jq -r '.identity_pubkey')
-echo "Alice Address: $ALICE_ADDR"
 echo "Alice Pubkey: $ALICE_PUBKEY"
+echo "Alice Address: $ALICE_ADDR"
 
 # Assuming local faucet is running. If interacting with public testnet, we'd use 'sui client faucet'
 if [ -n "$FAUCET_URL" ]; then
@@ -382,6 +386,8 @@ $LND_BIN \
     --suinode.devnet \
     --suinode.rpchost="$SUI_RPC_HOST" \
     --suinode.packageid="$PACKAGE_ID" \
+    --protocol.wumbo-channels \
+    --protocol.no-anchors \
     --noseedbackup \
     >> "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
@@ -409,6 +415,8 @@ $LND_BIN \
     --suinode.devnet \
     --suinode.rpchost="$SUI_RPC_HOST" \
     --suinode.packageid="$PACKAGE_ID" \
+    --protocol.wumbo-channels \
+    --protocol.no-anchors \
     --noseedbackup \
     >> "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!

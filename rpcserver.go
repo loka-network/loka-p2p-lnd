@@ -3400,9 +3400,29 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	}
 
 	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
+	
+	chainName := BitcoinChainName
+	if r.cfg.SuiMode != nil && r.cfg.SuiMode.Active {
+		chainName = SuiChainName
+		if r.cfg.SuiMode != nil {
+			switch {
+			case r.cfg.SuiMode.MainNet:
+				network = "mainnet"
+			case r.cfg.SuiMode.TestNet:
+				network = "testnet"
+			case r.cfg.SuiMode.SimNet:
+				network = "simnet"
+			case r.cfg.SuiMode.DevNet:
+				network = "devnet"
+			default:
+				network = "localnet"
+			}
+		}
+	}
+
 	activeChains := []*lnrpc.Chain{
 		{
-			Chain:   BitcoinChainName,
+			Chain:   chainName,
 			Network: network,
 		},
 	}
@@ -3436,6 +3456,9 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	// TODO(roasbeef): add synced height n stuff
 
 	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
+	if chainName == SuiChainName {
+		isTestNet = network != "mainnet"
+	}
 	nodeColor := graphdb.EncodeHexColor(nodeAnn.RGBColor)
 	version := build.Version() + " commit=" + build.Commit
 

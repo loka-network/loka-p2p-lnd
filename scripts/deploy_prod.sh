@@ -24,8 +24,24 @@ if [ -f "$DEPLOY_STATE_FILE" ]; then
     echo "UpgradeCap ID:       $UPGRADE_CAP"
     echo "Executing upgrade..."
     
-    # Execute the upgrade command
-    UPGRADE_JSON=$(sui client upgrade --upgrade-capability "$UPGRADE_CAP" --gas-budget 100000000 --json "$MOVE_PKG")
+    if [ "$NETWORK" == "devnet" ] || [ "$NETWORK" == "localnet" ]; then
+        echo "Error: The upgrade command is not safely supported for $NETWORK because test-publish does not generate strict Move.lock bindings."
+        echo "Please delete $DEPLOY_STATE_FILE and re-run to perform a fresh deployment."
+        exit 1
+    fi
+    
+    # Execute the upgrade command for stable networks
+    set +e
+    UPGRADE_JSON=$(sui client upgrade --build-env "$NETWORK" --upgrade-capability "$UPGRADE_CAP" --gas-budget 100000000 --json "$MOVE_PKG" 2> /tmp/sui_err.log)
+    if [ $? -ne 0 ]; then
+        echo "❌ Upgrade failed!"
+        cat /tmp/sui_err.log
+        echo "$UPGRADE_JSON"
+        rm -f /tmp/sui_err.log
+        exit 1
+    fi
+    set -e
+    rm -f /tmp/sui_err.log
     
     # Extract the newly published package ID
     NEW_PACKAGE_ID=$(echo "$UPGRADE_JSON" | jq -r '.objectChanges[]? | select(.type == "published") | .packageId')
@@ -50,8 +66,23 @@ EOF
 else
     echo "No existing deployment found. Initiating first-time publish..."
     
-    # Publish the package
-    PUBLISH_JSON=$(sui client publish --gas-budget 100000000 --json "$MOVE_PKG")
+    # Publish the package conditionally based on network volatility
+    set +e
+    if [ "$NETWORK" == "devnet" ] || [ "$NETWORK" == "localnet" ]; then
+        echo "Using test-publish for $NETWORK to gracefully bypass strict TOML environment checks..."
+        PUBLISH_JSON=$(sui client test-publish --pubfile-path "/tmp/sui_pub_$RANDOM.json" --build-env "$NETWORK" --gas-budget 100000000 --json "$MOVE_PKG" 2> /tmp/sui_err.log)
+    else
+        PUBLISH_JSON=$(sui client publish --gas-budget 100000000 --json "$MOVE_PKG" 2> /tmp/sui_err.log)
+    fi
+    if [ $? -ne 0 ]; then
+        echo "❌ Deployment failed!"
+        cat /tmp/sui_err.log
+        echo "$PUBLISH_JSON"
+        rm -f /tmp/sui_err.log
+        exit 1
+    fi
+    set -e
+    rm -f /tmp/sui_err.log
     
     # Extract Package ID
     PACKAGE_ID=$(echo "$PUBLISH_JSON" | jq -r '.objectChanges[]? | select(.type == "published") | .packageId')

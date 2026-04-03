@@ -33,14 +33,16 @@ lnd --chain=sui \
     --externalip=198.51.100.1:9735 \
     --alias="Loka-Seed-EastUS" \
     --color="#1DA1F2" \
-    --protocol.wumbo-channels=true \
+    --protocol.wumbo-channels \
+    --protocol.no-anchors \
     --lnddir=~/.lnd-seed
 ```
 
 **Key Parameters:**
 - `--listen=0.0.0.0:9735`: Binds the node to listen on port 9735 across all network interfaces.
 - `--externalip=<Public_IP>`: **Crucial for Hubs!** This encodes the node's public IP into the global Gossip network broadcasts. Without it, other nodes will hear about the seed's existence but won't know how to route TCP traffic to it.
-- `--protocol.wumbo-channels=true`: **Critical for SUI!** Because SUI's base unit (MIST) is much smaller than Bitcoin's Satoshi in practical value, the default Lightning network cap of ~16M base units translates to pennies in SUI. Enabling the Wumbo toggle overrides the protocol's channel size limit, allowing for arbitrarily large liquidity channels.
+- `--protocol.wumbo-channels`: **Critical for SUI!** Because SUI's base unit (MIST) is much smaller than Bitcoin's Satoshi in practical value, the default Lightning network cap of ~16M base units translates to pennies in SUI. Enabling the Wumbo toggle overrides the protocol's channel size limit, allowing for arbitrarily large liquidity channels.
+- `--protocol.no-anchors`: **Highly Recommended for SUI!** Disables Bitcoin-specific CPFP (Child Pays For Parent) anchor dust outputs. Because Sui features deterministic fast finality and no mempool congestion, these 330-MIST dust outputs are completely unnecessary. Disabling them prevents the LND Sweeper subsystem from generating endless error logs trying to process `suiwallet` addresses.
 - `--alias` and `--color`: Branding elements visible on network explorers.
 
 ---
