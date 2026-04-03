@@ -33,13 +33,17 @@ Ensure the Loka binaries (`lnd` and `lncli`) are compiled and available in your 
 To initialize the node natively on the Sui blockchain, you must launch `lnd` with the Sui chain backend flags. By default, you should connect to the SUI Testnet or Devnet.
 
 ```bash
-lnd --chain=sui \
-    --sui.env=testnet \
-    --sui.rpc=https://fullnode.testnet.sui.io:443 \
-    --rpclisten=localhost:10009 \
-    --listen=localhost:9735 \
-    --restlisten=localhost:8080 \
-    --lnddir=~/.lnd-agent
+nohup lnd --suinode.active \
+    --suinode.testnet \
+    --suinode.rpchost=https://fullnode.testnet.sui.io:443 \
+    --suinode.packageid="<YOUR_SUI_PACKAGE_ID>" \
+    --listen=0.0.0.0:9735 \
+    --rpclisten=127.0.0.1:10009 \
+    --restlisten=127.0.0.1:8081 \
+    --protocol.wumbo-channels \
+    --protocol.no-anchors \
+    --lnddir=~/.lnd-agent \
+    > ~/.lnd-agent/lnd.log 2>&1 &
 ```
 
 > **Agent Tip:** If running multiple agents on the same machine, ensure `--rpclisten`, `--listen`, `--restlisten`, and `--lnddir` are configured to unique ports/paths for each instance. Run this process in the background.
@@ -52,7 +56,7 @@ Before transacting, the node must generate a wallet and acquire native Sui coins
 
 1. **Create the Wallet** (Only required on first boot):
    ```bash
-   lncli --lnddir=~/.lnd-agent create
+   lncli --lnddir=~/.lnd-agent --rpcserver=127.0.0.1:10009 --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon create
    ```
    *(You will be prompted to enter a wallet password. You must script the standard input or use the `--wallet-password` flag via a temp file for full autonomy).*
 

@@ -26,16 +26,20 @@ Whether launching `seed1` or `seed2`, the golden rule for a seed node is: **It m
 Assuming we deploy our first server in US East (IP: `198.51.100.1`):
 
 ```bash
-lnd --chain=sui \
-    --sui.env=testnet \
-    --sui.rpc=https://fullnode.testnet.sui.io:443 \
+nohup lnd --suinode.active \
+    --suinode.testnet \
+    --suinode.rpchost=https://fullnode.testnet.sui.io:443 \
+    --suinode.packageid="<YOUR_SUI_PACKAGE_ID>" \
     --listen=0.0.0.0:9735 \
+    --rpclisten=127.0.0.1:10009 \
+    --restlisten=127.0.0.1:8081 \
     --externalip=198.51.100.1:9735 \
     --alias="Loka-Seed-EastUS" \
     --color="#1DA1F2" \
     --protocol.wumbo-channels \
     --protocol.no-anchors \
-    --lnddir=~/.lnd-seed
+    --lnddir=~/.lnd-seed \
+    > ~/.lnd-seed/lnd.log 2>&1 &
 ```
 
 **Key Parameters:**
@@ -44,6 +48,18 @@ lnd --chain=sui \
 - `--protocol.wumbo-channels`: **Critical for SUI!** Because SUI's base unit (MIST) is much smaller than Bitcoin's Satoshi in practical value, the default Lightning network cap of ~16M base units translates to pennies in SUI. Enabling the Wumbo toggle overrides the protocol's channel size limit, allowing for arbitrarily large liquidity channels.
 - `--protocol.no-anchors`: **Highly Recommended for SUI!** Disables Bitcoin-specific CPFP (Child Pays For Parent) anchor dust outputs. Because Sui features deterministic fast finality and no mempool congestion, these 330-MIST dust outputs are completely unnecessary. Disabling them prevents the LND Sweeper subsystem from generating endless error logs trying to process `suiwallet` addresses.
 - `--alias` and `--color`: Branding elements visible on network explorers.
+
+### 2.5 Initializing the Node Wallet
+
+Whenever LND is started for the very first time on a fresh install, the daemon will halt in a "waiting for wallet encryption password" state. You cannot interact with it until the wallet is created.
+
+Open a new terminal session and run:
+```bash
+lncli --lnddir=~/.lnd-seed --rpcserver=127.0.0.1:10009 --macaroonpath=~/.lnd-seed/data/chain/sui/testnet/admin.macaroon create
+```
+Follow the interactive prompts to assign a strong wallet password and (optionally) back up your 24-word cryptographic seed phrase. 
+
+**Note for reboots:** If your LND node ever crashes or restarts, it will boot into a locked state to protect your funds locally. You will need to manually run `lncli unlock` and type in your password to resume full node operations.
 
 ---
 

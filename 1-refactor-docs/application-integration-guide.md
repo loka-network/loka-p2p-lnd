@@ -24,7 +24,7 @@ For AI Agents or backend servers with sufficient compute, you run a full `lnd` n
 
 - **Agent Frameworks**: If you are instructing an AI Agent (e.g., AutoGPT) to operate the node autonomously via CLI, explicitly refer the Agent to the provided skill module: [`SKILL/loka-agentic-payment/SKILL.md`](../../SKILL/loka-agentic-payment/SKILL.md).
 - **Basic CLI Flow**:
-  1. Boot node: `lnd --chain=sui ...`
+  1. Boot node: `lnd --suinode.active ...`
   2. Connect to a network Seed: `lncli connect <Pubkey>@<Host>`
   3. Create channel: `lncli openchannel --node_key=... --local_amt=...`
   4. Create invoice: `lncli addinvoice --amt=100` -> returns payment request.
