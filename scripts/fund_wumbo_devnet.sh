@@ -33,6 +33,8 @@ if [ "$1" == "devnet" ] || [ "$1" == "testnet" ]; then
     ENV=$1
     INPUT_ADDRESS=$2
     TIMES=${3:-5}
+    echo "🔄 Switching Sui client environment to: $ENV"
+    sui client switch --env "$ENV" 2>/dev/null || true
 else
     ENV=$(sui client active-env 2>/dev/null || echo "devnet")
     INPUT_ADDRESS=$1
@@ -49,38 +51,20 @@ if [ -z "$ADDRESS" ]; then
     exit 1
 fi
 
-# Route to correct Faucet
-if [ "$ENV" == "testnet" ]; then
-    FAUCET_URL="https://faucet.testnet.sui.io/gas"
-else
-    FAUCET_URL="https://faucet.devnet.sui.io/gas"
-fi
-
 echo "======================================================"
 echo "🌊 Starting ($ENV) Wumbo Faucet for: $ADDRESS"
 echo "Fetching $TIMES batches of SUI..."
 echo "======================================================"
 
 for ((i=1; i<=TIMES; i++)); do
-    echo "⏳ [Batch $i/$TIMES] Requesting funds..."
+    echo "⏳ [Batch $i/$TIMES] Requesting funds via native CLI..."
     
-    # Use direct curl to bypass sui client constraints
-    RESPONSE=$(curl --silent --location --request POST "$FAUCET_URL" \
-    --header 'Content-Type: application/json' \
-    --data-raw "{
-        \"FixedAmountRequest\": {
-            \"recipient\": \"$ADDRESS\"
-        }
-    }")
-
-    # Check if the response contains "error":null (meaning success)
-    if echo "$RESPONSE" | grep -q '"error":null'; then
+    # Use native CLI to automatically handle api-versioning/V2 paths
+    if sui client faucet --address "$ADDRESS"; then
         echo "✅ Success! Sent to address."
-    elif echo "$RESPONSE" | grep -q 'TooManyRequests'; then
-        echo "⚠️ Rate Limited! (Sui faucet is temporarily blocking your IP, waiting longer...)"
-        sleep 20
     else
-        echo "❌ Failed to fetch: $RESPONSE"
+        echo "⚠️ Rate Limited or error occurred. (Waiting longer...)"
+        sleep 20
     fi
 
     # Crucial sleep to bypass strict anti-spam rate limiting on Sui nodes
