@@ -259,6 +259,8 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 
 	var functionName string
 	var args []interface{}
+	var explicitGasCoin *string
+	gasBudget := uint64(100000000) // 0.1 SUI
 
 	switch envelope.Type {
 	case input.SuiCallChannelOpen: // 0
@@ -273,11 +275,31 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
 		}
 		
+		var gasCoin *SuiCoin
+		
+		// Partition coins: reserve one for gas
+		var availableFundingCoins []SuiCoin
+		for _, coin := range coins {
+			if gasCoin == nil && coin.Balance >= gasBudget {
+				c := coin
+				gasCoin = &c
+				continue
+			}
+			availableFundingCoins = append(availableFundingCoins, coin)
+		}
+
+		if gasCoin == nil {
+			return nil, fmt.Errorf("no coin found with enough balance for gas budget (0.1 SUI)")
+		}
+		
+		gasHex := hashToSuiHex(gasCoin.ObjectID)
+		explicitGasCoin = &gasHex
+
 		var fundingCoinObjIDs []string
 		accumulated := uint64(0)
-		required := p.LocalBalance + 10000000 // 0.01 SUI buffer for gas
+		required := p.LocalBalance
 
-		for _, coin := range coins {
+		for _, coin := range availableFundingCoins {
 			fundingCoinObjIDs = append(fundingCoinObjIDs, hashToSuiHex(coin.ObjectID))
 			accumulated += coin.Balance
 			if accumulated >= required {
@@ -286,7 +308,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		}
 
 		if accumulated < required {
-			return nil, fmt.Errorf("insufficient SUI balance: have %d MIST, need %d MIST", accumulated, required)
+			return nil, fmt.Errorf("insufficient SUI balance: have %d MIST, need %d MIST for channel (plus 1 gas coin reserved)", accumulated, required)
 		}
 
 		args = []interface{}{
@@ -412,18 +434,25 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		return nil, fmt.Errorf("unsupported Sui Call Type: %v", envelope.Type)
 	}
 
+	var gasParam interface{}
+	if explicitGasCoin != nil {
+		gasParam = *explicitGasCoin
+	} else {
+		gasParam = nil
+	}
+
 	callParams := []interface{}{
 		sender,
 		s.packageID,
 		"lightning",
 		functionName,
-		[]string{},
-		args,
-		nil,
-		"100000000",
+		[]string{},    // type arguments
+		args,          // function arguments
+		gasParam,      // optional explicit gas coin
+		fmt.Sprintf("%d", gasBudget),   // gasBudget - 0.1 SUI
 	}
 
-	result, err := s.call("unsafe_moveCall", callParams)
+	result, err := s.call("suix_moveCall", callParams)
 	if err != nil {
 		return nil, fmt.Errorf("unsafe_moveCall failed: %w", err)
 	}
