@@ -452,7 +452,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		fmt.Sprintf("%d", gasBudget),   // gasBudget - 0.1 SUI
 	}
 
-	result, err := s.call("suix_moveCall", callParams)
+	result, err := s.call("unsafe_moveCall", callParams)
 	if err != nil {
 		return nil, fmt.Errorf("unsafe_moveCall failed: %w", err)
 	}

@@ -211,8 +211,8 @@ func (w *Wallet) ListUnspentWitness(minConfs, maxConfs int32, accountFilter stri
 				Hash:  c.ObjectID,
 				Index: 0,
 			},
-			// Placeholder script.
-			PkScript: []byte{0x51},
+			// Fake P2WPKH script so txscript.ExtractPkScriptAddrs doesn't fail.
+			PkScript: append([]byte{0x00, 0x14}, bytes.Repeat([]byte{0x00}, 20)...),
 		})
 	}
 
