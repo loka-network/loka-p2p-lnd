@@ -19,27 +19,24 @@ import (
 )
 
 // suiHexToHash converts a Sui hex string (e.g. "0xabcd...") to a chainhash.Hash
-// WITHOUT byte reversal. chainhash.NewHashFromStr() reverses bytes (Bitcoin
-// convention), but Sui ObjectIDs/addresses are plain big-endian hex, so we
-// must decode them directly.
+// WITH byte reversal. LND native subsystems implicitly reverse strings via
+// chainhash.NewHashFromStr when parsing channels. So everything arriving from
+// SUI must be reversed to properly match LND's internal state.
 func suiHexToHash(hexStr string) (chainhash.Hash, error) {
-	var h chainhash.Hash
 	clean := strings.TrimPrefix(hexStr, "0x")
-	b, err := hex.DecodeString(clean)
+	// If it's odd length or somehow shorter, we pad it briefly though a 32-byte hash
+	// in hex is robustly 64 chars.
+	// NewHashFromStr handles the byte-reversal inherently.
+	h, err := chainhash.NewHashFromStr(clean)
 	if err != nil {
-		return h, err
+		return chainhash.Hash{}, err
 	}
-	if len(b) != 32 {
-		return h, fmt.Errorf("suiHexToHash: expected 32 bytes, got %d", len(b))
-	}
-	copy(h[:], b)
-	return h, nil
+	return *h, nil
 }
 
-// hashToSuiHex converts a chainhash.Hash (stored in natural big-endian byte
-// order by suiHexToHash) to a Sui-style hex string with "0x" prefix.
+// hashToSuiHex converts LND's internal reversed chainhash.Hash back to a Sui string.
 func hashToSuiHex(h chainhash.Hash) string {
-	return "0x" + hex.EncodeToString(h[:])
+	return "0x" + h.String()
 }
 
 // rpcRequest represents a standard JSON-RPC 2.0 request.
