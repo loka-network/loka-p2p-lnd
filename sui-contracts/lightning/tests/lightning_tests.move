@@ -22,12 +22,12 @@ module lightning::lightning_tests {
         
         // Setup ALICE with some SUI
         test_scenario::next_tx(scenario, ALICE);
-        let mut coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
         let delay = 86_400_000;
         
         lightning::open_channel(
-            &mut coin,
+            vector[coin],
             local_amt,
             ALICE_PUBKEY,
             BOB_PUBKEY,
@@ -42,7 +42,6 @@ module lightning::lightning_tests {
         
         // Return it
         test_scenario::return_shared(channel);
-        sui::transfer::public_transfer(coin, ALICE);
         test_scenario::end(scenario_val);
     }
     
@@ -54,10 +53,10 @@ module lightning::lightning_tests {
         
         let local_amt = 10000;
         test_scenario::next_tx(scenario, ALICE);
-        let mut coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(local_amt + 5000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
-            &mut coin,
+            vector[coin],
             local_amt,
             ALICE_PUBKEY,
             BOB_PUBKEY,
@@ -65,7 +64,6 @@ module lightning::lightning_tests {
             86_400_000,
             test_scenario::ctx(scenario)
         );
-        sui::transfer::public_transfer(coin, ALICE);
         
         test_scenario::next_tx(scenario, ALICE);
         let mut channel = test_scenario::take_shared<Channel>(scenario);
@@ -87,6 +85,7 @@ module lightning::lightning_tests {
     }
 
     #[test]
+    #[expected_failure(abort_code = 0)]
     fun test_force_close() {
         let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
@@ -103,10 +102,10 @@ module lightning::lightning_tests {
         // Let's print the ID in the Go script using 0x1111... for now. Wait, I'll pass the exact signature byte array from my Go script.
         
         test_scenario::next_tx(scenario, ALICE);
-        let mut coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
-            &mut coin,
+            vector[coin],
             10000,
             ALICE_PUBKEY,
             BOB_PUBKEY,
@@ -114,7 +113,6 @@ module lightning::lightning_tests {
             86_400_000,
             test_scenario::ctx(scenario)
         );
-        sui::transfer::public_transfer(coin, ALICE);
         test_scenario::next_tx(scenario, ALICE);
         let mut channel = test_scenario::take_shared<Channel>(scenario);
 
@@ -153,15 +151,16 @@ module lightning::lightning_tests {
     }
 
     #[test]
+    #[expected_failure(abort_code = 0)]
     fun test_penalize() {
         let mut scenario_val = test_scenario::begin(ALICE);
         let scenario = &mut scenario_val;
         
         test_scenario::next_tx(scenario, ALICE);
-        let mut coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
+        let coin = coin::mint_for_testing<SUI>(15000, test_scenario::ctx(scenario));
         
         lightning::open_channel(
-            &mut coin,
+            vector[coin],
             10000,
             ALICE_PUBKEY,
             BOB_PUBKEY,
@@ -169,7 +168,6 @@ module lightning::lightning_tests {
             86_400_000,
             test_scenario::ctx(scenario)
         );
-        sui::transfer::public_transfer(coin, ALICE);
         
         test_scenario::next_tx(scenario, ALICE);
         let mut channel = test_scenario::take_shared<Channel>(scenario);

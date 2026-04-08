@@ -73,7 +73,7 @@ module lightning::lightning {
     // --- Entry Functions ---
 
     public fun open_channel(
-        funding_coin: &mut Coin<SUI>,
+        mut funding_coins: vector<Coin<SUI>>,
         amount: u64,
         pubkey_a: vector<u8>,
         pubkey_b: vector<u8>,
@@ -82,7 +82,17 @@ module lightning::lightning {
         ctx: &mut TxContext
     ) {
         let party_a = tx_context::sender(ctx);
-        let split_coin = coin::split(funding_coin, amount, ctx);
+        
+        let mut primary_coin = vector::pop_back(&mut funding_coins);
+        while (!vector::is_empty(&funding_coins)) {
+            let coin_to_merge = vector::pop_back(&mut funding_coins);
+            coin::join(&mut primary_coin, coin_to_merge);
+        };
+        vector::destroy_empty(funding_coins);
+
+        let split_coin = coin::split(&mut primary_coin, amount, ctx);
+        transfer::public_transfer(primary_coin, party_a);
+        
         let capacity = amount;
         
         // Enforce the physical minimum Timelock on-chain unconditionally (24 Hours in Production)

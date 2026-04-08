@@ -275,10 +275,25 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if err != nil || len(coins) == 0 {
 			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
 		}
-		fundingCoinObjID := hashToSuiHex(coins[0].ObjectID)
+		
+		var fundingCoinObjIDs []string
+		accumulated := uint64(0)
+		required := p.LocalBalance + 10000000 // 0.01 SUI buffer for gas
+
+		for _, coin := range coins {
+			fundingCoinObjIDs = append(fundingCoinObjIDs, hashToSuiHex(coin.ObjectID))
+			accumulated += coin.Balance
+			if accumulated >= required {
+				break
+			}
+		}
+
+		if accumulated < required {
+			return nil, fmt.Errorf("insufficient SUI balance: have %d MIST, need %d MIST", accumulated, required)
+		}
 
 		args = []interface{}{
-			fundingCoinObjID,
+			fundingCoinObjIDs,
 			fmt.Sprintf("%d", p.LocalBalance),
 			hexToNumArray(p.LocalKey),
 			hexToNumArray(p.RemoteKey),

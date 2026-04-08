@@ -235,8 +235,15 @@ echo "Double checking gas object propagation..."
 sleep 10
 
 # 5. Opening Channel
-echo "[5/7] Alice opening channel to Bob..."
-$ALICE_CLI openchannel --node_key=$BOB_PUBKEY --local_amt=10000000
+TOTAL_BAL=$($ALICE_CLI walletbalance | jq -r '.confirmed_balance')
+# Since Alice received 2 identical faucet drops, her total balance is 2x. 
+# Requesting 75% (1.5x) ensures it strictly forces the Knapsack to merge multiple coins.
+LOCAL_AMT=$(( TOTAL_BAL * 3 / 4 ))
+# To allow Bob to send payments backwards, his balance must exceed the 1% channel reserve.
+# We push 2% of the total channel capacity to Bob dynamically.
+PUSH_AMT=$(( LOCAL_AMT / 50 ))
+echo "[5/7] Alice opening channel to Bob (Dynamic multi-coin merge: $LOCAL_AMT MIST, Push: $PUSH_AMT MIST)..."
+$ALICE_CLI openchannel --node_key=$BOB_PUBKEY --local_amt=$LOCAL_AMT --push_amt=$PUSH_AMT
 
 echo "Waiting for channel to open..."
 sleep 10
