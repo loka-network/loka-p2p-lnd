@@ -204,7 +204,8 @@ func (w *Wallet) ListUnspentWitness(minConfs, maxConfs int32, accountFilter stri
 	var utxos []*lnwallet.Utxo
 	for _, c := range coins {
 		utxos = append(utxos, &lnwallet.Utxo{
-			AddressType: lnwallet.UnknownAddressType,
+			// We spoof this as WitnessPubKey so LND's MarshalUtxos doesn't drop it.
+			AddressType: lnwallet.WitnessPubKey,
 			Value:       btcutil.Amount(c.Balance),
 			OutPoint: wire.OutPoint{
 				Hash:  c.ObjectID,
