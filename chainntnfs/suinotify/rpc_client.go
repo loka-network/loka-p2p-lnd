@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -269,15 +270,22 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
 			return nil, err
 		}
-		
+
 		coins, err := s.GetCoins(sender)
 		if err != nil || len(coins) == 0 {
 			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
 		}
-		
+
 		var gasCoin *SuiCoin
-		
-		// Partition coins: reserve one for gas
+		gasBudget := uint64(100000000) // 0.1 SUI
+
+		// Sort coins descending so we can pop the smallest valid one for gas,
+		// or just sort ascending and pick the first one >= gasBudget.
+		sort.Slice(coins, func(i, j int) bool {
+			return coins[i].Balance < coins[j].Balance // Ascending order
+		})
+
+		// Partition coins: reserve the SMALLEST eligible coin for gas
 		var availableFundingCoins []SuiCoin
 		for _, coin := range coins {
 			if gasCoin == nil && coin.Balance >= gasBudget {
@@ -291,7 +299,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		if gasCoin == nil {
 			return nil, fmt.Errorf("no coin found with enough balance for gas budget (0.1 SUI)")
 		}
-		
+
 		gasHex := hashToSuiHex(gasCoin.ObjectID)
 		explicitGasCoin = &gasHex
 
@@ -316,7 +324,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			fmt.Sprintf("%d", p.LocalBalance),
 			hexToNumArray(p.LocalKey),
 			hexToNumArray(p.RemoteKey),
-			sender, 
+			sender,
 			fmt.Sprintf("%d", p.CSVDelay),
 		}
 
@@ -343,7 +351,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			return nil, err
 		}
 		channelObjID := hashToSuiHex(*channelID)
-		
+
 		htlcIDsStr := make([]string, len(p.HtlcIDs))
 		for i, v := range p.HtlcIDs {
 			htlcIDsStr[i] = fmt.Sprintf("%d", v)
@@ -446,10 +454,10 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		s.packageID,
 		"lightning",
 		functionName,
-		[]string{},    // type arguments
-		args,          // function arguments
-		gasParam,      // optional explicit gas coin
-		fmt.Sprintf("%d", gasBudget),   // gasBudget - 0.1 SUI
+		[]string{},                   // type arguments
+		args,                         // function arguments
+		gasParam,                     // optional explicit gas coin
+		fmt.Sprintf("%d", gasBudget), // gasBudget - 0.1 SUI
 	}
 
 	result, err := s.call("unsafe_moveCall", callParams)
@@ -590,7 +598,7 @@ func (s *SuiRPCClient) ExecuteMoveCall(txBytes []byte, signature []byte) (chainh
 	// For the integration test, we don't have a native Sui Go BCS serializer.
 	// We intercept the JSON payload and simulate a successful broadcast.
 	fmt.Printf("[SUI RPC MOCK] Simulated broadcast of txBytes payload length: %d\n", len(txBytes))
-	
+
 	// Create a stable dummy digest
 	var digest chainhash.Hash
 	digest[0] = 0xfa
@@ -699,12 +707,12 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 						isClosed, err := s.IsChannelClosed(&chanID)
 						if err == nil && isClosed {
 							fmt.Printf("[suinotify] SubscribeEventConfirmation: Peer/Self executed Co-Op close for channel %x! Faking confirmation.\n", chanID[:8])
-							
+
 							height := heightHint
 							if currSeq, _, errSeq := s.GetBestEpoch(); errSeq == nil {
 								height = currSeq
 							}
-							
+
 							ch <- ConfirmEvent{
 								TxID:         txID,
 								AnchorHeight: height,
@@ -833,7 +841,7 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 		for {
 			select {
 			case <-ticker.C:
-				// Rather than relying on the `suix_queryEvents` indexer which is frequently 
+				// Rather than relying on the `suix_queryEvents` indexer which is frequently
 				// disabled or lagging on `localnet`, we definitively poll the Channel object directly.
 				options := map[string]bool{
 					"showContent":             true,
@@ -916,8 +924,8 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 
 					currentHeight, _, _ := s.GetBestEpoch()
 
-					// Dynamically map the resulted SUI Digest back to this Channel Object! 
-					// When LND's chain_watcher subsequently registers a new watcher for the 
+					// Dynamically map the resulted SUI Digest back to this Channel Object!
+					// When LND's chain_watcher subsequently registers a new watcher for the
 					// output of `spendTxID`, we will successfully intercept it!
 					s.RegisterPseudoToChannel(spendTxID, realObjectID)
 
@@ -935,9 +943,9 @@ func (s *SuiRPCClient) SubscribeObjectSpend(objectID chainhash.Hash, htlcIndex u
 					case <-quit:
 						return
 					}
-					
+
 					// Successfully detected and dispatched the channel spend.
-					return 
+					return
 				}
 
 			case <-quit:

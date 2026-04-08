@@ -7,12 +7,14 @@ import (
 	"strings"
 	"time"
 
+	go_ecdsa "crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-    "sync"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -20,9 +22,6 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
-	"crypto/rand"
-	go_ecdsa "crypto/ecdsa"
-	"math/big"
 	"github.com/lightningnetwork/lnd/chainntnfs/suinotify"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -30,7 +29,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/crypto/blake2b"
-	"crypto/sha256"
+	"math/big"
+	"sync"
 )
 
 // ErrUnsupported is returned for Sui wallet operations that are not yet
@@ -95,9 +95,9 @@ type SuiAddress struct {
 	addr string
 }
 
-func (s *SuiAddress) String() string { return s.addr }
-func (s *SuiAddress) EncodeAddress() string { return s.addr }
-func (s *SuiAddress) ScriptAddress() []byte { return []byte(s.addr) }
+func (s *SuiAddress) String() string                   { return s.addr }
+func (s *SuiAddress) EncodeAddress() string            { return s.addr }
+func (s *SuiAddress) ScriptAddress() []byte            { return []byte(s.addr) }
 func (s *SuiAddress) IsForNet(p *chaincfg.Params) bool { return true }
 
 // NewAddress returns the Sui address owned by this wallet adapter.
@@ -116,7 +116,7 @@ func (w *Wallet) NewAddress(addrType lnwallet.AddressType, change bool, account 
 	pubKeyData := nodeKeyDesc.PubKey.SerializeCompressed()
 	addrData := append([]byte{0x01}, pubKeyData...)
 	hash := blake2b.Sum256(addrData)
-	
+
 	suiAddress := fmt.Sprintf("0x%x", hash[:])
 	return &SuiAddress{addr: suiAddress}, nil
 }
@@ -239,7 +239,7 @@ func (w *Wallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, error) {
 	return nil, nil
 }
 
-	// LabelTransaction is not implemented for Sui yet.
+// LabelTransaction is not implemented for Sui yet.
 func (w *Wallet) LabelTransaction(hash chainhash.Hash, label string, overwrite bool) error {
 	return ErrUnsupported
 }
@@ -307,7 +307,7 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	}
 
 	// Intercept premature timelock sweeps to prevent burning SUI Gas on 0x5 failures.
-	// LND's physical mock ticks aggressively when `blocks_til_maturity` is large, 
+	// LND's physical mock ticks aggressively when `blocks_til_maturity` is large,
 	// driving the Sweeper to submit transactions constantly.
 	if callType == input.SuiCallChannelClaimLocal {
 		channelID := &tx.TxIn[0].PreviousOutPoint.Hash
@@ -317,9 +317,9 @@ func (w *Wallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 			now := uint64(time.Now().UnixMilli())
 			if now < target {
 				fmt.Printf("[suiwallet] Intercepted premature claim_force_close for channel %x. "+
-					"Physical SUI Time (%d) < Target (%d). Silently dropping to save Gas.\n", 
+					"Physical SUI Time (%d) < Target (%d). Silently dropping to save Gas.\n",
 					channelID[:4], now, target)
-				// Returning an explicit error keeps LND's async Sweeper goroutines inside their 
+				// Returning an explicit error keeps LND's async Sweeper goroutines inside their
 				// 3-second retry loops, preventing them from prematurely assuming the Channel is closed.
 				return fmt.Errorf("SUI Native OS Timelock Interceptor: physical maturity time not yet reached")
 			}
@@ -406,7 +406,7 @@ func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
 	}
 
 	// Because Lightning employs an asynchronous peer execution framework, Bob might win the broadcast
-	// race. If Bob executed close_channel on SUI first, Alice's execution would fail with exactly 
+	// race. If Bob executed close_channel on SUI first, Alice's execution would fail with exactly
 	// the anomalous dust remainder. Intercept and safely map to circumvent deadlocks.
 	isClosed, errC := w.cfg.Client.IsChannelClosed(&channelID)
 	if errC == nil && isClosed {
@@ -425,7 +425,7 @@ func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
 	var localSig, remoteSig []byte
 	if len(tx.TxIn) > 0 && len(tx.TxIn[0].Witness) >= 4 {
 		wit := tx.TxIn[0].Witness
-		
+
 		// In Bitcoin multisig, signatures are ordered inversely to however the redeeming pubkeys were sorted.
 		// We get our Local Node Pubkey, find its position in the Redeem Script, and extract the matching sig.
 		nodeKeyDesc, _ := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
@@ -447,8 +447,12 @@ func (w *Wallet) publishBitcoinStyleTx(tx *wire.MsgTx, label string) error {
 		sig2Raw, err2 := extractRawSecp256k1Sig(wit[2])
 		sig1 := sig1Raw[:]
 		sig2 := sig2Raw[:]
-		if err1 != nil { sig1 = []byte{} }
-		if err2 != nil { sig2 = []byte{} }
+		if err1 != nil {
+			sig1 = []byte{}
+		}
+		if err2 != nil {
+			sig2 = []byte{}
+		}
 
 		if isLocalFirst {
 			// OP_CHECKMULTISIG requires trailing signatures to match trailing pubkeys
@@ -516,7 +520,7 @@ func (w *Wallet) signSuiTransaction(txBytes []byte) ([]byte, error) {
 	hash := sha256.Sum256(b2bHash[:])
 
 	stdPrivKey := privKey.ToECDSA()
-	
+
 	halfOrder, _ := new(big.Int).SetString("7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0", 16)
 	var rVal, sVal *big.Int
 	var errSign error
@@ -616,25 +620,25 @@ func extractRawSecp256k1Sig(witSig []byte) ([64]byte, error) {
 	if len(witSig) == 0 {
 		return rawSig, errors.New("empty signature")
 	}
-	
+
 	// Strip Sighash flag usually appended to Bitcoin witnesses (e.g. 0x01)
-	if len(witSig) > 70 { 
+	if len(witSig) > 70 {
 		witSig = witSig[:len(witSig)-1]
 	}
-	
+
 	parsedSig, err := ecdsa.ParseDERSignature(witSig)
 	if err != nil {
 		return rawSig, err
 	}
-	
+
 	rVal := parsedSig.R()
 	sVal := parsedSig.S()
 	rBytes := rVal.Bytes()
 	sBytes := sVal.Bytes()
-	
+
 	// Pad arrays cleanly ensuring big-endian constraints are maintained
 	copy(rawSig[32-len(rBytes):32], rBytes[:])
 	copy(rawSig[64-len(sBytes):64], sBytes[:])
-	
+
 	return rawSig, nil
 }
