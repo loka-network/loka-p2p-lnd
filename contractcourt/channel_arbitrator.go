@@ -3216,7 +3216,7 @@ func (c *ChannelArbitrator) receiveAndProcessCloseEvent() {
 		}
 
 	default:
-		log.Infof("ChannelArbitrator(%v) no close event",
+		log.Debugf("ChannelArbitrator(%v) no close event",
 			c.cfg.ChanPoint)
 	}
 }
