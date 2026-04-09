@@ -254,14 +254,31 @@ BOB_TOTAL_BAL=$($BOB_CLI walletbalance | jq -r '.confirmed_balance')
 # Force local_amt to 100 SUI (100,000,000,000 MIST) so it intrinsically fits completely 
 # inside a single Faucet UTXO object (200 SUI) without demanding Knapsack merges!
 BOB_LOCAL_AMT=5000000000
-$BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT
-	echo "Waiting for Bob's channel to open..."
-	sleep 10
+$BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT --push_amt=100000000
+	echo "Waiting for Bob's channel to become active on $NETWORK..."
+	for i in {1..30}; do
+	    ACTIVE_C=$($BOB_CLI listchannels | jq -r '.channels | length')
+	    if [ "$ACTIVE_C" == "1" ]; then
+	        echo "Channel is fully operational!"
+	        break
+	    fi
+	    echo "Polling for 1 active channel... Current: $ACTIVE_C"
+	    sleep 2
+	done
 
 # 6. Verification
 echo "[6/7] Verifying Channel..."
 $ALICE_CLI pendingchannels
 $ALICE_CLI listchannels
+
+# 7. Payment Test
+echo "[7/7] Testing Lightning Routing (Bob -> Alice)..."
+INVOICE=$($ALICE_CLI addinvoice --amt=1000 --memo="single-coin-test" | jq -r '.payment_request')
+echo "Alice Invoice: $INVOICE"
+$BOB_CLI payinvoice --pay_req="$INVOICE" --force
+
+echo "Bob Channel Balance post-payment:"
+$BOB_CLI channelbalance
 
 echo "=== Sui LND Integration Test SUCCESS ==="
 
