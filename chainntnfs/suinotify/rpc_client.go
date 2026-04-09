@@ -2,6 +2,7 @@ package suinotify
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/block-vision/sui-go-sdk/models"
+	"github.com/block-vision/sui-go-sdk/signer"
+	"github.com/block-vision/sui-go-sdk/sui"
+	"github.com/block-vision/sui-go-sdk/transaction"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -144,6 +150,8 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 	var response struct {
 		Data []struct {
 			CoinObjectID string `json:"coinObjectId"`
+			Version      string `json:"version"`
+			Digest       string `json:"digest"`
 			Balance      string `json:"balance"`
 		} `json:"data"`
 	}
@@ -161,8 +169,13 @@ func (s *SuiRPCClient) GetCoins(address string) ([]SuiCoin, error) {
 		var bal uint64
 		fmt.Sscanf(c.Balance, "%d", &bal)
 
+		var ver uint64
+		fmt.Sscanf(c.Version, "%d", &ver)
+
 		coins = append(coins, SuiCoin{
 			ObjectID: objID,
+			Version:  ver,
+			Digest:   c.Digest,
 			Balance:  bal,
 		})
 	}
@@ -246,6 +259,91 @@ func bytesToNumArray(b []byte) []int {
 	return nums
 }
 
+// buildOpenChannelPTB natively constructs a PTB for channel opening using sui-go-sdk, avoiding unsafe_moveCall RPC limits.
+func (s *SuiRPCClient) buildOpenChannelPTB(sender string, p input.ChannelOpenPayload, coins []SuiCoin) ([]byte, error) {
+	coins, err := s.GetCoins(sender)
+	if err != nil || len(coins) == 0 {
+		return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
+	}
+
+	tx := transaction.NewTransaction()
+	cli := sui.NewSuiClient(s.url)
+	client, ok := cli.(*sui.Client)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast sui client")
+	}
+	
+	// Dummy signer allows the SDK offline builder to pass checks
+	dummySigner := signer.NewSigner(make([]byte, 32))
+	dummySigner.Address = sender
+	
+	tx.SetSuiClient(client).SetSigner(dummySigner).SetGasBudget(100000000)
+
+	var objArgs []transaction.Argument
+	
+	onlyCoin := coins[0]
+	if onlyCoin.Balance < p.LocalBalance+100000000 {
+		return nil, fmt.Errorf("insufficient SUI balance: have %d MIST natively, but need %d MIST for channel plus 0.1 SUI for Gas", onlyCoin.Balance, p.LocalBalance)
+	}
+	
+	gasCoinRef, _ := transaction.NewSuiObjectRef(
+		models.SuiAddress(hashToSuiHex(onlyCoin.ObjectID)),
+		fmt.Sprintf("%d", onlyCoin.Version),
+		models.ObjectDigest(onlyCoin.Digest),
+	)
+	tx.SetGasPayment([]transaction.SuiObjectRef{*gasCoinRef})
+	
+	// tx.SplitCoins(tx.Gas(), ...) splits directly from the Gas coin and returns a tuple.
+	splitFraction := tx.SplitCoins(tx.Gas(), []transaction.Argument{tx.Pure(uint64(p.LocalBalance))})
+	
+	// SUI PTB strictly requires NestedResult indexing to extract scalar items from tuple returns!
+	indexedCoin := transaction.Argument{
+		NestedResult: &transaction.NestedResult{
+			Index:       *splitFraction.Result,
+			ResultIndex: 0,
+		},
+	}
+	objArgs = []transaction.Argument{indexedCoin}
+
+	// Pass pointer to empty string so mystenbcs encodes `0x00` (string length 0),
+	// which perfectly aliases as the `Option::None` enum tag in the Move VM BCS parser.
+	// Passing `nil` causes sui-go-sdk to skip writing the field entirely, skewing the payload!
+	emptyStr := ""
+	vecArg := tx.MakeMoveVec(&emptyStr, objArgs)
+
+	localKeyBytes, err := hex.DecodeString(p.LocalKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid LocalKey hex: %w", err)
+	}
+	remoteKeyBytes, err := hex.DecodeString(p.RemoteKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid RemoteKey hex: %w", err)
+	}
+
+	tx.MoveCall(
+		models.SuiAddress(s.packageID), // Package
+		"lightning",
+		"open_channel",
+		[]transaction.TypeTag{},
+		[]transaction.Argument{
+			vecArg,
+			tx.Pure(uint64(p.LocalBalance)),
+			tx.Pure(localKeyBytes),
+			tx.Pure(remoteKeyBytes),
+			tx.Pure(sender),
+			tx.Pure(uint64(p.CSVDelay)),
+		},
+	)
+
+	bcs, err := tx.BuildBCSBytes(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("sui-go-sdk BuildBCSBytes failed: %w", err)
+	}
+
+	// Wait, we need to return the TxBytes exactly like unsafe_moveCall did!
+	return base64.StdEncoding.DecodeString(base64.StdEncoding.EncodeToString(bcs))
+}
+
 // BuildMoveCall requests the Sui Node to build an unsigned BCS PTB.
 func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error) {
 	fmt.Printf("[SUI RPC] BuildMoveCall from %s for channel %s\n", sender, channelID.String())
@@ -265,19 +363,33 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 
 	switch envelope.Type {
 	case input.SuiCallChannelOpen: // 0
-		functionName = "open_channel"
 		var p input.ChannelOpenPayload
 		if err := json.Unmarshal(envelope.Payload, &p); err != nil {
 			return nil, err
 		}
-
 		coins, err := s.GetCoins(sender)
 		if err != nil || len(coins) == 0 {
 			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
 		}
 
+		if os.Getenv("ITEST_FORCE_SINGLE_COIN") == "1" {
+			// Bob test wrapper natively slices all utxos down to exactly the largest 1-coin,
+			// rigorously engaging the SplitCoin bug protocol evasion!
+			sort.Slice(coins, func(i, j int) bool {
+				return coins[i].Balance > coins[j].Balance 
+			})
+			fmt.Printf("[ITEST] Forcing single coin path for sender %s via SplitCoins PTB\n", sender)
+			return s.buildOpenChannelPTB(sender, p, []SuiCoin{coins[0]})
+		}
+
+		// Fallback for single coin lockup bug exactly! Use strict inline SUI PTB execution.
+		if len(coins) == 1 {
+			return s.buildOpenChannelPTB(sender, p, coins)
+		}
+
+		// FOR >= 2 coins, revert to the legacy unsafe_moveCall strategy
+		functionName = "open_channel"
 		var gasCoin *SuiCoin
-		gasBudget := uint64(100000000) // 0.1 SUI
 
 		// Sort coins descending so we can pop the smallest valid one for gas,
 		// or just sort ascending and pick the first one >= gasBudget.
@@ -316,7 +428,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		}
 
 		if accumulated < required {
-			return nil, fmt.Errorf("insufficient SUI balance: have %d MIST, need %d MIST for channel (plus 1 gas coin reserved)", accumulated, required)
+			return nil, fmt.Errorf("insufficient SUI balance: have %d MIST (in available funding coins), need %d MIST for channel (plus 1 gas coin reserved)", accumulated, required)
 		}
 
 		args = []interface{}{

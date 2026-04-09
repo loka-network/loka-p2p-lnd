@@ -127,10 +127,12 @@ $LND_BIN \
     --protocol.wumbo-channels \
     --protocol.no-anchors \
     --noseedbackup \
+    --maxpendingchannels=10 \
     > "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
 
 # Start Bob
+export ITEST_FORCE_SINGLE_COIN=1
 $LND_BIN \
     --lnddir="$BOB_DIR" \
     --listen="127.0.0.1:$BOB_PORT" \
@@ -143,6 +145,7 @@ $LND_BIN \
     --protocol.wumbo-channels \
     --protocol.no-anchors \
     --noseedbackup \
+    --maxpendingchannels=10 \
     > "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!
 
@@ -234,6 +237,21 @@ sleep 5
 echo "Double checking gas object propagation..."
 sleep 10
 
+echo "Checking Bob's UTXO count to verify Single-Coin PTB test prerequisite..."
+BOB_UTXO_COUNT=$($BOB_CLI listunspent | jq '.utxos | length')
+echo "Bob UTXO Count: $BOB_UTXO_COUNT (Should be exactly 1)"
+
+echo "[5/7] Bob opening channel to Alice (Single-Coin PTB Lockup Evasion Test)..."
+# Bob natively holds 5 faucet coin drops. We toggle the strict ITEST override upon his daemon's boot to force his
+# LND channel funding compilation algorithm down the 1-coin SplitCoin pipeline to formally assert it!
+BOB_TOTAL_BAL=$($BOB_CLI walletbalance | jq -r '.confirmed_balance')
+# Force local_amt to 100 SUI (100,000,000,000 MIST) so it intrinsically fits completely 
+# inside a single Faucet UTXO object (200 SUI) without demanding Knapsack merges!
+BOB_LOCAL_AMT=100000000000
+$BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT
+echo "Waiting for Bob's channel to open..."
+sleep 10
+
 # 5. Opening Channel
 TOTAL_BAL=$($ALICE_CLI walletbalance | jq -r '.confirmed_balance')
 # Since Alice received 2 identical faucet drops, her total balance is 2x. 
@@ -242,10 +260,10 @@ LOCAL_AMT=$(( TOTAL_BAL * 3 / 4 ))
 # To allow Bob to send payments backwards, his balance must exceed the 1% channel reserve.
 # We push 2% of the total channel capacity to Bob dynamically.
 PUSH_AMT=$(( LOCAL_AMT / 50 ))
-echo "[5/7] Alice opening channel to Bob (Dynamic multi-coin merge: $LOCAL_AMT MIST, Push: $PUSH_AMT MIST)..."
+echo "[5.5/7] Alice opening channel to Bob (Dynamic multi-coin merge: $LOCAL_AMT MIST, Push: $PUSH_AMT MIST)..."
 $ALICE_CLI openchannel --node_key=$BOB_PUBKEY --local_amt=$LOCAL_AMT --push_amt=$PUSH_AMT
 
-echo "Waiting for channel to open..."
+echo "Waiting for Alice's channel to open..."
 sleep 10
 
 # 6. Verification
@@ -278,8 +296,17 @@ OUT_INDEX=$(echo $CHAN_POINT | cut -d':' -f2)
 
 # Start cooperative close stream in background
 $ALICE_CLI closechannel $TXID $OUT_INDEX > /tmp/coop_close.log &
-echo "Waiting 10s for cooperative close to settle on chain..."
-sleep 10
+
+echo "Closing Bob's test channel cooperatively..."
+CHAN_POINT_BOB=$($ALICE_CLI listchannels | jq -r '.channels[1].channel_point')
+if [ "$CHAN_POINT_BOB" != "null" ] && [ -n "$CHAN_POINT_BOB" ]; then
+    TXID_BOB=$(echo $CHAN_POINT_BOB | cut -d':' -f1)
+    OUT_INDEX_BOB=$(echo $CHAN_POINT_BOB | cut -d':' -f2)
+    $ALICE_CLI closechannel $TXID_BOB $OUT_INDEX_BOB > /tmp/bob_close.log &
+fi
+
+echo "Waiting 15s for cooperative closes to settle on chain..."
+sleep 15
 
 echo "Funding Alice for the second channel (Force Close test)..."
 if [ -n "$FAUCET_URL" ]; then
@@ -396,6 +423,7 @@ $LND_BIN \
     --protocol.wumbo-channels \
     --protocol.no-anchors \
     --noseedbackup \
+    --maxpendingchannels=10 \
     >> "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
 

@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased] — 2026-03-30
+## [Unreleased] - 2026-04-09
+### Fixed
+- **Fixed Sui PTB Serialization Sync Errors:** Diagnosed and bypassed structural serialization desynchronizations embedded within the `sui-go-sdk` `MakeMoveVec` construction API. Substituted empty string pointers to securely encode `Option<TypeTag>::None` byte aliasing (`0x00`), preventing payload length parsing shifts and eliminating `malformed utf8` decoding collisions on the SUI validator engine while preserving accurate Native PTB operations.
+- **Fixed Single-Coin Sui Channel Funding Lockup:** Resolved a critical bug where users with exactly one SUI coin in their wallet could not open Lightning channels due to SUI gas-locking protocol boundaries. Migrated `open_channel` parameter compilation to conditionally construct an inline `tx.SplitCoins` PTB via `block-vision/sui-go-sdk` for precise single-coin derivation, bypassing the deprecated `unsafe_moveCall` RPC limitations while leaving standard multi-coin arrays intact.
+
+## [Unreleased] - 2026-03-30
 
 ### Fixed
 - **Fixed Cooperative Close Signature Vulnerability:** Remediated a critical vulnerability in the SUI `lightning.move` contract where `close_channel` allowed arbitrarily decoupled `sighash` injections, exposing channels to cooperative close spoofing attacks. Removed legacy `sighash` arguments from all Move function signatures and enforced rigid mathematically-bound native `bcs::to_bytes` serialization derivations across `sui_channel.go`, `channel.go`, and `suisigner.go`.
@@ -19,7 +24,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] — 2026-03-27
+## [Unreleased] - 2026-03-27
 
 ### Added
 - Native SUI Object ID mappings in `SuiClient.RegisterPseudoToChannel` to bridge LND's Bitcoin-like Pseudo-Hashes straight into the SUI Network states, averting the execution races generated randomly between peers interacting asynchronously.
@@ -32,7 +37,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased]
+## [Unreleased] - 2026-03-24
 ### Added
 - Phase 3C: Adapted Contract arbitration resolvers to bypass Sweeper and directly publish `sui-htlc-timeout-direct`, `sui-htlc-claim-direct`, and `sui-channel-claim-local` payload signatures to the Sui RPC node.
 - Phase 3D: Adapted Funding flow to directly publish Move Calls and obtain unique `ObjectID` prior to the remainder of channel setup.
@@ -77,7 +82,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] — 2026-03-13
+## [Unreleased] - 2026-03-13
 
 ### Changed
 
@@ -85,7 +90,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] — 2026-03-12
+## [Unreleased] - 2026-03-12
 
 ### Added
 
@@ -102,7 +107,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] — 2026-03-09
+## [Unreleased] - 2026-03-09
 
 ### Changed
 
@@ -111,7 +116,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] — 2026-03-05
+## [Unreleased] - 2026-03-05
 
 ### Overview
 

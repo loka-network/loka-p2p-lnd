@@ -94,6 +94,8 @@ type SuiClient interface {
 // SuiCoin represents a Sui Coin object.
 type SuiCoin struct {
 	ObjectID chainhash.Hash
+	Version  uint64
+	Digest   string
 	Balance  uint64
 }
 
