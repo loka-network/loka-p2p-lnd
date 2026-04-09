@@ -70,11 +70,12 @@ While hardcore users can connect using raw `Pubkey@IP:Port` strings, this is ter
 ### 1. Direct A-Record Mapping
 In your DNS provider (e.g., Cloudflare, Route53), map subdomains to your seed public IPs:
 
-- `seed-us.loka.network`  ->  `A Record` -> `198.51.100.1`
-- `seed-eu.loka.network`  ->  `A Record` -> `203.0.113.1`
+- `lnd-seed-eu.loka.cash`  ->  `A Record` -> `84.46.253.204`
+- `lnd-seed-us.loka.cash`  ->  `A Record` -> `161.97.184.38`
 
 This makes your Lighting URI incredibly elegant for edge agents:
-> `03abcdef1234567890abcdef1234567890abcdef@seed-us.loka.network:9735`
+> `0276bf6dc8fd0ce046c40c0c504d586419ecfdc456909b7f17e60e4da824e7afc7@lnd-seed-eu.loka.cash:9735`
+> `0268e7d59cfe59230ac6d0af4750bc5042bd6209e9cae1da32f98f8ee9ef9596a9@lnd-seed-us.loka.cash:9735`
 
 ### 2. DNS Round-Robin (Load Balancing)
 Create a generic subdomain (e.g., `seeds.loka.network`) and attach multiple A-Records pointing to different seed nodes. When an Agent resolves this domain during startup, the DNS server returns a random healthy seed IP, natively achieving basic load balancing.

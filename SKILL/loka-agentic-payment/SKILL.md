@@ -30,13 +30,21 @@ Ensure the Loka binaries (`lnd` and `lncli`) are compiled and available in your 
 
 ## Step 1: Start the LND Node (Connecting to Sui)
 
-To initialize the node natively on the Sui blockchain, you must launch `lnd` with the Sui chain backend flags. By default, you should connect to the SUI Testnet or Devnet.
+To initialize the node natively on the Sui blockchain, you must launch `lnd` with the Sui chain backend flags. You must explicitly specify whether you are connecting to **Devnet** or **Testnet**.
 
+- For **Devnet**: Use `--suinode.devnet` and `--suinode.rpchost=https://fullnode.devnet.sui.io:443`
+- For **Testnet**: Use `--suinode.testnet` and `--suinode.rpchost=https://fullnode.testnet.sui.io:443`
+
+Additionally, you MUST provide the correct deployed Smart Contract Package ID via `--suinode.packageid`. You can find the latest active Package IDs manually or programmatically inside the `<repository_root>/sui-contracts/lightning/` directly by viewing:
+- `deploy_state_devnet.json` (for devnet)
+- `deploy_state_testnet.json` (for testnet)
+
+**Example Startup Command (Connecting to Devnet)**:
 ```bash
 nohup lnd --suinode.active \
-    --suinode.testnet \
-    --suinode.rpchost=https://fullnode.testnet.sui.io:443 \
-    --suinode.packageid="<YOUR_SUI_PACKAGE_ID>" \
+    --suinode.devnet \
+    --suinode.rpchost=https://fullnode.devnet.sui.io:443 \
+    --suinode.packageid="<PACKAGE_ID_FROM_DEPLOY_STATE_JSON>" \
     --listen=0.0.0.0:9735 \
     --rpclisten=127.0.0.1:10009 \
     --restlisten=127.0.0.1:8081 \
@@ -62,15 +70,32 @@ Before transacting, the node must generate a wallet and acquire native Sui coins
 
 2. **Generate a Sui Address**:
    ```bash
-   lncli --lnddir=~/.lnd-agent newaddress p2wkh
+   lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon newaddress p2wkh
    ```
    Wait for the JSON response and parse the `"address"` field. Note that while the command is `p2wkh` (Bitcoin standard), the Loka Zero-Intrusion Adapter automatically translates this into a valid **Sui Address (0x...)**.
 
 3. **Check Balance**:
    ```bash
-   lncli --lnddir=~/.lnd-agent walletbalance
+   lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon walletbalance
    ```
-   > **Note:** For testing, if the balance is 0, invoke the Sui Testnet Web Faucet using the address generated above before proceeding.
+
+4. **Fund the Node via Faucet (Devnet/Testnet only)**:
+   If your balance is `0`, you MUST request native SUI coins before you can open a channel. You can programmatically fund the address you generated in Step 2 by executing a cURL request to the appropriate Sui Faucet.
+
+   **For Devnet**:
+   ```bash
+   curl --location --request POST 'https://faucet.devnet.sui.io/gas' \
+   --header 'Content-Type: application/json' \
+   --data-raw '{"FixedAmountRequest": {"recipient": "<YOUR_SUI_ADDRESS>"}}'
+   ```
+   
+   **For Testnet**:
+   ```bash
+   curl --location --request POST 'https://faucet.testnet.sui.io/gas' \
+   --header 'Content-Type: application/json' \
+   --data-raw '{"FixedAmountRequest": {"recipient": "<YOUR_SUI_ADDRESS>"}}'
+   ```
+   *(Wait up to 30 seconds for the network to process the faucet request, then check your balance again).*
 
 ---
 
@@ -78,14 +103,20 @@ Before transacting, the node must generate a wallet and acquire native Sui coins
 
 To route payments, you must first establish a P2P TCP connection with the target Agent's node. You need their Lightning Identity Pubkey and network host.
 
+**Connecting to Loka Official Seed Nodes:**
+If you want to join the main network backbone and ensure persistent routing, connect your Agent directly to the official Loka Seed Nodes.
+
+- **EU Seed Node:** `0276bf6dc8fd0ce046c40c0c504d586419ecfdc456909b7f17e60e4da824e7afc7@lnd-seed-eu.loka.cash:9735`
+- **US Seed Node:** `0268e7d59cfe59230ac6d0af4750bc5042bd6209e9cae1da32f98f8ee9ef9596a9@lnd-seed-us.loka.cash:9735`
+
+Example connection command using the EU seed node:
 ```bash
-lncli --lnddir=~/.lnd-agent connect <TARGET_PUBKEY>@<TARGET_HOST>:<PORT>
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon connect 0276bf6dc8fd0ce046c40c0c504d586419ecfdc456909b7f17e60e4da824e7afc7@lnd-seed-eu.loka.cash:9735
 ```
-*Example: `lncli connect 03abcdef...@12.34.56.78:9735`*
 
 Verify the peer connection was successful:
 ```bash
-lncli --lnddir=~/.lnd-agent listpeers
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon listpeers
 ```
 
 ---
@@ -95,13 +126,13 @@ lncli --lnddir=~/.lnd-agent listpeers
 Open a payment channel with the connected peer. This step generates a real on-chain Sui transaction that interacts with the `lightning.move` smart contract.
 
 ```bash
-lncli --lnddir=~/.lnd-agent openchannel --node_key=<TARGET_PUBKEY> --local_amt=<AMOUNT_IN_MIST>
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon openchannel --node_key=<TARGET_PUBKEY> --local_amt=<AMOUNT_IN_MIST>
 ```
 *Example: `--local_amt=100000000` (100,000,000 MIST = 0.1 SUI).*
 
 **Crucial Agent Check:** Since this is an on-chain operation on Sui (DAG-BFT), finality is sub-second. You should quickly verify the channel transitioned from "pending" to "active":
 ```bash
-lncli --lnddir=~/.lnd-agent listchannels
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon listchannels
 ```
 *(Wait until `"active": true` is visible for the target pubkey).*
 
@@ -115,7 +146,7 @@ Once the channel is active, payments route over the Lightning Network infinitely
 The Agent receiving the payment must generate an invoice indicating the required amount.
 ```bash
 # Executed by the Receiving Agent
-lncli addinvoice --amt=<AMOUNT_IN_MIST> --memo="API Service Payment"
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon addinvoice --amt=<AMOUNT_IN_MIST> --memo="API Service Payment"
 ```
 Parse the `"payment_request"` string (e.g., `lnsb1...`) from the JSON output and transmit it to the Paying Agent.
 
@@ -123,7 +154,7 @@ Parse the `"payment_request"` string (e.g., `lnsb1...`) from the JSON output and
 The paying Agent routes the payment through the established channel using the payment request.
 ```bash
 # Executed by the Paying Agent
-lncli --lnddir=~/.lnd-agent payinvoice --pay_req=<PAYMENT_REQUEST_STRING> --force
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon payinvoice --pay_req=<PAYMENT_REQUEST_STRING> --force
 ```
 
 ### 3. Verify Payment Success
@@ -138,6 +169,6 @@ Both agents should inspect the route and completion status:
 If the target Agent becomes completely unresponsive (livelock), you can unilaterally execute a Force Close via the Sui Smart Contract:
 
 ```bash
-lncli --lnddir=~/.lnd-agent closechannel --force <CHANNEL_POINT_TXID> <OUTPUT_INDEX>
+lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon closechannel --force <CHANNEL_POINT_TXID> <OUTPUT_INDEX>
 ```
 *(You can find the Channel Point in the `listchannels` output).*
