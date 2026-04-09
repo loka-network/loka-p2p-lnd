@@ -26,6 +26,34 @@ Before executing any routing or payment commands, you must acquire the node soft
 
 Ensure the Loka binaries (`lnd` and `lncli`) are compiled and available in your `$PATH`.
 
+**⚠️ PATH Configuration:** `lnd` and `lncli` are installed in `/root/go/bin/`. You must ensure that the PATH includes this directory:
+```bash
+export PATH=$PATH:/root/go/bin
+```
+This is already written to `~/.bashrc` and `~/.zshrc`.
+
+---
+
+## Agent Local Configuration & Quick Reference
+
+For automation, Agents should utilize the following pre-configured variables:
+
+- **Network:** `devnet` or `testnet`
+- **Package ID:** Dynamically parsed from `sui-contracts/lightning/deploy_state_devnet.json` (or `testnet.json`)
+- **LND Dir:** `~/.lnd-agent` (Ensure each node gets a distinct directory if running multiple)
+- **RPC:** `127.0.0.1:10009` (Avoid port collisions)
+- **REST:** `127.0.0.1:8081`
+- **Listen:** `0.0.0.0:9735`
+- **Macaroon:** `~/.lnd-agent/data/chain/sui/<NETWORK>/admin.macaroon`
+- **Wallet Password:** (Determine dynamically / Generate securely and store locally)
+- **Sui Address:** (Derived programmatically via `lncli newaddress p2wkh`)
+- **Node Pubkey:** (Derived programmatically via `lncli getinfo`)
+
+### CLI Prefix
+```bash
+LNCLI="lncli --lnddir=~/.lnd-agent --rpcserver=127.0.0.1:10009 --macaroonpath=~/.lnd-agent/data/chain/sui/<NETWORK>/admin.macaroon"
+```
+
 ---
 
 ## Step 1: Start the LND Node (Connecting to Sui)
@@ -64,9 +92,15 @@ Before transacting, the node must generate a wallet and acquire native Sui coins
 
 1. **Create the Wallet** (Only required on first boot):
    ```bash
-   lncli --lnddir=~/.lnd-agent --rpcserver=127.0.0.1:10009 --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon create
+   $LNCLI create
    ```
-   *(You will be prompted to enter a wallet password. You must script the standard input or use the `--wallet-password` flag via a temp file for full autonomy).*
+
+2. **Unlock the Wallet** (Required after every restart):
+   ```bash
+   lncli --lnddir=~/.lnd-agent --rpcserver=127.0.0.1:10009 --no-macaroons unlock
+   # Enter password: <YOUR_GENERATED_SECURE_PASSWORD>
+   ```
+   **Note:** `lncli create/unlock` requires TTY interactive password input. You cannot use pipelines/heredocs to input the password. For automation, you must use `expect` or a PTY.
 
 2. **Generate a Sui Address**:
    ```bash
@@ -84,18 +118,18 @@ Before transacting, the node must generate a wallet and acquire native Sui coins
 
    **For Devnet**:
    ```bash
-   curl --location --request POST 'https://faucet.devnet.sui.io/gas' \
+   curl --location --request POST 'https://faucet.devnet.sui.io/v2/gas' \
    --header 'Content-Type: application/json' \
    --data-raw '{"FixedAmountRequest": {"recipient": "<YOUR_SUI_ADDRESS>"}}'
    ```
    
    **For Testnet**:
    ```bash
-   curl --location --request POST 'https://faucet.testnet.sui.io/gas' \
+   curl --location --request POST 'https://faucet.testnet.sui.io/v2/gas' \
    --header 'Content-Type: application/json' \
    --data-raw '{"FixedAmountRequest": {"recipient": "<YOUR_SUI_ADDRESS>"}}'
    ```
-   *(Wait up to 30 seconds for the network to process the faucet request, then check your balance again).*
+   **⚠️ Note:** You must use the `/v2/gas` endpoint. The old `/gas` endpoint is deprecated and will return `Route deprecated`. *(Wait up to 30 seconds for the network to process the faucet request, then check your balance again).*
 
 ---
 
@@ -172,3 +206,37 @@ If the target Agent becomes completely unresponsive (livelock), you can unilater
 lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon closechannel --force <CHANNEL_POINT_TXID> <OUTPUT_INDEX>
 ```
 *(You can find the Channel Point in the `listchannels` output).*
+
+---
+
+## Troubleshooting / Gotchas
+
+### 1. `--suinode.packageid` must match the network
+- **Devnet:** Read from `sui-contracts/lightning/deploy_state_devnet.json`
+- **Testnet:** Read from `sui-contracts/lightning/deploy_state_testnet.json`
+- **❌ Error:** Using the testnet packageid to connect to devnet will result in `insufficient SUI balance: have 0 MIST`, even if the on-chain address has a balance, because the contract addresses don't match.
+
+### 2. `insufficient SUI balance: have 0 MIST` but walletbalance has funds
+- **Most Likely Cause:** The packageid does not match the current network (see above).
+- **Secondary Cause:** The wallet was just funded via faucet and hasn't synced yet. Try restarting LND.
+
+### 3. Faucet endpoint has migrated
+- ❌ `https://faucet.devnet.sui.io/gas` → Returns `Route deprecated. Use /v2/gas instead.`
+- ✅ `https://faucet.devnet.sui.io/v2/gas`
+
+### 4. `upstream request timeout` / `stream timeout`
+- The Sui Devnet fullnode occasionally times out on `executeTransactionBlock` (write operations).
+- In earlier versions of LND, the HTTP client timeout was only 10s. This has been updated to 60s, and the transaction execution flag has been natively changed to `WaitForEffectsCert` to mitigate proxy layer drops.
+- If timeouts persist, check the Sui Devnet status or manually switch your RPC endpoints.
+
+### 5. `lncli create` reports `inappropriate ioctl for device`
+- `lncli create/unlock` requires a TTY. You cannot use pipelines/heredocs to input the password.
+- Solution: Use `expect` or execute it in PTY/Interactive mode.
+
+### 6. You must restart LND after updating binaries
+- Running `make install` to compile new binaries will not automatically take effect.
+- You must forcefully kill the agent (`pkill -9 -f lnd-agent` or `$LNCLI stop`) and then officially restart it.
+- After restarting, you will need to unlock the wallet again using `lncli unlock`.
+
+### 7. Reconnecting to an already connected peer will error but is harmless
+- `already connected to peer: ...` is normal behavior. Just ignore it.
