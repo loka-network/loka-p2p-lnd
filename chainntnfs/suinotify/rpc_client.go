@@ -96,7 +96,8 @@ func NewSuiRPCClient(url string, packageID string) *SuiRPCClient {
 	return &SuiRPCClient{
 		url:       importUrl,
 		packageID: packageID,
-		client:    &http.Client{Timeout: 10 * time.Second},
+		// Increase timeout to 60 seconds to accommodate slower Devnet nodes answering WaitForLocalExecution
+		client:    &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
