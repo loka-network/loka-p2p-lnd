@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -126,9 +127,18 @@ func (s *SuiRPCClient) call(method string, params interface{}) (json.RawMessage,
 	}
 	defer resp.Body.Close()
 
-	var rpcResp rpcResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return nil, err
+	}
+
+	var rpcResp struct {
+		ID     int             `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  *rpcError       `json:"error"`
+	}
+	if err := json.Unmarshal(bodyBytes, &rpcResp); err != nil {
+		return nil, fmt.Errorf("JSON decode error: %v. Raw body: %s", err, string(bodyBytes))
 	}
 
 	if rpcResp.Error != nil {
@@ -657,7 +667,7 @@ func (s *SuiRPCClient) ExecuteTransactionBlockFull(txBytes []byte, signature []b
 			"showEffects":       true,
 			"showObjectChanges": true,
 		},
-		"WaitForLocalExecution",
+		"WaitForEffectsCert",
 	})
 	if err != nil {
 		return chainhash.Hash{}, nil, err

@@ -2,6 +2,7 @@
 
 ## [Unreleased] - 2026-04-09
 ### Fixed
+- **Fixed SUI Devnet RPC Execution Parsing Errors:** Modified `sui_executeTransactionBlock` natively inside `chainntnfs/suinotify/rpc_client.go` to explicitly enforce `WaitForEffectsCert` over `WaitForLocalExecution`. This mitigates `invalid character 'u'` Nginx proxy JSON deserialization errors originating from public Devnet load balancers forcefully terminating connections exceeding 30-second synchronization deadlines. 
 - **Fixed Sui PTB Serialization Sync Errors:** Diagnosed and bypassed structural serialization desynchronizations embedded within the `sui-go-sdk` `MakeMoveVec` construction API. Substituted empty string pointers to securely encode `Option<TypeTag>::None` byte aliasing (`0x00`), preventing payload length parsing shifts and eliminating `malformed utf8` decoding collisions on the SUI validator engine while preserving accurate Native PTB operations.
 - **Fixed Single-Coin Sui Channel Funding Lockup:** Resolved a critical bug where users with exactly one SUI coin in their wallet could not open Lightning channels due to SUI gas-locking protocol boundaries. Migrated `open_channel` parameter compilation to conditionally construct an inline `tx.SplitCoins` PTB via `block-vision/sui-go-sdk` for precise single-coin derivation, bypassing the deprecated `unsafe_moveCall` RPC limitations while leaving standard multi-coin arrays intact.
 
