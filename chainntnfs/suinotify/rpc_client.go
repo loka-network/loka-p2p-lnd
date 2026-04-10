@@ -706,12 +706,24 @@ func (s *SuiRPCClient) ExecuteTransactionBlockFull(txBytes []byte, signature []b
 	// Extract created object IDs.
 	var createdObjects []chainhash.Hash
 	for _, oc := range response.ObjectChanges {
-		if oc.Type == "created" {
+		if oc.Type == "created" && strings.Contains(oc.ObjectType, "lightning::Channel") {
 			obj, err := suiHexToHash(oc.ObjectID)
 			if err != nil {
 				continue
 			}
 			createdObjects = append(createdObjects, obj)
+		}
+	}
+
+	// Fallback to all created objects if no channel was explicitly found
+	if len(createdObjects) == 0 {
+		for _, oc := range response.ObjectChanges {
+			if oc.Type == "created" {
+				obj, err := suiHexToHash(oc.ObjectID)
+				if err == nil {
+					createdObjects = append(createdObjects, obj)
+				}
+			}
 		}
 	}
 

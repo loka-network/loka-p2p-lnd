@@ -259,7 +259,7 @@ $BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT --push_
 	for i in {1..30}; do
 	    ACTIVE_C=$($BOB_CLI listchannels | jq -r '.channels | length')
 	    if [ "$ACTIVE_C" == "1" ]; then
-	        echo "Channel is fully operational!"
+	        echo "Channel is fully operational!"; sleep 3
 	        break
 	    fi
 	    echo "Polling for 1 active channel... Current: $ACTIVE_C"
