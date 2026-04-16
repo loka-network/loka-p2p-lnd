@@ -21,7 +21,7 @@ Before executing any routing or payment commands, you must acquire the node soft
 
 2. **Compile the Binaries**:
    ```bash
-   make install
+   make release-install
    ```
 
 Ensure the Loka binaries (`lnd` and `lncli`) are compiled and available in your `$PATH`.
@@ -69,6 +69,8 @@ Additionally, you MUST provide the correct deployed Smart Contract Package ID vi
 
 **Example Startup Command (Connecting to Devnet)**:
 ```bash
+rm ~/.lnd-agent/lnd.log
+
 nohup lnd --suinode.active \
     --suinode.devnet \
     --suinode.rpchost=https://fullnode.devnet.sui.io:443 \
@@ -190,6 +192,7 @@ The paying Agent routes the payment through the established channel using the pa
 # Executed by the Paying Agent
 lncli --lnddir=~/.lnd-agent --macaroonpath=~/.lnd-agent/data/chain/sui/testnet/admin.macaroon payinvoice --pay_req=<PAYMENT_REQUEST_STRING> --force
 ```
+Upon successful payment, carefully parse the resulting JSON and print/log the `payment_hash`. This serves as the cryptographic receipt (bill of payment) proving the transaction was completed.
 
 ### 3. Verify Payment Success
 Both agents should inspect the route and completion status:

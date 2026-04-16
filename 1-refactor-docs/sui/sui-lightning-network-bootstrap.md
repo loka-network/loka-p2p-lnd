@@ -53,13 +53,27 @@ nohup lnd --suinode.active \
 
 Whenever LND is started for the very first time on a fresh install, the daemon will halt in a "waiting for wallet encryption password" state. You cannot interact with it until the wallet is created.
 
-Open a new terminal session and run:
-```bash
-lncli --lnddir=~/.lnd-seed --rpcserver=127.0.0.1:10009 --macaroonpath=~/.lnd-seed/data/chain/sui/testnet/admin.macaroon create
-```
-Follow the interactive prompts to assign a strong wallet password and (optionally) back up your 24-word cryptographic seed phrase. 
+1. **Create the Wallet**:
+   Open a new terminal session and run:
+   ```bash
+   lncli --lnddir=~/.lnd-seed --rpcserver=127.0.0.1:10009 --macaroonpath=~/.lnd-seed/data/chain/sui/testnet/admin.macaroon create
+   ```
+   Follow the interactive prompts to assign a strong wallet password and (optionally) back up your 24-word cryptographic seed phrase. 
 
-**Note for reboots:** If your LND node ever crashes or restarts, it will boot into a locked state to protect your funds locally. You will need to manually run `lncli unlock` and type in your password to resume full node operations.
+   **Note for reboots:** If your LND node ever crashes or restarts, it will boot into a locked state to protect your funds locally. You will need to manually run `lncli unlock` and type in your password to resume full node operations.
+
+2. **Generate a Sui-LND Address**:
+   ```bash
+   lncli --lnddir=~/.lnd-seed --macaroonpath=~/.lnd-seed/data/chain/sui/testnet/admin.macaroon newaddress p2wkh
+   ```
+   Wait for the JSON response and parse the `"address"` field. Note that while the command is `p2wkh` (Bitcoin standard), the Loka Zero-Intrusion Adapter automatically translates this into a valid **Sui Address (0x...)**.
+
+3. **Fund the New Address**:
+   You must deposit SUI into this new address to populate your local node wallet before opening channels.
+   If you are attempting this on Devnet, you can use our built-in batch faucet script to automatically accumulate enough funds for a Wumbo (Large) channel:
+   ```bash
+   ./scripts/fund_wumbo_devnet.sh devnet <YOUR_NEW_SUI_ADDRESS>
+   ```
 
 ---
 

@@ -272,10 +272,7 @@ func bytesToNumArray(b []byte) []int {
 
 // buildOpenChannelPTB natively constructs a PTB for channel opening using sui-go-sdk, avoiding unsafe_moveCall RPC limits.
 func (s *SuiRPCClient) buildOpenChannelPTB(sender string, p input.ChannelOpenPayload, coins []SuiCoin) ([]byte, error) {
-	coins, err := s.GetCoins(sender)
-	if err != nil || len(coins) == 0 {
-		return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
-	}
+	// We assume 'coins' is already sorted and formatted properly by the caller.
 
 	tx := transaction.NewTransaction()
 	cli := sui.NewSuiClient(s.url)
@@ -292,17 +289,34 @@ func (s *SuiRPCClient) buildOpenChannelPTB(sender string, p input.ChannelOpenPay
 
 	var objArgs []transaction.Argument
 	
-	onlyCoin := coins[0]
-	if onlyCoin.Balance < p.LocalBalance+100000000 {
-		return nil, fmt.Errorf("insufficient SUI balance: have %d MIST natively, but need %d MIST for channel plus 0.1 SUI for Gas", onlyCoin.Balance, p.LocalBalance)
+	var gasRefs []transaction.SuiObjectRef
+	var totalBalance uint64
+	var selectedCoins []SuiCoin
+	requiredAmount := p.LocalBalance + 100000000
+
+	// Gather enough coins to cover the channel balance + gas budget
+	for _, coin := range coins {
+		selectedCoins = append(selectedCoins, coin)
+		totalBalance += coin.Balance
+		if totalBalance >= requiredAmount {
+			break
+		}
 	}
-	
-	gasCoinRef, _ := transaction.NewSuiObjectRef(
-		models.SuiAddress(hashToSuiHex(onlyCoin.ObjectID)),
-		fmt.Sprintf("%d", onlyCoin.Version),
-		models.ObjectDigest(onlyCoin.Digest),
-	)
-	tx.SetGasPayment([]transaction.SuiObjectRef{*gasCoinRef})
+
+	if totalBalance < requiredAmount {
+		return nil, fmt.Errorf("insufficient SUI balance: have %d MIST natively, but need %d MIST for channel plus 0.1 SUI for Gas", totalBalance, requiredAmount)
+	}
+
+	for _, coin := range selectedCoins {
+		ref, _ := transaction.NewSuiObjectRef(
+			models.SuiAddress(hashToSuiHex(coin.ObjectID)),
+			fmt.Sprintf("%d", coin.Version),
+			models.ObjectDigest(coin.Digest),
+		)
+		gasRefs = append(gasRefs, *ref)
+	}
+
+	tx.SetGasPayment(gasRefs)
 	
 	// tx.SplitCoins(tx.Gas(), ...) splits directly from the Gas coin and returns a tuple.
 	splitFraction := tx.SplitCoins(tx.Gas(), []transaction.Argument{tx.Pure(uint64(p.LocalBalance))})
@@ -369,7 +383,6 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 
 	var functionName string
 	var args []interface{}
-	var explicitGasCoin *string
 	gasBudget := uint64(100000000) // 0.1 SUI
 
 	switch envelope.Type {
@@ -383,73 +396,14 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 			return nil, fmt.Errorf("sender %s has no SUI coins for funding", sender)
 		}
 
-		if os.Getenv("ITEST_FORCE_SINGLE_COIN") == "1" {
-			// Bob test wrapper natively slices all utxos down to exactly the largest 1-coin,
-			// rigorously engaging the SplitCoin bug protocol evasion!
-			sort.Slice(coins, func(i, j int) bool {
-				return coins[i].Balance > coins[j].Balance 
-			})
-			fmt.Printf("[ITEST] Forcing single coin path for sender %s via SplitCoins PTB\n", sender)
-			return s.buildOpenChannelPTB(sender, p, []SuiCoin{coins[0]})
-		}
-
-		// Fallback for single coin lockup bug exactly! Use strict inline SUI PTB execution.
-		if len(coins) == 1 {
-			return s.buildOpenChannelPTB(sender, p, coins)
-		}
-
-		// FOR >= 2 coins, revert to the legacy unsafe_moveCall strategy
-		functionName = "open_channel"
-		var gasCoin *SuiCoin
-
-		// Sort coins descending so we can pop the smallest valid one for gas,
-		// or just sort ascending and pick the first one >= gasBudget.
+		// Sort coins descending (largest first) to minimize gas coin object fragmentation
 		sort.Slice(coins, func(i, j int) bool {
-			return coins[i].Balance < coins[j].Balance // Ascending order
+			return coins[i].Balance > coins[j].Balance 
 		})
 
-		// Partition coins: reserve the SMALLEST eligible coin for gas
-		var availableFundingCoins []SuiCoin
-		for _, coin := range coins {
-			if gasCoin == nil && coin.Balance >= gasBudget {
-				c := coin
-				gasCoin = &c
-				continue
-			}
-			availableFundingCoins = append(availableFundingCoins, coin)
-		}
-
-		if gasCoin == nil {
-			return nil, fmt.Errorf("no coin found with enough balance for gas budget (0.1 SUI)")
-		}
-
-		gasHex := hashToSuiHex(gasCoin.ObjectID)
-		explicitGasCoin = &gasHex
-
-		var fundingCoinObjIDs []string
-		accumulated := uint64(0)
-		required := p.LocalBalance
-
-		for _, coin := range availableFundingCoins {
-			fundingCoinObjIDs = append(fundingCoinObjIDs, hashToSuiHex(coin.ObjectID))
-			accumulated += coin.Balance
-			if accumulated >= required {
-				break
-			}
-		}
-
-		if accumulated < required {
-			return nil, fmt.Errorf("insufficient SUI balance: have %d MIST (in available funding coins), need %d MIST for channel (plus 1 gas coin reserved)", accumulated, required)
-		}
-
-		args = []interface{}{
-			fundingCoinObjIDs,
-			fmt.Sprintf("%d", p.LocalBalance),
-			hexToNumArray(p.LocalKey),
-			hexToNumArray(p.RemoteKey),
-			sender,
-			fmt.Sprintf("%d", p.CSVDelay),
-		}
+		// We strictly use the native PTB builder which elegantly supports multi-coin splitting
+		// by merging all selected coins into the GasCoin object before splitting the funding amount out!
+		return s.buildOpenChannelPTB(sender, p, coins)
 
 	case input.SuiCallChannelClose: // 1
 		functionName = "close_channel"
@@ -565,13 +519,6 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		return nil, fmt.Errorf("unsupported Sui Call Type: %v", envelope.Type)
 	}
 
-	var gasParam interface{}
-	if explicitGasCoin != nil {
-		gasParam = *explicitGasCoin
-	} else {
-		gasParam = nil
-	}
-
 	callParams := []interface{}{
 		sender,
 		s.packageID,
@@ -579,7 +526,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		functionName,
 		[]string{},                   // type arguments
 		args,                         // function arguments
-		gasParam,                     // optional explicit gas coin
+		nil,                          // optional explicit gas coin (let node pick)
 		fmt.Sprintf("%d", gasBudget), // gasBudget - 0.1 SUI
 	}
 
