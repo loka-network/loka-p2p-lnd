@@ -204,11 +204,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("CurrentNumAnchorChans").Set(
 				reflect.ValueOf(cc.Wallet.CurrentNumAnchorChans),
 			)
-			subCfgValue.FieldByName("CoinSelectionStrategy").Set(
-				reflect.ValueOf(
-					cc.Wallet.Cfg.CoinSelectionStrategy,
-				),
-			)
+			if val := reflect.ValueOf(cc.Wallet.Cfg.CoinSelectionStrategy); val.IsValid() {
+				subCfgValue.FieldByName("CoinSelectionStrategy").Set(val)
+			}
 			subCfgValue.FieldByName("ChanStateDB").Set(
 				reflect.ValueOf(chanStateDB),
 			)
