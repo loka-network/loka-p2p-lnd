@@ -6,6 +6,9 @@
 - **Fixed Sui PTB Serialization Sync Errors:** Diagnosed and bypassed structural serialization desynchronizations embedded within the `sui-go-sdk` `MakeMoveVec` construction API. Substituted empty string pointers to securely encode `Option<TypeTag>::None` byte aliasing (`0x00`), preventing payload length parsing shifts and eliminating `malformed utf8` decoding collisions on the SUI validator engine while preserving accurate Native PTB operations.
 - **Fixed Single-Coin Sui Channel Funding Lockup:** Resolved a critical bug where users with exactly one SUI coin in their wallet could not open Lightning channels due to SUI gas-locking protocol boundaries. Migrated `open_channel` parameter compilation to conditionally construct an inline `tx.SplitCoins` PTB via `block-vision/sui-go-sdk` for precise single-coin derivation, bypassing the deprecated `unsafe_moveCall` RPC limitations while leaving standard multi-coin arrays intact.
 
+### Changed
+- **Updated Agent Operations SKILL:** Updated `SKILL.md` to use a concrete Sui `packageid` in the devnet node startup command example and added explicit instructions for opening the node's `--listen` port in the firewall to properly allow inbound Agent connections.
+
 ## [Unreleased] - 2026-03-30
 
 ### Fixed

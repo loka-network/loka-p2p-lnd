@@ -84,6 +84,8 @@ nohup lnd --suinode.active \
     > ~/.lnd-agent/lnd.log 2>&1 &
 ```
 
+> **Firewall Note:** After the node is started, **you must open the corresponding port in your firewall** for the `--listen` parameter (e.g., allow inbound connections to port `9735`).
+
 > **Agent Tip:** If running multiple agents on the same machine, ensure `--rpclisten`, `--listen`, `--restlisten`, and `--lnddir` are configured to unique ports/paths for each instance. Run this process in the background.
 
 ---
