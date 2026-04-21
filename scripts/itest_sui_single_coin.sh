@@ -251,8 +251,8 @@ echo "Bob UTXO Count: $BOB_UTXO_COUNT (Should be exactly 1)"
 echo "[5/7] Bob opening channel to Alice (Native Single-Coin PTB Test)..."
 # Bob natively holds exactly 1 coin drop transferred dynamically from the root script CLI.
 BOB_TOTAL_BAL=$($BOB_CLI walletbalance | jq -r '.confirmed_balance')
-# Force local_amt to 100 SUI (100,000,000,000 MIST) so it intrinsically fits completely 
-# inside a single Faucet UTXO object (200 SUI) without demanding Knapsack merges!
+# Force local_amt to 5 SUI (5,000,000,000 MIST) so it intrinsically fits completely 
+# inside a single Faucet UTXO object (10 SUI) without demanding Knapsack merges!
 BOB_LOCAL_AMT=5000000000
 $BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT --push_amt=100000000
 	echo "Waiting for Bob's channel to become active on $NETWORK..."

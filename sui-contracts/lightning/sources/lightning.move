@@ -21,8 +21,15 @@ module lightning::lightning {
     const EInvalidStatus: u64 = 7;
     const EInvalidLength: u64 = 8;
     const EDelayTooShort: u64 = 10;
+    const EUnauthorized: u64 = 11;
+    const EBalanceMismatch: u64 = 12;
+    const ENoBroadcaster: u64 = 13;
 
     const MIN_TO_SELF_DELAY_MS: u64 = 86_400_000; // 24 Hours Default
+
+    // Sentinel address that indicates no force-close broadcaster has been
+    // recorded yet on the Channel.
+    const NO_BROADCASTER: address = @0x0;
 
     // --- Data Structures ---
 
@@ -42,6 +49,10 @@ module lightning::lightning {
         htlcs: Table<u64, HTLC>,
         revocation_key: Option<vector<u8>>,
         revocation_hash: vector<u8>,
+        // broadcaster records which party published the force-close commitment.
+        // It is used by `claim_force_close` to enforce the to_self_delay only
+        // on the broadcaster, and by `penalize` to route funds to the victim.
+        broadcaster: address,
     }
 
     #[allow(unused_field)]
@@ -114,6 +125,7 @@ module lightning::lightning {
             htlcs: table::new(ctx),
             revocation_key: option::none(),
             revocation_hash: vector::empty<u8>(),
+            broadcaster: NO_BROADCASTER,
         };
 
         event::emit(ChannelOpenEvent {
@@ -135,12 +147,31 @@ module lightning::lightning {
         state_num: u64,
         balance_a: u64,
         balance_b: u64,
-        _sig_a: vector<u8>,
-        _sig_b: vector<u8>,
+        sig_a: vector<u8>,
+        sig_b: vector<u8>,
         ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
-        
+
+        // H-2: Only the two channel participants may trigger a cooperative close.
+        let sender = tx_context::sender(ctx);
+        assert!(sender == channel.party_a || sender == channel.party_b, EUnauthorized);
+
+        // H-3: state_num must be monotonic so a stale, previously-agreed close
+        // cannot be replayed after a newer commitment state has been reached.
+        assert!(state_num >= channel.state_num, EInvalidStateNum);
+
+        // H-4: the final balance split must not exceed the escrowed funds.
+        // The LND Bitcoin-style close path deducts a proposed fee from the
+        // output sum, so an exact equality would be too strict; the bound is
+        // instead `<=` to preserve the `coin::take` invariants while still
+        // rejecting any split that would attempt to withdraw more than what
+        // the channel actually holds.
+        assert!(
+            balance_a + balance_b <= balance::value(&channel.funding_balance),
+            EBalanceMismatch
+        );
+
         let mut preimage: vector<u8> = vector::empty();
         vector::append(&mut preimage, bcs::to_bytes(&state_num));
         vector::append(&mut preimage, bcs::to_bytes(&balance_a));
@@ -148,19 +179,19 @@ module lightning::lightning {
         let sighash = hash::sha2_256(preimage);
 
         // Ecdsa_k1 Hash ID 1 = Sha256 strict binding (equivalent to Bitcoin's Double-SHA)
-        // Since Bitcoin 2-of-2 multisig arrays are sorted lexicographically, _sig_a and _sig_b can be swapped.
+        // Since Bitcoin 2-of-2 multisig arrays are sorted lexicographically, sig_a and sig_b can be swapped.
         // We dynamically attempt both cryptographic combinations.
         let mut valid = false;
-        if (ecdsa_k1::secp256k1_verify(&_sig_a, &channel.pubkey_a, &sighash, 1) &&
-            ecdsa_k1::secp256k1_verify(&_sig_b, &channel.pubkey_b, &sighash, 1)) {
+        if (ecdsa_k1::secp256k1_verify(&sig_a, &channel.pubkey_a, &sighash, 1) &&
+            ecdsa_k1::secp256k1_verify(&sig_b, &channel.pubkey_b, &sighash, 1)) {
             valid = true;
-        } else if (ecdsa_k1::secp256k1_verify(&_sig_b, &channel.pubkey_a, &sighash, 1) &&
-                   ecdsa_k1::secp256k1_verify(&_sig_a, &channel.pubkey_b, &sighash, 1)) {
+        } else if (ecdsa_k1::secp256k1_verify(&sig_b, &channel.pubkey_a, &sighash, 1) &&
+                   ecdsa_k1::secp256k1_verify(&sig_a, &channel.pubkey_b, &sighash, 1)) {
             valid = true;
         };
         assert!(valid, EInvalidSignature);
-        
-        
+
+
         channel.balance_a = balance_a;
         channel.balance_b = balance_b;
         channel.state_num = state_num;
@@ -196,10 +227,14 @@ module lightning::lightning {
         htlc_expiries: vector<u64>,
         htlc_directions: vector<u8>,
         clock: &Clock,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         assert!(channel.status == 0, EChannelNotOpen);
         assert!(state_num >= channel.state_num, EInvalidStateNum);
+
+        // H-2: Only the two channel participants may unilaterally force close.
+        let sender = tx_context::sender(ctx);
+        assert!(sender == channel.party_a || sender == channel.party_b, EUnauthorized);
 
         let len = vector::length(&htlc_ids);
         assert!(vector::length(&htlc_amounts) == len, EInvalidLength);
@@ -221,20 +256,26 @@ module lightning::lightning {
 
         // Dynamically deduce the broadcaster by evaluating which party's public key mathematically satisfies the signature.
         // In a unilateral close, the broadcaster possesses the OTHER party's signature.
+        // C-1 / H-1: We additionally record the broadcaster so that
+        // `claim_force_close` can apply the to_self_delay only to them, and
+        // `penalize` can route slashed funds to the victim rather than to
+        // whoever submits the revocation secret.
         let mut valid = false;
         if (ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_b, &sighash, 1)) {
             // Alice broadcasted this, so local_balance is hers.
             channel.balance_a = local_balance;
             channel.balance_b = remote_balance;
+            channel.broadcaster = channel.party_a;
             valid = true;
         } else if (ecdsa_k1::secp256k1_verify(&commitment_sig, &channel.pubkey_a, &sighash, 1)) {
             // Bob broadcasted this, so local_balance is his.
             channel.balance_b = local_balance;
             channel.balance_a = remote_balance;
+            channel.broadcaster = channel.party_b;
             valid = true;
         };
         assert!(valid, EInvalidSignature);
-        
+
         channel.status = 1; // CLOSING
         
         channel.close_timestamp_ms = clock::timestamp_ms(clock);
@@ -270,25 +311,39 @@ module lightning::lightning {
         ctx: &mut TxContext
     ) {
         assert!(channel.status == 1, EInvalidStatus); // CLOSING
-        let sender = tx_context::sender(ctx);
+        assert!(channel.broadcaster != NO_BROADCASTER, ENoBroadcaster);
 
+        // H-2: Only channel participants may sweep funds after a force close.
+        let sender = tx_context::sender(ctx);
+        assert!(sender == channel.party_a || sender == channel.party_b, EUnauthorized);
+
+        // C-1: The time-lock applies to the broadcaster of the force-close
+        // commitment, not to a hard-coded party. This preserves the
+        // breach-remedy window regardless of who chose to publish the
+        // commitment on-chain.
+        if (sender == channel.broadcaster) {
+            assert!(
+                clock::timestamp_ms(clock) >=
+                    channel.close_timestamp_ms + channel.to_self_delay,
+                ENotExpired
+            );
+        };
+
+        // Sweep whichever side the caller owns. Non-broadcasters may sweep
+        // immediately; the broadcaster has already cleared the time-lock above.
         if (sender == channel.party_a) {
-            // Alice must wait for time lock!
-            assert!(clock::timestamp_ms(clock) >= channel.close_timestamp_ms + channel.to_self_delay, ENotExpired);
             let amount = channel.balance_a;
             assert!(amount > 0, EInsufficientBalance);
             channel.balance_a = 0;
             let coin_a = coin::take(&mut channel.funding_balance, amount, ctx);
             transfer::public_transfer(coin_a, sender);
-        } else if (sender == channel.party_b) {
-            // Bob claims his balance immediately
+        } else {
+            // sender == channel.party_b (asserted by the access-control check above).
             let amount = channel.balance_b;
             assert!(amount > 0, EInsufficientBalance);
             channel.balance_b = 0;
             let coin_b = coin::take(&mut channel.funding_balance, amount, ctx);
             transfer::public_transfer(coin_b, sender);
-        } else {
-            abort EInvalidSignature // Or EInvalidStatus if unauthorized
         };
 
         if (balance::value(&channel.funding_balance) == 0) {
@@ -296,7 +351,7 @@ module lightning::lightning {
         } else {
             channel.status = 1; // Still CLOSING, waiting for other party
         };
-        
+
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),
             htlc_id: 0,
@@ -313,19 +368,21 @@ module lightning::lightning {
     ) {
         let htlc = table::borrow_mut(&mut channel.htlcs, htlc_id);
         assert!(htlc.status == 0, EInvalidStatus); // PENDING
-        
+
         let hash = hash::sha2_256(preimage);
         assert!(hash == htlc.payment_hash, EInvalidPreimage);
 
         htlc.status = 1; // CLAIMED
-        
-        // Update balances based on direction.
+
+        // C-3: Only credit the receiver. The sender's balance already excluded
+        // this HTLC amount at force_close time (the signed commitment records
+        // `local_balance` / `remote_balance` net of outstanding HTLCs), so
+        // debiting the sender here would double-charge them.
+        let amount = htlc.amount;
         if (htlc.direction == 0) { // A to B
-            channel.balance_a = channel.balance_a - htlc.amount;
-            channel.balance_b = channel.balance_b + htlc.amount;
+            channel.balance_b = channel.balance_b + amount;
         } else { // B to A
-            channel.balance_b = channel.balance_b - htlc.amount;
-            channel.balance_a = channel.balance_a + htlc.amount;
+            channel.balance_a = channel.balance_a + amount;
         };
 
         event::emit(ChannelSpendEvent {
@@ -348,6 +405,16 @@ module lightning::lightning {
 
         htlc.status = 2; // TIMEOUT
 
+        // C-2: On expiry the HTLC amount must be refunded to the sender,
+        // otherwise the funds remain locked in `funding_balance` forever and
+        // no subsequent sweep can recover them.
+        let amount = htlc.amount;
+        if (htlc.direction == 0) { // A to B: refund A
+            channel.balance_a = channel.balance_a + amount;
+        } else { // B to A: refund B
+            channel.balance_b = channel.balance_b + amount;
+        };
+
         event::emit(ChannelSpendEvent {
             channel_id: object::id(channel),
             htlc_id,
@@ -362,9 +429,26 @@ module lightning::lightning {
         revocation_secret: vector<u8>,
         ctx: &mut TxContext
     ) {
+        // Penalize is only meaningful once the channel is in the CLOSING
+        // state, i.e. a force_close commitment has been broadcast and a
+        // broadcaster is on record.
+        assert!(channel.status == 1, EInvalidStatus);
+        assert!(channel.broadcaster != NO_BROADCASTER, ENoBroadcaster);
+
         // Evaluate the SHA256 of the provided `revocation_secret` against the dynamically bound hash inside the channel
         let actual_hash = hash::sha2_256(revocation_secret);
         assert!(actual_hash == channel.revocation_hash, EInvalidHash);
+
+        // H-1: Funds are slashed to the victim (the non-broadcaster), not to
+        // whoever submits the revocation secret. This removes the incentive
+        // for a third party (e.g. a watchtower) to race the honest peer, and
+        // ensures that if the secret leaks the attacker cannot steal the
+        // channel balance — at worst the victim receives their own funds.
+        let victim = if (channel.broadcaster == channel.party_a) {
+            channel.party_b
+        } else {
+            channel.party_a
+        };
 
         // If valid, confiscate all remaining state values.
         channel.balance_a = 0;
@@ -373,9 +457,8 @@ module lightning::lightning {
 
         let remaining = balance::value(&channel.funding_balance);
         if (remaining > 0) {
-            let honest_party = tx_context::sender(ctx);
             let coin_all = coin::take(&mut channel.funding_balance, remaining, ctx);
-            transfer::public_transfer(coin_all, honest_party);
+            transfer::public_transfer(coin_all, victim);
         };
 
         event::emit(ChannelSpendEvent {

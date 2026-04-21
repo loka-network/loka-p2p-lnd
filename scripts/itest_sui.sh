@@ -245,9 +245,9 @@ echo "[5/7] Bob opening channel to Alice (Single-Coin PTB Lockup Evasion Test)..
 # Bob natively holds 5 faucet coin drops. We toggle the strict ITEST override upon his daemon's boot to force his
 # LND channel funding compilation algorithm down the 1-coin SplitCoin pipeline to formally assert it!
 BOB_TOTAL_BAL=$($BOB_CLI walletbalance | jq -r '.confirmed_balance')
-# Force local_amt to 100 SUI (100,000,000,000 MIST) so it intrinsically fits completely 
-# inside a single Faucet UTXO object (200 SUI) without demanding Knapsack merges!
-BOB_LOCAL_AMT=100000000000
+# Force local_amt to 5 SUI (5,000,000,000 MIST) so it intrinsically fits completely 
+# inside a single Faucet UTXO object (10 SUI) without demanding Knapsack merges!
+BOB_LOCAL_AMT=5000000000
 $BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT
 echo "Waiting for Bob's channel to open..."
 sleep 10

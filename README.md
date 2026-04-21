@@ -202,12 +202,15 @@ lnd --chain=sui --sui.rpc=<sui-node-endpoint> ...
 | LND refactor plan                     | [1-refactor-docs/sui/lnd-sui-refactor-plan.md](1-refactor-docs/sui/lnd-sui-refactor-plan.md)     |
 | LND engineering architecture overview | [1-refactor-docs/lnd-architecture.md](1-refactor-docs/lnd-architecture.md)                 |
 | Sui ↔ LND interaction interface spec | [1-refactor-docs/sui/sui-ln-interaction-spec.md](1-refactor-docs/sui/sui-ln-interaction-spec.md) |
+| Sui adapter & Move contract security audit | [1-refactor-docs/sui/security-audit.md](1-refactor-docs/sui/security-audit.md) |
 
 ---
 
 ## Security
 
 This node is still in **beta**. For mainnet operation, please refer to the [Safe Operating Guide](docs/safety.md).
+
+A dedicated audit of the Sui adapter and the on-chain `lightning` Move module is maintained at [1-refactor-docs/sui/security-audit.md](1-refactor-docs/sui/security-audit.md). It enumerates every Critical / High / Medium / Low finding against the Sui integration, notes the remediation status of each, and lists the regression tests we recommend before mainnet. Readers reviewing the Sui backend should start there.
 
 If you discover a security vulnerability, please issue [a GitHub issue](https://github.com/loka-network/loka-p2p-lnd/issues).
 
