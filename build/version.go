@@ -52,6 +52,17 @@ const (
 	// AppPreRelease MUST only contain characters from semanticAlphabet per
 	// the semantic versioning spec.
 	AppPreRelease = "beta"
+
+	// Distribution identifies the downstream variant of this binary and is
+	// emitted as SemVer build metadata (the trailing "+xxx" segment). It is
+	// the user-visible signal that distinguishes this Sui-capable fork from
+	// upstream lnd: the version string carries "+loka-sui" anywhere lnd
+	// reports it (`lnd --version`, `lncli --version`, `lncli getinfo`,
+	// the startup log, and the verrpc RPC). Per SemVer 2.0.0, build
+	// metadata is ignored when comparing precedence, so this does not
+	// break tooling that parses the version (BOS, RTL, lndmon, etc.).
+	// Leave empty to produce a vanilla-lnd-equivalent string.
+	Distribution = "loka-sui"
 )
 
 func init() {
@@ -92,6 +103,13 @@ func Version() string {
 	// be contained in the pre-release string.
 	if AppPreRelease != "" {
 		version = fmt.Sprintf("%s-%s", version, AppPreRelease)
+	}
+
+	// Append distribution as SemVer build metadata so this fork is
+	// distinguishable from vanilla lnd in every place that prints the
+	// version string.
+	if Distribution != "" {
+		version = fmt.Sprintf("%s+%s", version, Distribution)
 	}
 
 	return version
