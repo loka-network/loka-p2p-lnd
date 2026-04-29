@@ -423,6 +423,70 @@ module lightning::lightning {
         });
     }
 
+    // -------------------------------------------------------------------
+    // Test-only helpers
+    //
+    // These functions are compiled only under `#[test_only]` and are never
+    // included in production binaries. They let unit tests drive the channel
+    // into post-force_close states without having to construct valid
+    // counterparty signatures, so the regression tests can focus on the
+    // contract's behavioural invariants (HTLC accounting, broadcaster CSV,
+    // access control) rather than on signature plumbing.
+    // -------------------------------------------------------------------
+
+    #[test_only]
+    public fun force_close_for_testing(
+        channel: &mut Channel,
+        state_num: u64,
+        local_balance: u64,
+        remote_balance: u64,
+        revocation_hash: vector<u8>,
+        broadcaster: address,
+        htlc_ids: vector<u64>,
+        htlc_amounts: vector<u64>,
+        htlc_payment_hashes: vector<vector<u8>>,
+        htlc_expiries: vector<u64>,
+        htlc_directions: vector<u8>,
+        clock: &Clock,
+    ) {
+        assert!(channel.status == 0, EChannelNotOpen);
+        channel.balance_a = local_balance;
+        channel.balance_b = remote_balance;
+        channel.state_num = state_num;
+        channel.broadcaster = broadcaster;
+        channel.status = 1; // CLOSING
+        channel.close_timestamp_ms = clock::timestamp_ms(clock);
+        channel.revocation_hash = revocation_hash;
+
+        let len = vector::length(&htlc_ids);
+        let mut i = 0;
+        while (i < len) {
+            let htlc_id = *vector::borrow(&htlc_ids, i);
+            let htlc = HTLC {
+                htlc_id,
+                amount: *vector::borrow(&htlc_amounts, i),
+                payment_hash: *vector::borrow(&htlc_payment_hashes, i),
+                expiry: *vector::borrow(&htlc_expiries, i),
+                direction: *vector::borrow(&htlc_directions, i),
+                status: 0,
+            };
+            table::add(&mut channel.htlcs, htlc_id, htlc);
+            i = i + 1;
+        };
+    }
+
+    #[test_only]
+    public fun balance_a(channel: &Channel): u64 { channel.balance_a }
+
+    #[test_only]
+    public fun balance_b(channel: &Channel): u64 { channel.balance_b }
+
+    #[test_only]
+    public fun status(channel: &Channel): u8 { channel.status }
+
+    #[test_only]
+    public fun broadcaster(channel: &Channel): address { channel.broadcaster }
+
     #[allow(lint(self_transfer))]
     public fun penalize(
         channel: &mut Channel,

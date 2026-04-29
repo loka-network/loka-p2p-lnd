@@ -69,6 +69,22 @@ if [ ! -f "$LND_BIN" ] || [ ! -f "$LNCLI_BIN" ]; then
     exit 1
 fi
 
+# Move-level regression tests must pass before we burn faucet quota on a
+# devnet/localnet roundtrip. These cover C-1/C-2/C-3 and H-2/H-4 invariants
+# (broadcaster CSV, htlc_timeout refund, htlc_claim no double-charge,
+# unauthorised close rejection, balance-sum bound). See
+# 1-refactor-docs/sui/security-audit.md for the mapping.
+echo "[2/7] Running Move unit tests (contract invariants)..."
+MOVE_TEST_LOG=$(mktemp /tmp/itest_sui_move_test.XXXXXX)
+if ! (cd sui-contracts/lightning && sui move test --build-env testnet) > "$MOVE_TEST_LOG" 2>&1; then
+    echo "Error: Move unit tests failed. Aborting end-to-end itest."
+    tail -40 "$MOVE_TEST_LOG"
+    rm -f "$MOVE_TEST_LOG"
+    exit 1
+fi
+grep -E '\[ PASS|\[ FAIL|Test result' "$MOVE_TEST_LOG" || true
+rm -f "$MOVE_TEST_LOG"
+
 echo "[2.5/7] Funding default Sui CLI address and publishing Lightning Move package..."
 
 # Dynamic conditional compilation for Testnet Timelocks

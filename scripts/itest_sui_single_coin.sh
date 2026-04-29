@@ -118,6 +118,33 @@ echo "Published Lightning Package ID: $PACKAGE_ID"
 
 echo "[2.8/7] Starting Alice and Bob LND nodes..."
 
+# Optional: extra hostnames to bake into the auto-generated lnd tls.cert
+# as Subject Alternative Names. The default cert only includes the host's
+# hostname + "localhost", which is enough for tests on the same box but
+# breaks when someone runs prism (or any other lnd client) inside a
+# container and connects via "host.docker.internal" — the gRPC handshake
+# fails with a "certificate is valid for localhost, not host.docker.internal"
+# error. Two ways to opt in:
+#
+#   DOCKER=1 ./itest_sui_single_coin.sh
+#       Convenience flag: appends "host.docker.internal" so containers
+#       reaching the host via Docker's special hostname work out of the box.
+#
+#   TLS_EXTRA_DOMAINS=host.docker.internal,prism.example.com ./itest_sui_single_coin.sh
+#       Comma-separated list. Wins over DOCKER=1 when both are set.
+TLS_EXTRA_DOMAINS="${TLS_EXTRA_DOMAINS:-}"
+if [ "${DOCKER:-0}" = "1" ] && [ -z "$TLS_EXTRA_DOMAINS" ]; then
+    TLS_EXTRA_DOMAINS="host.docker.internal"
+fi
+TLS_EXTRA_ARGS=()
+if [ -n "$TLS_EXTRA_DOMAINS" ]; then
+    IFS=',' read -ra _domains <<<"$TLS_EXTRA_DOMAINS"
+    for d in "${_domains[@]}"; do
+        TLS_EXTRA_ARGS+=("--tlsextradomain=$d")
+    done
+    echo "  → adding TLS extra domains to alice/bob certs: ${_domains[*]}"
+fi
+
 # Start Alice
 $LND_BIN \
     --lnddir="$ALICE_DIR" \
@@ -132,6 +159,7 @@ $LND_BIN \
     --protocol.no-anchors \
     --noseedbackup \
     --maxpendingchannels=10 \
+    "${TLS_EXTRA_ARGS[@]}" \
     > "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
 
@@ -149,6 +177,7 @@ $LND_BIN \
     --protocol.no-anchors \
     --noseedbackup \
     --maxpendingchannels=10 \
+    "${TLS_EXTRA_ARGS[@]}" \
     > "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!
 

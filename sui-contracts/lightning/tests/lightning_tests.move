@@ -209,7 +209,314 @@ module lightning::lightning_tests {
             revocation_secret,
             test_scenario::ctx(scenario)
         );
-        
+
+        test_scenario::return_shared(channel);
+        test_scenario::end(scenario_val);
+    }
+
+    // -------------------------------------------------------------------
+    // Regression tests for the Critical / High audit findings (C-1..C-3,
+    // H-2, H-4). Each test exercises one invariant in isolation. Tests that
+    // need a CLOSING-state Channel use the test-only helper
+    // `force_close_for_testing` to avoid rebuilding counterparty signatures
+    // for every scenario.
+    // -------------------------------------------------------------------
+
+    const CHARLIE: address = @0xC4A12;
+
+    // 32-byte revocation hash whose preimage is 32 bytes of 0x22 (matches
+    // `revocation_secret` used in test_penalize above).
+    const REV_HASH: vector<u8> = x"9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4";
+
+    // Convenience: open a fresh channel funded by ALICE for `funding_amt`
+    // MIST and return control to ALICE in the next tx.
+    fun open_fresh_channel(
+        scenario: &mut test_scenario::Scenario,
+        funding_amt: u64,
+    ) {
+        test_scenario::next_tx(scenario, ALICE);
+        let coin = coin::mint_for_testing<SUI>(
+            funding_amt + 1000, test_scenario::ctx(scenario),
+        );
+        lightning::open_channel(
+            vector[coin],
+            funding_amt,
+            ALICE_PUBKEY,
+            BOB_PUBKEY,
+            BOB,
+            86_400_000,
+            test_scenario::ctx(scenario),
+        );
+    }
+
+    // ---- C-2: htlc_timeout refunds the HTLC amount to the sender ------
+    #[test]
+    fun test_htlc_timeout_refund() {
+        let mut scenario_val = test_scenario::begin(ALICE);
+        let scenario = &mut scenario_val;
+
+        let funding_amt = 10_000;
+        open_fresh_channel(scenario, funding_amt);
+
+        test_scenario::next_tx(scenario, ALICE);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
+        let mut clock_ = clock::create_for_testing(test_scenario::ctx(scenario));
+
+        // Drive into CLOSING with one A->B HTLC of 3_000 outstanding.
+        // local_balance/remote_balance reflect the commitment net-of-HTLCs:
+        // funding 10_000 = 5_000 (A) + 2_000 (B) + 3_000 (HTLC).
+        let htlc_amt = 3_000u64;
+        let htlc_hash =
+            x"0000000000000000000000000000000000000000000000000000000000000001";
+        lightning::force_close_for_testing(
+            &mut channel,
+            5,
+            5_000,           // balance_a
+            2_000,           // balance_b
+            REV_HASH,
+            ALICE,           // broadcaster
+            vector[1u64],
+            vector[htlc_amt],
+            vector[htlc_hash],
+            vector[1_000u64],
+            vector[0u8],     // direction A->B
+            &clock_,
+        );
+
+        // HTLC expiry is 1_000ms; advance clock past it.
+        clock::set_for_testing(&mut clock_, 5_000);
+
+        lightning::htlc_timeout(
+            &mut channel,
+            1,
+            &clock_,
+            test_scenario::ctx(scenario),
+        );
+
+        // The sender (A) should have been refunded by htlc_amt.
+        assert!(lightning::balance_a(&channel) == 5_000 + htlc_amt, 0);
+        assert!(lightning::balance_b(&channel) == 2_000, 1);
+
+        clock::destroy_for_testing(clock_);
+        test_scenario::return_shared(channel);
+        test_scenario::end(scenario_val);
+    }
+
+    // ---- C-3: htlc_claim credits only the receiver, never debits sender
+    #[test]
+    fun test_htlc_claim_credits_receiver_only() {
+        let mut scenario_val = test_scenario::begin(ALICE);
+        let scenario = &mut scenario_val;
+
+        let funding_amt = 10_000;
+        open_fresh_channel(scenario, funding_amt);
+
+        test_scenario::next_tx(scenario, ALICE);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
+        let clock_ = clock::create_for_testing(test_scenario::ctx(scenario));
+
+        // sha256(0xAA repeated 32 times)
+        let preimage =
+            x"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let payment_hash =
+            x"e0e77a507412b120f6ede61f62295b1a7b2ff19d3dcc8f7253e51663470c888e";
+        let htlc_amt = 3_000u64;
+
+        // Same accounting as test_htlc_timeout_refund.
+        lightning::force_close_for_testing(
+            &mut channel,
+            5,
+            5_000,
+            2_000,
+            REV_HASH,
+            ALICE,
+            vector[1u64],
+            vector[htlc_amt],
+            vector[payment_hash],
+            vector[1_000u64],
+            vector[0u8],
+            &clock_,
+        );
+
+        let pre_a = lightning::balance_a(&channel);
+        let pre_b = lightning::balance_b(&channel);
+
+        lightning::htlc_claim(
+            &mut channel,
+            1,
+            preimage,
+            test_scenario::ctx(scenario),
+        );
+
+        // A's balance MUST be unchanged (no double-charge); B receives htlc_amt.
+        assert!(lightning::balance_a(&channel) == pre_a, 0);
+        assert!(lightning::balance_b(&channel) == pre_b + htlc_amt, 1);
+
+        clock::destroy_for_testing(clock_);
+        test_scenario::return_shared(channel);
+        test_scenario::end(scenario_val);
+    }
+
+    // ---- H-2: third party cannot trigger close_channel ----------------
+    // Aborts with EUnauthorized (= 11) declared in the lightning module.
+    #[test]
+    #[expected_failure(abort_code = 11, location = lightning)]
+    fun test_unauthorized_third_party_close_rejected() {
+        let mut scenario_val = test_scenario::begin(ALICE);
+        let scenario = &mut scenario_val;
+
+        let funding_amt = 10_000;
+        open_fresh_channel(scenario, funding_amt);
+
+        // Unrelated third party tries to coop-close the channel.
+        test_scenario::next_tx(scenario, CHARLIE);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
+
+        // Signatures here are placeholder — execution must abort at the
+        // sender-identity check, before signature verification.
+        lightning::close_channel(
+            &mut channel,
+            0,
+            5_000,
+            5_000,
+            b"not-a-real-sig",
+            b"not-a-real-sig",
+            test_scenario::ctx(scenario),
+        );
+
+        test_scenario::return_shared(channel);
+        test_scenario::end(scenario_val);
+    }
+
+    // ---- H-4: close_channel rejects splits exceeding funding ----------
+    // Aborts with EBalanceMismatch (= 12) declared in the lightning module.
+    #[test]
+    #[expected_failure(abort_code = 12, location = lightning)]
+    fun test_close_channel_rejects_excess_balance() {
+        let mut scenario_val = test_scenario::begin(ALICE);
+        let scenario = &mut scenario_val;
+
+        let funding_amt = 10_000;
+        open_fresh_channel(scenario, funding_amt);
+
+        test_scenario::next_tx(scenario, ALICE);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
+
+        // 8_000 + 8_000 > 10_000: must abort with EBalanceMismatch even
+        // before signature verification runs.
+        lightning::close_channel(
+            &mut channel,
+            0,
+            8_000,
+            8_000,
+            b"not-a-real-sig",
+            b"not-a-real-sig",
+            test_scenario::ctx(scenario),
+        );
+
+        test_scenario::return_shared(channel);
+        test_scenario::end(scenario_val);
+    }
+
+    // ---- C-1: claim_force_close enforces CSV only on the broadcaster --
+    #[test]
+    fun test_claim_force_close_broadcaster_must_wait() {
+        let mut scenario_val = test_scenario::begin(ALICE);
+        let scenario = &mut scenario_val;
+
+        let funding_amt = 10_000;
+        open_fresh_channel(scenario, funding_amt);
+
+        test_scenario::next_tx(scenario, ALICE);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
+        let mut clock_ = clock::create_for_testing(test_scenario::ctx(scenario));
+
+        // Alice broadcasts the force-close. With ALICE as broadcaster:
+        //   * BOB (non-broadcaster) may sweep immediately.
+        //   * ALICE (broadcaster) must wait for to_self_delay.
+        lightning::force_close_for_testing(
+            &mut channel,
+            5,
+            6_000,
+            4_000,
+            REV_HASH,
+            ALICE, // broadcaster
+            vector::empty<u64>(),
+            vector::empty<u64>(),
+            vector::empty<vector<u8>>(),
+            vector::empty<u64>(),
+            vector::empty<u8>(),
+            &clock_,
+        );
+
+        // BOB sweeps before any time has passed — should succeed.
+        test_scenario::next_tx(scenario, BOB);
+        lightning::claim_force_close(
+            &mut channel,
+            &clock_,
+            test_scenario::ctx(scenario),
+        );
+        assert!(lightning::balance_b(&channel) == 0, 0);
+        // Alice's balance still locked behind the time-lock.
+        assert!(lightning::balance_a(&channel) == 6_000, 1);
+        assert!(lightning::status(&channel) == 1, 2); // still CLOSING
+
+        // Advance clock past to_self_delay (24h) + record close offset.
+        clock::set_for_testing(&mut clock_, 86_400_000 + 1);
+
+        // ALICE (broadcaster) sweeps after the wait.
+        test_scenario::next_tx(scenario, ALICE);
+        lightning::claim_force_close(
+            &mut channel,
+            &clock_,
+            test_scenario::ctx(scenario),
+        );
+        assert!(lightning::balance_a(&channel) == 0, 3);
+        assert!(lightning::status(&channel) == 2, 4); // CLOSED
+
+        clock::destroy_for_testing(clock_);
+        test_scenario::return_shared(channel);
+        test_scenario::end(scenario_val);
+    }
+
+    // ---- C-1 negative path: broadcaster cannot sweep before CSV -------
+    // Aborts with ENotExpired (= 5) declared in the lightning module.
+    #[test]
+    #[expected_failure(abort_code = 5, location = lightning)]
+    fun test_claim_force_close_broadcaster_too_early() {
+        let mut scenario_val = test_scenario::begin(ALICE);
+        let scenario = &mut scenario_val;
+
+        let funding_amt = 10_000;
+        open_fresh_channel(scenario, funding_amt);
+
+        test_scenario::next_tx(scenario, ALICE);
+        let mut channel = test_scenario::take_shared<Channel>(scenario);
+        let clock_ = clock::create_for_testing(test_scenario::ctx(scenario));
+
+        lightning::force_close_for_testing(
+            &mut channel,
+            5,
+            6_000,
+            4_000,
+            REV_HASH,
+            ALICE,
+            vector::empty<u64>(),
+            vector::empty<u64>(),
+            vector::empty<vector<u8>>(),
+            vector::empty<u64>(),
+            vector::empty<u8>(),
+            &clock_,
+        );
+
+        // ALICE tries to sweep immediately — must abort with ENotExpired.
+        lightning::claim_force_close(
+            &mut channel,
+            &clock_,
+            test_scenario::ctx(scenario),
+        );
+
+        clock::destroy_for_testing(clock_);
         test_scenario::return_shared(channel);
         test_scenario::end(scenario_val);
     }

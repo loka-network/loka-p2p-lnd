@@ -128,16 +128,24 @@ Overall, the Move contract implements the on-chain arbiter behaviour required by
 
 ## Medium Findings (open)
 
-### M-1. `open_channel` does not bind `party_b` to `pubkey_b` cryptographically
+### M-1. ~~`open_channel` does not bind `party_b` to `pubkey_b` cryptographically~~ — Withdrawn (matches BTC LN by design)
 
-- Location: `lightning.move:75-127`
-- Observation: the initiator can supply arbitrary `pubkey_a`, `pubkey_b` and `party_b`. The contract overrides `party_a` with `tx_context::sender(ctx)` but does not check that `pubkey_a` derives to `party_a`, nor that `pubkey_b` derives to `party_b`.
-- Risk:
-  - An initiator can open a channel whose `pubkey_b` they secretly control (by holding the matching private key). That channel cannot be used adversarially against the real counterparty — who was never a party to it — but it can be used to fabricate a "channel with X" record on-chain without X's consent.
-  - The legitimate counterparty cannot cryptographically confirm, purely from an on-chain event, that a newly-opened channel lists them as a participant.
-- Recommendation:
-  - Enforce Sui address derivation: `assert!(derive_address(pubkey_b) == party_b)` and `assert!(derive_address(pubkey_a) == tx_context::sender(ctx))`.
-  - Alternatively introduce a `party_b_ack(channel_id, sig_b)` entry and keep the channel in a pending state until `party_b` explicitly opts in; only after that transition to `OPEN`.
+- Original concern: the initiator can supply arbitrary `pubkey_a`, `pubkey_b` and `party_b`; the contract does not enforce that `pubkey_b` derives to `party_b`.
+- **Re-evaluation**: this exactly matches the on-chain behaviour of Bitcoin Lightning. BTC LN's `funding_tx` is also broadcast unilaterally by the initiator, who can lock funds into any 2-of-2 multisig script she chooses; Bitcoin nodes never check that the multisig keys correspond to specific identities. Counterparty attestation is **not** an on-chain concern in BOLT design — it is delegated to the gossip layer.
+- **Why the gossip layer is sufficient**: BOLT-7 `channel_announcement` requires four signatures: `node_signature_1`, `node_signature_2`, `bitcoin_signature_1`, `bitcoin_signature_2`. A malicious initiator who fabricates a "channel with Bob" cannot produce `node_signature_2` (Bob's node identity key) nor `bitcoin_signature_2` (Bob's funding multisig key). The announcement is rejected by every receiving node and the fabricated channel never enters anyone's `graph.db`. The Sui adapter inherits this mechanism unchanged: `discovery/gossiper.go:2664-2671` rejects any announcement whose `chain_hash` doesn't match the local `GenesisHash`, and the four-signature check applies before persistence.
+- **Funds risk**: zero. Even if a malicious initiator opens a channel with a self-controlled "Bob" pubkey, she still has to lock real SUI into the `funding_balance`. To reclaim those funds she must produce both signatures at close time — but she only controls `pubkey_a`'s private key. The funds are self-locked.
+- **Verdict**: this is a BOLT design choice, not a Sui-adaptation defect. No fix planned.
+
+### M-1bis (was task 2). Single-RPC trust surface — deferred to post-mainnet hardening
+
+- Location: `chainntnfs/suinotify/rpc_client.go`, `lnwallet/suiwallet/suiwallet.go`
+- Observation: the node currently consumes Sui state through a single configured RPC endpoint (e.g. `https://fullnode.devnet.sui.io:443`). Finality, object reads, and event subscriptions are all derived from that single source. A malicious or compromised RPC could feed forged "channel closed" events, suppress real `force_close` notifications past the watchtower's CSV window, or rate-limit critical reads at adversarial moments.
+- Risk profile against the major hosted endpoints (Mysten Labs, Triton, etc.):
+  - **TLS interception**: low — HTTPS with proper certificate validation.
+  - **Single-host compromise**: low but nonzero, especially under DDoS pressure or operator account takeover.
+  - **Liveness / rate limiting**: realistic — public fullnodes throttle, and missed `force_close` notifications during a CSV window are a direct breach-remedy failure mode.
+- Recommendation (post-mainnet): introduce N-of-M RPC quorum verification in `chainntnfs/suinotify/rpc_client.go`. Treat finality as confirmed only when multiple independent fullnodes agree on the same `transaction_digest` and `checkpoint`, and treat object reads similarly. Configuration via `lncfg/sui.go` (`Sui.PrimaryRPC`, `Sui.SecondaryRPCs []string`, `Sui.QuorumThreshold int`).
+- **Status**: deferred. Acceptable for testnet / early mainnet under a single Mysten Labs–operated endpoint plus a single backup. Re-prioritise once the node carries non-trivial mainnet capital.
 
 ### M-2. Events lack `party_a` / `party_b` / `broadcaster` / balance fields
 
@@ -222,15 +230,19 @@ Double SHA-256: the Go signer computes `sha256(sha256(preimage))` (see `suisigne
 | 4 | Post-release hardening | M-1 (party ↔ pubkey binding), M-2 (event fields), M-5 (suinotify dedup) |
 | 5 | Post-release hardening | M-3, M-4, and all Low findings |
 
-## Recommended Regression Tests
+## Regression Test Status
 
-1. `test_force_close_then_penalize_party_b_broadcaster` — Bob broadcasts an old state; Alice must recover funds via `penalize` before Bob can drain anything.
-2. `test_htlc_timeout_refund` — after an HTLC times out, the sender's balance increases and `claim_force_close` pays out correctly.
-3. `test_htlc_claim_does_not_double_charge` — `htlc_claim` credits the receiver only; the sender's balance is unchanged.
-4. `test_unauthorized_third_party_close_rejected` — a non-participant calling `force_close` / `close_channel` fails with `EUnauthorized`.
-5. `test_coop_close_rejects_stale_state_num` — state_num monotonicity.
-6. `test_penalize_reward_to_non_broadcaster` — payout goes to the victim regardless of the caller.
-7. `test_close_channel_balance_sum_check` — splits that exceed funding are rejected.
+Six new Move unit tests have landed in `sui-contracts/lightning/tests/lightning_tests.move`, complementing the four pre-existing tests. End-to-end coverage continues to come from `scripts/itest_sui.sh` (cooperative close, force-close + CSV sweep, breach + justice transaction). The mapping below shows where each invariant is exercised.
+
+| # | Invariant | Where it is tested | Status |
+| - | --------- | ------------------ | ------ |
+| 1 | `force_close` + broadcaster CSV (C-1) | `test_claim_force_close_broadcaster_must_wait`, `test_claim_force_close_broadcaster_too_early` (Move) + `itest_sui.sh` Alice-broadcasts force-close path | ✅ |
+| 2 | `htlc_timeout` refunds the sender (C-2) | `test_htlc_timeout_refund` (Move) | ✅ |
+| 3 | `htlc_claim` credits receiver only, no double-charge (C-3) | `test_htlc_claim_credits_receiver_only` (Move) | ✅ |
+| 4 | Third-party `close_channel` rejected (H-2) | `test_unauthorized_third_party_close_rejected` (Move) | ✅ |
+| 5 | Coop close `state_num` monotonicity (H-3) | Defence-in-depth — current code paths cannot reach a state where `channel.state_num > 0` while `status == OPEN`, so the assertion is unreachable in unit-test form. The check is retained for forward compatibility (e.g. when state-num-advancing operations are added in OPEN state). | ⚠️ no test |
+| 6 | `penalize` pays the victim, not the caller (H-1) | `itest_sui.sh` watchtower / breach scenario — Bob's wallet receives the slashed funds | ✅ |
+| 7 | `close_channel` balance-sum bound (H-4) | `test_close_channel_rejects_excess_balance` (Move) | ✅ |
 
 ## References
 
