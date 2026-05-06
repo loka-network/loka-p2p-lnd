@@ -55,7 +55,7 @@ BOB_RPC=10010
 echo "=== Sui LND Integration Test ($NETWORK) ==="
 
 # 1. Clean up from previous runs
-echo "[1/7] Cleaning up previous test state..."
+echo "[1/8] Cleaning up previous test state..."
 rm -rf "$ALICE_DIR" "$BOB_DIR"
 mkdir -p "$ALICE_DIR" "$BOB_DIR"
 
@@ -70,7 +70,7 @@ if [ ! -f "$LND_BIN" ] || [ ! -f "$LNCLI_BIN" ]; then
     exit 1
 fi
 
-echo "[2.5/7] Funding default Sui CLI address and publishing Lightning Move package..."
+echo "[2.5/8] Funding default Sui CLI address and publishing Lightning Move package..."
 
 # Dynamic conditional compilation for Testnet Timelocks
 if [ "$ITEST_SUI_FAST_SWEEP" == "1" ]; then
@@ -116,7 +116,7 @@ if [ -z "$PACKAGE_ID" ] || [ "$PACKAGE_ID" == "null" ]; then
 fi
 echo "Published Lightning Package ID: $PACKAGE_ID"
 
-echo "[2.8/7] Starting Alice and Bob LND nodes..."
+echo "[2.8/8] Starting Alice and Bob LND nodes..."
 
 # Optional: extra hostnames to bake into the auto-generated lnd tls.cert
 # as Subject Alternative Names. The default cert only includes the host's
@@ -145,6 +145,16 @@ if [ -n "$TLS_EXTRA_DOMAINS" ]; then
     echo "  → adding TLS extra domains to alice/bob certs: ${_domains[*]}"
 fi
 
+# --allow-circular-route is required for self-payments to settle on a
+# minimal alice ↔ bob topology (the HTLC has to come back through the
+# same channel it left). Without this flag, htlcswitch.go:1161 rejects
+# the return hop with "OutgoingFailureCircularRoute → TemporaryChannelFailure"
+# and the pathfinder bails out with FAILURE_REASON_NO_ROUTE.
+#
+# Self-payment is exercised by step [8/8] below and is also a common
+# real-world pattern when an LNbits-backed app pays a paywall on the
+# same lnd it's funded from (e.g. agents-pay-service + Prism share Alice).
+
 # Start Alice
 $LND_BIN \
     --lnddir="$ALICE_DIR" \
@@ -159,6 +169,7 @@ $LND_BIN \
     --protocol.no-anchors \
     --noseedbackup \
     --maxpendingchannels=10 \
+    --allow-circular-route \
     "${TLS_EXTRA_ARGS[@]}" \
     > "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
@@ -177,6 +188,7 @@ $LND_BIN \
     --protocol.no-anchors \
     --noseedbackup \
     --maxpendingchannels=10 \
+    --allow-circular-route \
     "${TLS_EXTRA_ARGS[@]}" \
     > "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!
@@ -224,7 +236,7 @@ for i in {1..30}; do
 done
 
 # 3. Requesting coins for Alice on Sui Devnet
-echo "[3/7] Generating address and requesting Sui Faucet for Alice..."
+echo "[3/8] Generating address and requesting Sui Faucet for Alice..."
 ALICE_ADDR=$($ALICE_CLI newaddress p2wkh | jq -r '.address')
 ALICE_PUBKEY=$($ALICE_CLI getinfo | jq -r '.identity_pubkey')
 echo "Alice Pubkey: $ALICE_PUBKEY"
@@ -252,7 +264,7 @@ echo "Checking Alice's wallet balance..."
 $ALICE_CLI walletbalance
 
 # 4. Connecting Alice to Bob
-echo "[4/7] Connecting Alice to Bob..."
+echo "[4/8] Connecting Alice to Bob..."
 BOB_PUBKEY=$($BOB_CLI getinfo | jq -r '.identity_pubkey')
 echo "Bob Pubkey: $BOB_PUBKEY"
 
@@ -277,7 +289,7 @@ echo "Checking Bob's UTXO count to verify Single-Coin PTB test prerequisite..."
 BOB_UTXO_COUNT=$($BOB_CLI listunspent | jq '.utxos | length')
 echo "Bob UTXO Count: $BOB_UTXO_COUNT (Should be exactly 1)"
 
-echo "[5/7] Bob opening channel to Alice (Native Single-Coin PTB Test)..."
+echo "[5/8] Bob opening channel to Alice (Native Single-Coin PTB Test)..."
 # Bob natively holds exactly 1 coin drop transferred dynamically from the root script CLI.
 BOB_TOTAL_BAL=$($BOB_CLI walletbalance | jq -r '.confirmed_balance')
 # Force local_amt to 5 SUI (5,000,000,000 MIST) so it intrinsically fits completely 
@@ -295,19 +307,110 @@ $BOB_CLI openchannel --node_key=$ALICE_PUBKEY --local_amt=$BOB_LOCAL_AMT --push_
 	    sleep 2
 	done
 
+# 5b. Open a SECOND channel (Alice → Bob).
+#
+# Self-payment requires the path-finder to construct alice → bob → alice. With
+# only ONE channel, lnd's getOutgoingBalance reports "insufficient_balance"
+# even though raw capacity exists, because the same channel is counted on
+# both hops. Two channels give the path-finder two distinct edges to choose
+# from (one outgoing, one returning) and the cycle resolves cleanly.
+#
+# We push a small amount to Bob so both sides have liquidity for whichever
+# direction the path-finder picks at runtime.
+echo "[5b/8] Alice opening a second channel back to Bob (for self-payment routing)..."
+ALICE_LOCAL_AMT_2=2000000000
+$ALICE_CLI openchannel --node_key=$BOB_PUBKEY --local_amt=$ALICE_LOCAL_AMT_2 --push_amt=200000000
+for i in {1..30}; do
+    ACTIVE_C=$($ALICE_CLI listchannels | jq -r '.channels | length')
+    if [ "$ACTIVE_C" -ge "2" ]; then
+        echo "Both channels are operational ($ACTIVE_C active)!"; sleep 3
+        break
+    fi
+    echo "Polling for 2 active channels... Current: $ACTIVE_C"
+    sleep 2
+done
+
 # 6. Verification
-echo "[6/7] Verifying Channel..."
+echo "[6/8] Verifying Channel..."
 $ALICE_CLI pendingchannels
 $ALICE_CLI listchannels
 
-# 7. Payment Test
-echo "[7/7] Testing Lightning Routing (Bob -> Alice)..."
+# 7. Payment Test (cross-wallet: Bob -> Alice)
+echo "[7/8] Testing Lightning Routing (Bob -> Alice)..."
 INVOICE=$($ALICE_CLI addinvoice --amt=1000 --memo="single-coin-test" | jq -r '.payment_request')
 echo "Alice Invoice: $INVOICE"
 $BOB_CLI payinvoice --pay_req="$INVOICE" --force
 
 echo "Bob Channel Balance post-payment:"
 $BOB_CLI channelbalance
+
+# 8. Self-Payment Test (Alice -> Alice via Bob, requires --allow-circular-route)
+#
+# Why this matters: when an LNbits-backed app like agents-pay-service is
+# co-deployed with a paywall (e.g. Prism) on the same lnd, every L402
+# payment looks like a self-payment to lnd. Without --allow-circular-route
+# the htlcswitch rejects the return hop. With it, the HTLC routes
+# alice -> bob -> alice through the same channel and settles cleanly.
+echo "[8/8] Testing Self-Payment (Alice -> Alice via Bob)..."
+SELF_INVOICE_JSON=$($ALICE_CLI addinvoice --amt=2000 --memo="self-payment-itest")
+SELF_INVOICE=$(echo "$SELF_INVOICE_JSON" | jq -r '.payment_request')
+SELF_RHASH=$(echo "$SELF_INVOICE_JSON" | jq -r '.r_hash')
+echo "Alice Self-Invoice (rhash $SELF_RHASH): $SELF_INVOICE"
+
+# Reset mission control so prior failures don't poison this attempt.
+$ALICE_CLI resetmc > /dev/null 2>&1 || true
+
+# sendpayment is the streaming v2 RPC; --allow_self_payment lifts the
+# router_backend rejection check, --force skips the confirmation prompt,
+# --json gives us machine-parseable output. lncli streams progress updates
+# as separate pretty-printed JSON objects (multi-line each), so we capture
+# everything and use jq to read the LAST top-level object's status —
+# `jq -s 'last'` slurps the stream into an array, then takes the tail.
+SELF_RAW=$(timeout 35 $ALICE_CLI sendpayment \
+    --pay_req="$SELF_INVOICE" \
+    --allow_self_payment \
+    --force \
+    --timeout 30s \
+    --json 2>/dev/null || true)
+
+SELF_LAST=$(echo "$SELF_RAW" | jq -s 'last' 2>/dev/null || echo '{}')
+SELF_STATUS=$(echo "$SELF_LAST" | jq -r '.status // "PARSE_ERROR"')
+SELF_PREIMAGE=$(echo "$SELF_LAST" | jq -r '.payment_preimage // ""')
+
+# Belt-and-suspenders fallback: if --json parsing failed but the witness
+# cache shows the preimage was registered for this rhash, treat as success.
+# This catches lncli output-format quirks without papering over real failures.
+if [ "$SELF_STATUS" = "PARSE_ERROR" ] && \
+   grep -q "Adding preimage=.*for $SELF_RHASH" "$ALICE_DIR/lnd.log" 2>/dev/null; then
+    echo "(parsed lncli output failed, but alice witness cache confirms preimage — treating as success)"
+    SELF_STATUS="SUCCEEDED"
+    SELF_PREIMAGE=$(grep "Adding preimage=.*for $SELF_RHASH" "$ALICE_DIR/lnd.log" \
+                    | tail -1 | sed -nE 's/.*preimage=([0-9a-f]+) .*/\1/p')
+fi
+
+echo "Self-payment status:   $SELF_STATUS"
+echo "Self-payment preimage: $SELF_PREIMAGE"
+
+if [ "$SELF_STATUS" != "SUCCEEDED" ]; then
+    echo ""
+    echo "❌ Self-payment FAILED — expected status=SUCCEEDED, got '$SELF_STATUS'"
+    echo "   Last lncli object: $SELF_LAST"
+    echo ""
+    echo "   Common causes:"
+    echo "     • lnd not started with --allow-circular-route (check this script's"
+    echo "       LND_BIN args — both alice and bob need it)"
+    echo "     • SUI chain RPC degraded — getinfo / sendpayment return pprof body"
+    echo "       (see paycli/docs/integration-test.md § \"When SUI chain RPC drifts\")"
+    exit 1
+fi
+
+if [ -z "$SELF_PREIMAGE" ] || [ "$SELF_PREIMAGE" = "null" ] || \
+   [ "$SELF_PREIMAGE" = "0000000000000000000000000000000000000000000000000000000000000000" ]; then
+    echo "❌ Self-payment status was SUCCEEDED but preimage is empty/zero — fail"
+    exit 1
+fi
+
+echo "✓ Self-payment SUCCEEDED with non-zero preimage"
 
 echo "=== Sui LND Integration Test SUCCESS ==="
 
