@@ -1283,6 +1283,27 @@ func (r *ChannelRouter) sendPayment(ctx context.Context,
 	// calculate the required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
+		// PreparePayment has already InitPayment'd this payment in the
+		// control tower (StatusInitiated/InFlight). If we just return
+		// the err here, the DB row stays InFlight forever — payment
+		// subscribers never see a terminal status, the gRPC stream
+		// hangs, and the wallet driver's optimistic balance debit is
+		// not refundable until something flips the row.
+		//
+		// This actually triggers in real life on lnd-sui where the SUI
+		// chain RPC sometimes returns a debug-pprof HTML page instead
+		// of JSON; the error here propagates as a "JSON decode error:
+		// ... <html>" but the payment record is left dangling.
+		//
+		// Mark the payment failed with reason=Error so the control
+		// tower notifies subscribers and clients can act on it.
+		if failErr := r.cfg.Control.FailPayment(
+			ctx, identifier, paymentsdb.FailureReasonError,
+		); failErr != nil {
+			log.Errorf("Unable to mark payment %x failed after "+
+				"GetBestBlock error (%v): %v",
+				identifier, err, failErr)
+		}
 		return [32]byte{}, nil, err
 	}
 
