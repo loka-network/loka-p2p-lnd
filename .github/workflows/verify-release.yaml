@@ -22,7 +22,7 @@ jobs:
           VERSION: ${{ inputs.version || github.event.release.tag_name }}
         run: |
           docker run --rm --entrypoint="" \
-            lightninglabs/lnd:${VERSION} \
+            hetuorg/lnd:${VERSION} \
             /verify-install.sh ${VERSION}
 
       - name: Set release back to draft on failure

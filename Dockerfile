@@ -10,7 +10,7 @@ ENV GODEBUG netdns=cgo
 # image to be built from a specified Git state.  The default image
 # will use the Git tip of master by default.
 ARG checkout="master"
-ARG git_url="https://github.com/lightningnetwork/lnd"
+ARG git_url="https://github.com/loka-network/loka-p2p-lnd"
 
 # Install dependencies and build the binaries.
 RUN apk add --no-cache --update alpine-sdk \

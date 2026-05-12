@@ -13,7 +13,7 @@ defaults:
     shell: bash
 
 env:
-  DOCKER_REPO: lightninglabs
+  DOCKER_REPO: hetuorg
   DOCKER_IMAGE: lnd
 
 jobs:
