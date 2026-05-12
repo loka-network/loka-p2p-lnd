@@ -51,8 +51,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           name: lnd ${{ env.RELEASE_VERSION }}
-          draft: true
-          prerelease: false
+          draft: false
+          # Auto-flag as pre-release when the tag carries a SemVer
+          # pre-release suffix (anything after a hyphen, e.g.
+          # "-beta.loka.1", "-rc.1"). A plain "vX.Y.Z" tag is treated
+          # as stable and becomes eligible for GitHub's "latest"
+          # auto-selection.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: lnd-${{ env.RELEASE_VERSION }}/*
           body: |
             # Database Migrations
@@ -82,7 +87,9 @@ jobs:
             go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lncli
             ```
 
-            The `-mod=vendor` flag tells the `go build` command that it doesn't need to fetch the dependencies, and instead, they're all enclosed in the local vendor directory. 
+            The `-mod=vendor` flag tells the `go build` command that it doesn't need to fetch the dependencies, and instead, they're all enclosed in the local vendor directory.
+
+            > Note: `github.com/lightningnetwork/lnd` in the `-ldflags` above is the **Go module path** declared in `go.mod`, not a repository URL. It is intentionally inherited from upstream so all existing `import` paths remain valid; the source itself lives at <https://github.com/loka-network/loka-p2p-lnd>.
 
             Additionally, it's now possible to use the [enclosed `release.sh` script](https://github.com/loka-network/loka-p2p-lnd/blob/master/scripts/release.sh) to bundle a release for a _specific_ system like so:
 
