@@ -11,7 +11,7 @@ set -e
 
 LND_VERSION_REGEX="lnd version (.+) commit"
 PKG="github.com/lightningnetwork/lnd"
-PACKAGE=lnd
+PACKAGE=loka-lnd
 
 # Needed for setting file timestamps to get reproducible archives.
 BUILD_DATE="2020-01-01 00:00:00"
@@ -231,7 +231,7 @@ required Go version ($goversion)."
   done
 
   # Add the hash of the packages too, then sort by the second column (name).
-  shasum -a 256 lnd-* vendor* >> "manifest-$tag.txt"
+  shasum -a 256 "${PACKAGE}-"* vendor* >> "manifest-$tag.txt"
   LC_ALL=C sort -k2 -o "manifest-$tag.txt" "manifest-$tag.txt"
   cat "manifest-$tag.txt"
 }

@@ -50,7 +50,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: lnd ${{ env.RELEASE_VERSION }}
+          name: loka-lnd ${{ env.RELEASE_VERSION }}
           draft: false
           # Auto-flag as pre-release when the tag carries a SemVer
           # pre-release suffix (anything after a hyphen, e.g.
@@ -58,7 +58,7 @@ jobs:
           # as stable and becomes eligible for GitHub's "latest"
           # auto-selection.
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: lnd-${{ env.RELEASE_VERSION }}/*
+          files: loka-lnd-${{ env.RELEASE_VERSION }}/*
           body: |
             # Database Migrations
             TODO
@@ -76,12 +76,12 @@ jobs:
             # Building the Contained Release
 
             Users are able to rebuild the target release themselves without having to fetch any of the dependencies. In order to do so, assuming
-            that `vendor.tar.gz` and `lnd-source-${{ env.RELEASE_VERSION }}.tar.gz` are in the current directory, follow these steps:
+            that `vendor.tar.gz` and `loka-lnd-source-${{ env.RELEASE_VERSION }}.tar.gz` are in the current directory, follow these steps:
 
             ```
-            tar -xvzf lnd-source-${{ env.RELEASE_VERSION }}.tar.gz
-            mv vendor.tar.gz lnd-source/
-            cd lnd-source
+            tar -xvzf loka-lnd-source-${{ env.RELEASE_VERSION }}.tar.gz
+            mv vendor.tar.gz loka-lnd-source/
+            cd loka-lnd-source
             tar -xvzf vendor.tar.gz
             go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lnd
             go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lncli
