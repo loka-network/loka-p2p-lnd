@@ -125,6 +125,13 @@ function check_tag_correct() {
     lnd_version="v${BASH_REMATCH[1]}"
     green "version: $lnd_version"
 
+    # Strip any SemVer build metadata (everything after '+') before
+    # comparing to the tag. Per SemVer 2.0.0, build metadata is ignored
+    # for precedence, and git tags conventionally omit it. The fork
+    # injects "+loka-sui" via build.Distribution, which would otherwise
+    # always fail this check.
+    lnd_version="${lnd_version%%+*}"
+
     # If tag contains a release candidate suffix, append this suffix to the
     # lnd reported version before we compare.
     RC_REGEX="-rc[0-9]+$"
