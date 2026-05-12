@@ -44,14 +44,14 @@ const (
 	AppMajor uint = 0
 
 	// AppMinor defines the minor version of this binary.
-	AppMinor uint = 20
+	AppMinor uint = 21
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 99
+	AppPatch uint = 0
 
 	// AppPreRelease MUST only contain characters from semanticAlphabet per
 	// the semantic versioning spec.
-	AppPreRelease = "beta"
+	AppPreRelease = "beta.loka.1"
 
 	// Distribution identifies the downstream variant of this binary and is
 	// emitted as SemVer build metadata (the trailing "+xxx" segment). It is
