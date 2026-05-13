@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 210" width="680" height="210">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0F2540"/>
+      <stop offset="100%" stop-color="#070F1C"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#FFE69C"/>
+      <stop offset="50%"  stop-color="#FFD86B"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <style>
+      .row {
+        font-family: 'Menlo','Monaco','Consolas','DejaVu Sans Mono','Liberation Mono','Courier New',monospace;
+        font-size: 18px;
+        font-weight: 700;
+        fill: url(#gold);
+      }
+      .tag {
+        font-family: 'Menlo','PingFang SC','Helvetica',sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        fill: #FFD86B;
+        letter-spacing: 4px;
+      }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" rx="14" fill="url(#bg)"/>
+
+  <text x="50%" y="36"  text-anchor="middle" xml:space="preserve" class="row">██╗      ██████╗ ██╗  ██╗ █████╗ ██████╗  █████╗ ██╗   ██╗</text>
+  <text x="50%" y="58"  text-anchor="middle" xml:space="preserve" class="row">██║     ██╔═══██╗██║ ██╔╝██╔══██╗██╔══██╗██╔══██╗╚██╗ ██╔╝</text>
+  <text x="50%" y="80"  text-anchor="middle" xml:space="preserve" class="row">██║     ██║   ██║█████╔╝ ███████║██████╔╝███████║ ╚████╔╝ </text>
+  <text x="50%" y="102" text-anchor="middle" xml:space="preserve" class="row">██║     ██║   ██║██╔═██╗ ██╔══██║██╔═══╝ ██╔══██║  ╚██╔╝  </text>
+  <text x="50%" y="124" text-anchor="middle" xml:space="preserve" class="row">███████╗╚██████╔╝██║  ██╗██║  ██║██║     ██║  ██║   ██║   </text>
+  <text x="50%" y="146" text-anchor="middle" xml:space="preserve" class="row">╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝   ╚═╝   </text>
+
+  <text x="50%" y="186" text-anchor="middle" class="tag">⚡  P2P Lightning  ·  Multi-chain  ·  AI-Agentic  ⚡</text>
+</svg>
