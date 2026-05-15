@@ -342,6 +342,48 @@ echo "[6/8] Verifying Channel..."
 $ALICE_CLI pendingchannels
 $ALICE_CLI listchannels
 
+# 6b. SCID consistency assertion.
+#
+# Regression guard for the suinotify "canonical-checkpoint vs GetBestEpoch
+# fallback" race (see chainntnfs/suinotify/rpc_client.go around the
+# "MUST NOT fall back to GetBestEpoch" comment).
+#
+# Both nodes must agree on the SCID of every shared channel. If they don't,
+# each side derives a different `short_channel_id` (the SCID embeds
+# `block_height << 40`, so a 1-checkpoint observation gap shifts the SCID
+# by exactly 2^40 = 1099511627776), and the gossip announcement proof
+# exchange stays stuck at "1/2 received, waiting for other half" forever,
+# permanently breaking pathfinding and self-payments.
+#
+# We compare both lists sorted by channel_point so a single mismatch raises
+# a clear, actionable error instead of letting downstream steps fail with
+# generic FAILURE_REASON_NO_ROUTE on self-payments.
+echo "[6b/8] Asserting Alice and Bob agree on all shared SCIDs..."
+ALICE_SCIDS=$($ALICE_CLI listchannels \
+    | jq -r '.channels | sort_by(.channel_point) | .[] | "\(.channel_point)\t\(.scid)"')
+BOB_SCIDS=$($BOB_CLI listchannels \
+    | jq -r '.channels | sort_by(.channel_point) | .[] | "\(.channel_point)\t\(.scid)"')
+
+if [ "$ALICE_SCIDS" != "$BOB_SCIDS" ]; then
+    echo "❌ SCID DIVERGENCE detected — this is the suinotify checkpoint race."
+    echo "   See rpc_client.go: when sui_getTransactionBlock returns"
+    echo "   effects.success but an empty canonical 'checkpoint' field,"
+    echo "   the adapter must NOT fall back to GetBestEpoch (observer-"
+    echo "   local chain tip)."
+    echo ""
+    echo "   Alice's view (channel_point  scid):"
+    echo "$ALICE_SCIDS" | sed 's/^/     /'
+    echo ""
+    echo "   Bob's view (channel_point  scid):"
+    echo "$BOB_SCIDS" | sed 's/^/     /'
+    echo ""
+    echo "   Diff:"
+    diff <(echo "$ALICE_SCIDS") <(echo "$BOB_SCIDS") | sed 's/^/     /'
+    exit 1
+fi
+echo "✓ SCIDs agree on both sides:"
+echo "$ALICE_SCIDS" | sed 's/^/    /'
+
 # 7. Payment Test (cross-wallet: Bob -> Alice)
 echo "[7/8] Testing Lightning Routing (Bob -> Alice)..."
 INVOICE=$($ALICE_CLI addinvoice --amt=1000 --memo="single-coin-test" | jq -r '.payment_request')

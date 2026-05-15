@@ -842,7 +842,24 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 								}
 							}
 							if checkpoint == 0 {
-								checkpoint, _, _ = s.GetBestEpoch()
+								// The tx executed successfully but the Sui fullnode
+								// has not yet populated the canonical checkpoint field
+								// for it (indexer lag, typically <2s on devnet, longer
+								// across geographically distinct fullnode replicas).
+								//
+								// We MUST NOT fall back to GetBestEpoch() here: that
+								// returns the observer-local chain tip, which races
+								// between independently deployed nodes. The two halves
+								// of a channel would derive different short_channel_id
+								// values (the SCID embeds `block_height << 40`) and
+								// the gossip announcement proof exchange would stay
+								// stuck at "1/2 received, waiting for other half"
+								// forever, breaking pathfinding and self-payments.
+								//
+								// Instead, treat this poll as "not yet confirmed" and
+								// retry on the next ticker tick. The next poll will
+								// almost always see a non-zero canonical checkpoint.
+								continue
 							}
 
 							select {
@@ -860,9 +877,22 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 
 				// Fallback: check if this is an ObjectID instead of a tx digest.
 				// If the object exists on-chain, consider it confirmed (Sui instant finality).
+				// Ask Sui for the object AND for the digest of the tx that
+				// last touched it (`previousTransaction`). For a freshly
+				// funded channel object, that field is exactly the canonical
+				// funding tx digest — the same value the funder side already
+				// has cached in txDigestMap. Both observers can use it to
+				// derive a deterministic, observer-INDEPENDENT checkpoint
+				// height for the SCID. (Without showPreviousTransaction the
+				// Sui RPC omits the field, leaving us with nothing canonical
+				// to anchor on — exactly the bug that drove the previous
+				// GetBestEpoch fallback.)
 				objResult, objErr := s.call("sui_getObject", []interface{}{
 					objHex,
-					map[string]bool{"showContent": true},
+					map[string]bool{
+						"showContent":             true,
+						"showPreviousTransaction": true,
+					},
 				})
 				if objErr != nil {
 					continue
@@ -870,7 +900,8 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 
 				var objResponse struct {
 					Data *struct {
-						ObjectID string `json:"objectId"`
+						ObjectID            string `json:"objectId"`
+						PreviousTransaction string `json:"previousTransaction"`
 					} `json:"data"`
 					Error interface{} `json:"error"`
 				}
@@ -878,19 +909,75 @@ func (s *SuiRPCClient) SubscribeEventConfirmation(txID chainhash.Hash, numConfs,
 					continue
 				}
 
-				if objResponse.Data != nil && objResponse.Data.ObjectID != "" {
-					// Object exists! Get the current checkpoint for the anchor height.
-					currentHeight, _, _ := s.GetBestEpoch()
-
-					select {
-					case ch <- ConfirmEvent{
-						TxID:         txID,
-						AnchorHeight: currentHeight,
-					}:
-					case <-quit:
-					}
-					return
+				if objResponse.Data == nil || objResponse.Data.ObjectID == "" {
+					// Object not (yet) visible — keep polling.
+					continue
 				}
+
+				prevTx := objResponse.Data.PreviousTransaction
+				if prevTx == "" {
+					// Sui has the object indexed but the previous-tx field
+					// is not yet populated. Retry — we never want to
+					// fabricate a height from GetBestEpoch.
+					continue
+				}
+
+				// Look up the canonical checkpoint in which the
+				// previous-tx (i.e. funding tx for a fresh channel,
+				// or last-modification tx for an updated one) was
+				// committed. This is a single deterministic value
+				// across the whole network — every observer that
+				// queries Sui for the same tx will get the same
+				// `checkpoint` field.
+				txResult, txErr := s.call("sui_getTransactionBlock", []interface{}{
+					prevTx,
+					map[string]bool{"showEffects": true},
+				})
+				if txErr != nil {
+					continue
+				}
+
+				var txResponse struct {
+					Effects *struct {
+						Status struct {
+							Status string `json:"status"`
+						} `json:"status"`
+					} `json:"effects"`
+					Checkpoint json.RawMessage `json:"checkpoint"`
+				}
+				if err := json.Unmarshal(txResult, &txResponse); err != nil ||
+					txResponse.Effects == nil ||
+					txResponse.Effects.Status.Status != "success" {
+					continue
+				}
+
+				var canonical uint32
+				if len(txResponse.Checkpoint) > 0 {
+					var cpStr string
+					if err := json.Unmarshal(txResponse.Checkpoint, &cpStr); err == nil {
+						fmt.Sscanf(cpStr, "%d", &canonical)
+					} else {
+						var cpInt uint32
+						if err := json.Unmarshal(txResponse.Checkpoint, &cpInt); err == nil {
+							canonical = cpInt
+						}
+					}
+				}
+				if canonical == 0 {
+					// Canonical checkpoint not yet indexed — retry.
+					// (Same reasoning as the line-868 site: never
+					// substitute GetBestEpoch here.)
+					continue
+				}
+
+				select {
+				case ch <- ConfirmEvent{
+					TxID:         txID,
+					AnchorHeight: canonical,
+				}:
+				case <-quit:
+				}
+				return
 
 			case <-quit:
 				return
