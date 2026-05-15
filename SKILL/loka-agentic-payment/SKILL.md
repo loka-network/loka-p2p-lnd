@@ -78,11 +78,15 @@ nohup lnd --suinode.active \
     --listen=0.0.0.0:9735 \
     --rpclisten=127.0.0.1:10009 \
     --restlisten=127.0.0.1:8081 \
+    --externalip=<YOUR_PUBLIC_IP>:9735 \
     --protocol.wumbo-channels \
     --protocol.no-anchors \
+    --allow-circular-route \
     --lnddir=~/.lnd-agent \
     > ~/.lnd-agent/lnd.log 2>&1 &
 ```
+
+> **External IP Note:** `--externalip=<YOUR_PUBLIC_IP>:9735` encodes the node's reachable address into Gossip protocol broadcasts so other agents can find a TCP route back to you. Without it, peers will hear about your node's existence but won't know how to connect — meaning you can open outbound channels but **cannot receive inbound channel requests or be a payment route hop**. Use the machine's public IP (or a DNS name, e.g. `agent-1.example.com:9735`). If you are strictly outbound-only behind NAT and never want to be discoverable, you may omit this flag.
 
 > **Firewall Note:** After the node is started, **you must open the corresponding port in your firewall** for the `--listen` parameter (e.g., allow inbound connections to port `9735`).
 
