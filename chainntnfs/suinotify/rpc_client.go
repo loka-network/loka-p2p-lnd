@@ -498,6 +498,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		channelObjID := hashToSuiHex(*channelID)
 		args = []interface{}{
 			channelObjID,
+			fmt.Sprintf("%d", p.Direction),
 			fmt.Sprintf("%d", p.HtlcID),
 			bytesToNumArray(p.Preimage[:]),
 		}
@@ -511,6 +512,7 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 		channelObjID := hashToSuiHex(*channelID)
 		args = []interface{}{
 			channelObjID,
+			fmt.Sprintf("%d", p.Direction),
 			fmt.Sprintf("%d", p.HtlcID),
 			"0x6", // sui::clock::Clock
 		}

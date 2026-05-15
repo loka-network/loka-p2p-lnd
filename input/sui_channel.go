@@ -273,6 +273,11 @@ type ChannelClaimRemotePayload struct {
 
 // HTLCClaimPayload is the payload for SuiCallHTLCClaim.
 type HTLCClaimPayload struct {
+	// Direction is the channel-absolute HTLC direction (0 = A→B, 1 = B→A),
+	// matching HTLCKey.direction in the Move contract. Required because two
+	// HTLCs with identical HtlcID can coexist on a self-payment loop.
+	Direction uint8 `json:"direction"`
+
 	// HtlcID is the ID of this HTLC inside the Channel object.
 	HtlcID uint64 `json:"htlc_id"`
 
@@ -288,6 +293,9 @@ type HTLCClaimPayload struct {
 
 // HTLCTimeoutPayload is the payload for SuiCallHTLCTimeout.
 type HTLCTimeoutPayload struct {
+	// Direction is the channel-absolute HTLC direction (0 = A→B, 1 = B→A).
+	Direction uint8 `json:"direction"`
+
 	// HtlcID is the ID of this HTLC inside the Channel object.
 	HtlcID uint64 `json:"htlc_id"`
 

@@ -1242,28 +1242,57 @@ func (c *ChannelArbitrator) stateStep(
 				}
 			}
 			
-			// Match exact order used in channel.go signatures 
-			sort.Slice(outgoing, func(i, j int) bool { return outgoing[i].HtlcIndex < outgoing[j].HtlcIndex })
-			sort.Slice(incoming, func(i, j int) bool { return incoming[i].HtlcIndex < incoming[j].HtlcIndex })
-			
-			for _, htlc := range outgoing {
-				htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-				htlcAmounts = append(htlcAmounts, uint64(htlc.Amt.ToSatoshis()))
-				hashCopy := make([]byte, 32)
-				copy(hashCopy, htlc.RHash[:])
-				htlcHashes = append(htlcHashes, hashCopy)
-				htlcExpiries = append(htlcExpiries, uint64(htlc.RefundTimeout)*10*60*1000)
-				htlcDirections = append(htlcDirections, 0)
+			// Channel-absolute direction (0 = A→B, 1 = B→A, A = initiator).
+			// Must match lnwallet/channel.go: outgoing slice = LOCAL→REMOTE;
+			// incoming slice = REMOTE→LOCAL.
+			var outgoingDir, incomingDir uint8
+			if chanState.IsInitiator {
+				outgoingDir, incomingDir = 0, 1
+			} else {
+				outgoingDir, incomingDir = 1, 0
 			}
-			
-			for _, htlc := range incoming {
-				htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-				htlcAmounts = append(htlcAmounts, uint64(htlc.Amt.ToSatoshis()))
-				hashCopy := make([]byte, 32)
-				copy(hashCopy, htlc.RHash[:])
-				htlcHashes = append(htlcHashes, hashCopy)
-				htlcExpiries = append(htlcExpiries, uint64(htlc.RefundTimeout)*10*60*1000)
-				htlcDirections = append(htlcDirections, 1)
+
+			// Build a flat slice tagged with channel-absolute direction,
+			// then sort by (direction asc, htlc_id asc). Must match the
+			// ordering used by lnwallet/channel.go's SignNextCommitment /
+			// ReceiveNewCommitment so both peers and the force-close
+			// broadcaster all hash the same BCS payload.
+			type htlcSlot struct {
+				dir    uint8
+				id     uint64
+				amt    uint64
+				hash   [32]byte
+				expiry uint64
+			}
+			slots := make([]htlcSlot, 0, len(outgoing)+len(incoming))
+			addSlot := func(h channeldb.HTLC, dir uint8) {
+				s := htlcSlot{
+					dir:    dir,
+					id:     h.HtlcIndex,
+					amt:    uint64(h.Amt.ToSatoshis()),
+					expiry: uint64(h.RefundTimeout) * 10 * 60 * 1000,
+				}
+				copy(s.hash[:], h.RHash[:])
+				slots = append(slots, s)
+			}
+			for _, h := range outgoing {
+				addSlot(h, outgoingDir)
+			}
+			for _, h := range incoming {
+				addSlot(h, incomingDir)
+			}
+			sort.Slice(slots, func(i, j int) bool {
+				if slots[i].dir != slots[j].dir {
+					return slots[i].dir < slots[j].dir
+				}
+				return slots[i].id < slots[j].id
+			})
+			for _, s := range slots {
+				htlcIDs = append(htlcIDs, s.id)
+				htlcAmounts = append(htlcAmounts, s.amt)
+				htlcHashes = append(htlcHashes, append([]byte(nil), s.hash[:]...))
+				htlcExpiries = append(htlcExpiries, s.expiry)
+				htlcDirections = append(htlcDirections, s.dir)
 			}
 			var sighash32 [32]byte
 			copy(sighash32[:], sighash)

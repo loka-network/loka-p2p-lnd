@@ -46,7 +46,16 @@ module lightning::lightning {
         state_num: u64,
         to_self_delay: u64,   // ms delay from Clock
         close_timestamp_ms: u64,
-        htlcs: Table<u64, HTLC>,
+        // Keyed by (direction, htlc_id) so a single channel can hold two
+        // HTLCs that share an htlc_id — one offered (direction A→B) and
+        // one received (direction B→A) — without colliding. The need
+        // arose from circular self-payments (alice → bob → alice over
+        // the same channel), where alice ends up with both an outgoing
+        // HTLC and an incoming HTLC for the same payment_hash; the LN
+        // protocol allows that, BTC commitment txs handle it natively
+        // via per-direction htlc_id namespaces, and this composite-key
+        // table reproduces that namespacing on the SUI side.
+        htlcs: Table<HTLCKey, HTLC>,
         revocation_key: Option<vector<u8>>,
         revocation_hash: vector<u8>,
         // broadcaster records which party published the force-close commitment.
@@ -63,6 +72,16 @@ module lightning::lightning {
         expiry: u64,              // absolute epoch
         direction: u8,            // 0: A_to_B, 1: B_to_A
         status: u8,               // 0: PENDING, 1: CLAIMED, 2: TIMEOUT
+    }
+
+    /// HTLCKey is the composite key under which an HTLC entry is stored
+    /// in `Channel.htlcs`. Two HTLCs may legitimately share the same
+    /// `htlc_id` provided their directions differ (BOLT-02 reserves a
+    /// separate id namespace for `update_add_htlc` per direction), so
+    /// keying by `htlc_id` alone would collide on circular routes.
+    public struct HTLCKey has copy, drop, store {
+        direction: u8,  // 0: A_to_B, 1: B_to_A — matches HTLC.direction
+        htlc_id: u64,
     }
 
     // --- Events ---
@@ -284,15 +303,16 @@ module lightning::lightning {
         let mut i = 0;
         while (i < len) {
             let htlc_id = *vector::borrow(&htlc_ids, i);
+            let direction = *vector::borrow(&htlc_directions, i);
             let htlc = HTLC {
                 htlc_id,
                 amount: *vector::borrow(&htlc_amounts, i),
                 payment_hash: *vector::borrow(&htlc_payment_hashes, i),
                 expiry: *vector::borrow(&htlc_expiries, i),
-                direction: *vector::borrow(&htlc_directions, i),
+                direction,
                 status: 0, // PENDING
             };
-            table::add(&mut channel.htlcs, htlc_id, htlc);
+            table::add(&mut channel.htlcs, HTLCKey { direction, htlc_id }, htlc);
             i = i + 1;
         };
 
@@ -362,11 +382,12 @@ module lightning::lightning {
 
     public fun htlc_claim(
         channel: &mut Channel,
+        direction: u8,
         htlc_id: u64,
         preimage: vector<u8>,
         _ctx: &mut TxContext
     ) {
-        let htlc = table::borrow_mut(&mut channel.htlcs, htlc_id);
+        let htlc = table::borrow_mut(&mut channel.htlcs, HTLCKey { direction, htlc_id });
         assert!(htlc.status == 0, EInvalidStatus); // PENDING
 
         let hash = hash::sha2_256(preimage);
@@ -395,11 +416,12 @@ module lightning::lightning {
 
     public fun htlc_timeout(
         channel: &mut Channel,
+        direction: u8,
         htlc_id: u64,
         clock: &Clock,
         _ctx: &mut TxContext
     ) {
-        let htlc = table::borrow_mut(&mut channel.htlcs, htlc_id);
+        let htlc = table::borrow_mut(&mut channel.htlcs, HTLCKey { direction, htlc_id });
         assert!(htlc.status == 0, EInvalidStatus); // PENDING
         assert!(clock::timestamp_ms(clock) >= htlc.expiry, ENotExpired);
 
@@ -462,15 +484,16 @@ module lightning::lightning {
         let mut i = 0;
         while (i < len) {
             let htlc_id = *vector::borrow(&htlc_ids, i);
+            let direction = *vector::borrow(&htlc_directions, i);
             let htlc = HTLC {
                 htlc_id,
                 amount: *vector::borrow(&htlc_amounts, i),
                 payment_hash: *vector::borrow(&htlc_payment_hashes, i),
                 expiry: *vector::borrow(&htlc_expiries, i),
-                direction: *vector::borrow(&htlc_directions, i),
+                direction,
                 status: 0,
             };
-            table::add(&mut channel.htlcs, htlc_id, htlc);
+            table::add(&mut channel.htlcs, HTLCKey { direction, htlc_id }, htlc);
             i = i + 1;
         };
     }

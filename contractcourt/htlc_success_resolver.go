@@ -417,7 +417,14 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
 			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
 		}
+		// Success resolver handles incoming HTLCs (REMOTE→LOCAL).
+		// Channel-absolute direction: 1 if local is initiator (A), else 0.
+		var direction uint8 = 0
+		if h.channelInitiator {
+			direction = 1
+		}
 		payload := input.HTLCClaimPayload{
+			Direction:   direction,
 			HtlcID:      h.htlc.HtlcIndex,
 			PaymentHash: h.htlc.RHash,
 			Preimage:    h.htlcResolution.Preimage,
@@ -491,7 +498,14 @@ func (h *htlcSuccessResolver) sweepSuccessTx() error {
 		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
 			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
 		}
+		// Success resolver handles incoming HTLCs (REMOTE→LOCAL).
+		// Channel-absolute direction: 1 if local is initiator (A), else 0.
+		var direction uint8 = 0
+		if h.channelInitiator {
+			direction = 1
+		}
 		payload := input.HTLCClaimPayload{
+			Direction:   direction,
 			HtlcID:      h.htlc.HtlcIndex,
 			PaymentHash: h.htlc.RHash,
 			Preimage:    h.htlcResolution.Preimage,

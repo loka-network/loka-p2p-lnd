@@ -4085,6 +4085,71 @@ type NewCommitState struct {
 // unsettled HTLCs, any new HTLCs, and any modifications to prior HTLCs
 // committed in previous commitment updates. Signing a new commitment
 // decrements the available revocation window by 1. After a successful method
+// suiHTLCSlot is one HTLC row inside the SUI BCS commit-sig payload. We
+// gather all in-flight HTLCs into a flat slice and sort by (direction asc,
+// htlc_id asc) before serialising — without that, two peers on a circular
+// self-payment produce opposite array orders (each partitions by *its own*
+// local outgoing/incoming) which makes the BCS hash diverge and forces both
+// channels closed via invalid_commit_sig.
+type suiHTLCSlot struct {
+	dir    uint8
+	id     uint64
+	amt    uint64
+	hash   [32]byte
+	expiry uint64
+}
+
+func buildSuiHTLCSlots(outgoing []paymentDescriptor, outgoingDir uint8,
+	incoming []paymentDescriptor, incomingDir uint8) []suiHTLCSlot {
+
+	slots := make([]suiHTLCSlot, 0, len(outgoing)+len(incoming))
+	add := func(htlc paymentDescriptor, dir uint8) {
+		s := suiHTLCSlot{
+			dir:    dir,
+			id:     htlc.HtlcIndex,
+			amt:    uint64(htlc.Amount.ToSatoshis()),
+			expiry: uint64(htlc.Timeout) * 10 * 60 * 1000,
+		}
+		copy(s.hash[:], htlc.RHash[:])
+		slots = append(slots, s)
+	}
+	for _, h := range outgoing {
+		add(h, outgoingDir)
+	}
+	for _, h := range incoming {
+		add(h, incomingDir)
+	}
+	slices.SortFunc(slots, func(a, b suiHTLCSlot) int {
+		if a.dir != b.dir {
+			return int(a.dir) - int(b.dir)
+		}
+		return cmp.Compare(a.id, b.id)
+	})
+	return slots
+}
+
+func unpackSuiHTLCSlots(slots []suiHTLCSlot) (
+	ids []uint64, amts []uint64, hashes [][]byte,
+	expiries []uint64, dirs []uint8) {
+
+	if len(slots) == 0 {
+		return nil, nil, nil, nil, nil
+	}
+	ids = make([]uint64, len(slots))
+	amts = make([]uint64, len(slots))
+	hashes = make([][]byte, len(slots))
+	expiries = make([]uint64, len(slots))
+	dirs = make([]uint8, len(slots))
+	for i, s := range slots {
+		ids[i] = s.id
+		amts[i] = s.amt
+		hashes[i] = append([]byte(nil), s.hash[:]...)
+		expiries[i] = s.expiry
+		dirs[i] = s.dir
+	}
+	return ids, amts, hashes, expiries, dirs
+}
+
 // call, the remote party's commitment chain is extended by a new commitment
 // which includes all updates to the HTLC log prior to this method invocation.
 // The first return parameter is the signature for the commitment transaction
@@ -4251,31 +4316,29 @@ func (lc *LightningChannel) SignNextCommitment(
 		expectedHashBytes, _ := hex.DecodeString("9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4")
 		copy(revHash[:], expectedHashBytes)
 		
-		var htlcIDs []uint64
-		var htlcAmounts []uint64
-		var htlcHashes [][]byte
-		var htlcExpiries []uint64
-		var htlcDirections []uint8
-		
-		for _, htlc := range newCommitView.outgoingHTLCs {
-			htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-			htlcAmounts = append(htlcAmounts, uint64(htlc.Amount.ToSatoshis()))
-			hashCopy := make([]byte, 32)
-			copy(hashCopy, htlc.RHash[:])
-			htlcHashes = append(htlcHashes, hashCopy)
-			htlcExpiries = append(htlcExpiries, uint64(htlc.Timeout)*10*60*1000)
-			htlcDirections = append(htlcDirections, 1) // Signer sent = Owner incoming (1)
+		// Channel-absolute direction: 0 = A→B, 1 = B→A, where A = funder/initiator.
+		// Both peers must compute identical values for the same HTLC, so we
+		// derive from IsInitiator rather than the signer's perspective.
+		var outgoingDir, incomingDir uint8
+		if lc.channelState.IsInitiator {
+			outgoingDir, incomingDir = 0, 1
+		} else {
+			outgoingDir, incomingDir = 1, 0
 		}
-		for _, htlc := range newCommitView.incomingHTLCs {
-			htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-			htlcAmounts = append(htlcAmounts, uint64(htlc.Amount.ToSatoshis()))
-			hashCopy := make([]byte, 32)
-			copy(hashCopy, htlc.RHash[:])
-			htlcHashes = append(htlcHashes, hashCopy)
-			htlcExpiries = append(htlcExpiries, uint64(htlc.Timeout)*10*60*1000)
-			htlcDirections = append(htlcDirections, 0) // Signer received = Owner outgoing (0)
-		}
-		
+
+		// Gather all HTLCs with their channel-absolute direction, then sort
+		// deterministically by (direction asc, htlc_id asc). Without this
+		// sort the two peers serialise the vector in opposite orders during
+		// a circular self-payment (each peer puts its *own* outgoing first),
+		// which makes the BCS payload hash diverge and triggers
+		// invalid_commit_sig + force-close.
+		slots := buildSuiHTLCSlots(
+			newCommitView.outgoingHTLCs, outgoingDir,
+			newCommitView.incomingHTLCs, incomingDir,
+		)
+		htlcIDs, htlcAmounts, htlcHashes, htlcExpiries, htlcDirections :=
+			unpackSuiHTLCSlots(slots)
+
 		payload := input.ChannelForceClosePayload{
 			StateNum:          newCommitView.height,
 			LocalBalance:      uint64(newCommitView.theirBalance.ToSatoshis()),
@@ -5565,30 +5628,21 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				expectedHashBytes, _ := hex.DecodeString("9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4")
 				copy(revHash[:], expectedHashBytes)
 				
-				var htlcIDs []uint64
-				var htlcAmounts []uint64
-				var htlcHashes [][]byte
-				var htlcExpiries []uint64
-				var htlcDirections []uint8
-				
-				for _, htlc := range localCommitmentView.outgoingHTLCs {
-					htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-					htlcAmounts = append(htlcAmounts, uint64(htlc.Amount.ToSatoshis()))
-					hashCopy := make([]byte, 32)
-					copy(hashCopy, htlc.RHash[:])
-					htlcHashes = append(htlcHashes, hashCopy)
-					htlcExpiries = append(htlcExpiries, uint64(htlc.Timeout)*10*60*1000)
-					htlcDirections = append(htlcDirections, 0) // A_to_B
+				// Channel-absolute direction (0 = A→B, 1 = B→A, A = initiator).
+				// Local outgoingHTLCs = LOCAL→REMOTE; incomingHTLCs = REMOTE→LOCAL.
+				var outgoingDir, incomingDir uint8
+				if lc.channelState.IsInitiator {
+					outgoingDir, incomingDir = 0, 1
+				} else {
+					outgoingDir, incomingDir = 1, 0
 				}
-				for _, htlc := range localCommitmentView.incomingHTLCs {
-					htlcIDs = append(htlcIDs, htlc.HtlcIndex)
-					htlcAmounts = append(htlcAmounts, uint64(htlc.Amount.ToSatoshis()))
-					hashCopy := make([]byte, 32)
-					copy(hashCopy, htlc.RHash[:])
-					htlcHashes = append(htlcHashes, hashCopy)
-					htlcExpiries = append(htlcExpiries, uint64(htlc.Timeout)*10*60*1000)
-					htlcDirections = append(htlcDirections, 1) // B_to_A
-				}
+
+				slots := buildSuiHTLCSlots(
+					localCommitmentView.outgoingHTLCs, outgoingDir,
+					localCommitmentView.incomingHTLCs, incomingDir,
+				)
+				htlcIDs, htlcAmounts, htlcHashes, htlcExpiries, htlcDirections :=
+					unpackSuiHTLCSlots(slots)
 				
 				payload := input.ChannelForceClosePayload{
 					StateNum:          localCommitmentView.height,

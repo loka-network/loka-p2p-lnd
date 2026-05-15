@@ -288,6 +288,7 @@ module lightning::lightning_tests {
 
         lightning::htlc_timeout(
             &mut channel,
+            0u8, // direction must match what was passed to force_close_for_testing
             1,
             &clock_,
             test_scenario::ctx(scenario),
@@ -343,6 +344,7 @@ module lightning::lightning_tests {
 
         lightning::htlc_claim(
             &mut channel,
+            0u8, // direction must match what was passed to force_close_for_testing
             1,
             preimage,
             test_scenario::ctx(scenario),

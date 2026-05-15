@@ -450,7 +450,14 @@ func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
 		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
 			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
 		}
+		// Timeout resolver handles outgoing HTLCs (LOCAL→REMOTE).
+		// Channel-absolute direction: 0 if local is initiator (A), else 1.
+		var direction uint8 = 1
+		if h.channelInitiator {
+			direction = 0
+		}
 		payload := input.HTLCTimeoutPayload{
+			Direction:   direction,
 			HtlcID:      h.htlc.HtlcIndex,
 			PaymentHash: h.htlc.RHash,
 			Sig:         sig,
@@ -540,7 +547,14 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 		if h.htlcResolution.SignDetails != nil && h.htlcResolution.SignDetails.PeerSig != nil {
 			sig = h.htlcResolution.SignDetails.PeerSig.Serialize()
 		}
+		// Timeout resolver handles outgoing HTLCs (LOCAL→REMOTE).
+		// Channel-absolute direction: 0 if local is initiator (A), else 1.
+		var direction uint8 = 1
+		if h.channelInitiator {
+			direction = 0
+		}
 		payload := input.HTLCTimeoutPayload{
+			Direction:   direction,
 			HtlcID:      h.htlc.HtlcIndex,
 			PaymentHash: h.htlc.RHash,
 			Sig:         sig,
