@@ -613,6 +613,113 @@ func (w *Wallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	return ErrUnsupported
 }
 
+// DefaultSendSuiGasBudgetMist is the gas budget used for outbound SUI
+// transfers when the caller does not override it. Matches the budget used
+// for channel-open Move calls (0.1 SUI).
+const DefaultSendSuiGasBudgetMist uint64 = 100_000_000
+
+// IsValidSuiAddress returns true if s is a 0x-prefixed 64-hex-char string.
+// Used by the lnrpc SendCoins handler to detect when to route to SendSui
+// instead of the bitcoin path.
+func IsValidSuiAddress(s string) bool {
+	if len(s) != 66 {
+		return false
+	}
+	if s[0] != '0' || (s[1] != 'x' && s[1] != 'X') {
+		return false
+	}
+	for _, c := range s[2:] {
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'f':
+		case c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// SendSui transfers amountMist from this wallet's address to recipient and
+// returns the resulting Sui transaction digest. Gas is auto-selected from
+// the wallet's SUI coins. The caller is responsible for amount + gas
+// headroom (DefaultSendSuiGasBudgetMist) being available.
+func (w *Wallet) SendSui(recipient string, amountMist uint64) (chainhash.Hash, error) {
+	if !IsValidSuiAddress(recipient) {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: invalid sui recipient address %q", recipient)
+	}
+	if amountMist == 0 {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: refusing to send zero MIST")
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	senderAddr, err := w.NewAddress(lnwallet.UnknownAddressType, false, "")
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: failed to derive sender address: %w", err)
+	}
+	sender := senderAddr.String()
+
+	coins, err := w.cfg.Client.GetCoins(sender)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: GetCoins failed: %w", err)
+	}
+	if len(coins) == 0 {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: sender %s has no SUI coins", sender)
+	}
+
+	// Pick enough coins to cover amount + gas budget, largest first so we
+	// merge as few objects as possible.
+	sortedCoins := make([]suinotify.SuiCoin, len(coins))
+	copy(sortedCoins, coins)
+	sortSuiCoinsDescending(sortedCoins)
+
+	required := amountMist + DefaultSendSuiGasBudgetMist
+	var selected []suinotify.SuiCoin
+	var total uint64
+	for _, c := range sortedCoins {
+		selected = append(selected, c)
+		total += c.Balance
+		if total >= required {
+			break
+		}
+	}
+	if total < required {
+		return chainhash.Hash{}, fmt.Errorf(
+			"suiwallet: insufficient SUI balance: have %d MIST, need %d MIST (amount + gas budget %d)",
+			total, required, DefaultSendSuiGasBudgetMist,
+		)
+	}
+
+	txBytes, err := w.cfg.Client.BuildPaySuiTx(
+		sender, recipient, amountMist, DefaultSendSuiGasBudgetMist, selected,
+	)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: BuildPaySuiTx failed: %w", err)
+	}
+
+	suiSig, err := w.signSuiTransaction(txBytes)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: signing failed: %w", err)
+	}
+
+	digest, err := w.cfg.Client.ExecuteTransactionBlock(txBytes, suiSig)
+	if err != nil {
+		return chainhash.Hash{}, fmt.Errorf("suiwallet: execution failed: %w", err)
+	}
+
+	return digest, nil
+}
+
+func sortSuiCoinsDescending(coins []suinotify.SuiCoin) {
+	for i := 1; i < len(coins); i++ {
+		for j := i; j > 0 && coins[j].Balance > coins[j-1].Balance; j-- {
+			coins[j], coins[j-1] = coins[j-1], coins[j]
+		}
+	}
+}
+
 // extractRawSecp256k1Sig parses standard DER signatures from Bitcoin witnesses
 // and mathematically outputs a zero-padded rigid 64-byte [R | S] slice specifically for SUI.
 func extractRawSecp256k1Sig(witSig []byte) ([64]byte, error) {

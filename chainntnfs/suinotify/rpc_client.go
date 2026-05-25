@@ -554,6 +554,51 @@ func (s *SuiRPCClient) BuildMoveCall(sender string, channelID *chainhash.Hash, p
 	return txBytes, nil
 }
 
+// BuildPaySuiTx asks the Sui node to build an unsigned BCS PTB that pays
+// amountMist to recipient using the supplied SUI coin objects as input. One
+// of the input coins is auto-selected as the gas coin; change returns to
+// sender. This wraps Sui's unsafe_paySui JSON-RPC and is used by the lnrpc
+// SendCoins handler when the active wallet backend is sui.
+func (s *SuiRPCClient) BuildPaySuiTx(sender, recipient string,
+	amountMist, gasBudget uint64, inputCoins []SuiCoin) ([]byte, error) {
+
+	if len(inputCoins) == 0 {
+		return nil, fmt.Errorf("BuildPaySuiTx: no input coins provided")
+	}
+
+	inputObjIDs := make([]string, 0, len(inputCoins))
+	for _, c := range inputCoins {
+		inputObjIDs = append(inputObjIDs, hashToSuiHex(c.ObjectID))
+	}
+
+	callParams := []interface{}{
+		sender,
+		inputObjIDs,
+		[]string{recipient},
+		[]string{fmt.Sprintf("%d", amountMist)},
+		fmt.Sprintf("%d", gasBudget),
+	}
+
+	result, err := s.call("unsafe_paySui", callParams)
+	if err != nil {
+		return nil, fmt.Errorf("unsafe_paySui failed: %w", err)
+	}
+
+	var response struct {
+		TxBytes string `json:"txBytes"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return nil, err
+	}
+
+	txBytes, err := base64.StdEncoding.DecodeString(response.TxBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return txBytes, nil
+}
+
 // ExecuteTransactionBlock executes a Sui Move call transaction.
 func (s *SuiRPCClient) ExecuteTransactionBlock(txBytes []byte, signature []byte) (chainhash.Hash, error) {
 	digest, _, err := s.ExecuteTransactionBlockFull(txBytes, signature)

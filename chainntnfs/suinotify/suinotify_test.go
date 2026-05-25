@@ -89,6 +89,10 @@ func (m *mockSuiClient) BuildMoveCall(sender string, channelID *chainhash.Hash, 
 	return nil, nil
 }
 
+func (m *mockSuiClient) BuildPaySuiTx(sender, recipient string, amountMist, gasBudget uint64, inputCoins []SuiCoin) ([]byte, error) {
+	return nil, nil
+}
+
 func (m *mockSuiClient) ExecuteTransactionBlock(txBytes []byte, suiSignature []byte) (chainhash.Hash, error) {
 	return chainhash.Hash{}, nil
 }

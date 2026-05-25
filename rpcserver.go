@@ -69,6 +69,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	"github.com/lightningnetwork/lnd/lnwallet/suiwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -1373,6 +1374,15 @@ func maybeUseDefaultConf(satPerByte int64, satPerVByte uint64,
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
 
+	// Sui short-circuit: when the active wallet backend is sui, route to
+	// the sui-native transfer path. The bitcoin-specific fee fields
+	// (SatPerByte, SatPerVbyte, SpendUnconfirmed, etc.) are ignored — sui
+	// uses a fixed gas budget. SendAll / Outpoints are not yet supported
+	// on this path.
+	if r.server.cc.Wallet.BackEnd() == "sui" {
+		return r.sendCoinsSui(in)
+	}
+
 	// Keep the old behavior prior to 0.18.0 - when the user doesn't set
 	// fee rate or conf target, the default conf target of 6 is used.
 	targetConf := maybeUseDefaultConf(
@@ -1610,6 +1620,41 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	rpcsLog.Infof("[sendcoins] spend generated txid: %v", txid.String())
 
 	return &lnrpc.SendCoinsResponse{Txid: txid.String()}, nil
+}
+
+// sendCoinsSui handles a SendCoins RPC when the active wallet backend is sui.
+// in.Amount is interpreted as MIST (1 SUI = 1e9 MIST), in.Addr must be a
+// 0x-prefixed 64-hex-char sui address, and the bitcoin-specific fee fields
+// are ignored. SendAll and Outpoints are not yet supported.
+func (r *rpcServer) sendCoinsSui(in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
+	if in.SendAll {
+		return nil, fmt.Errorf("send_all is not supported on the sui backend yet")
+	}
+	if len(in.Outpoints) != 0 {
+		return nil, fmt.Errorf("outpoint selection is not supported on the sui backend yet")
+	}
+	if in.Amount <= 0 {
+		return nil, fmt.Errorf("amount must be > 0 MIST on the sui backend")
+	}
+	if !suiwallet.IsValidSuiAddress(in.Addr) {
+		return nil, fmt.Errorf("address %q is not a valid sui address (expected 0x + 64 hex chars)", in.Addr)
+	}
+
+	suiWallet, ok := r.server.cc.Wallet.WalletController.(*suiwallet.Wallet)
+	if !ok {
+		return nil, fmt.Errorf("wallet backend reports sui but underlying controller is not *suiwallet.Wallet")
+	}
+
+	rpcsLog.Infof("[sendcoins-sui] addr=%v, amt_mist=%v", in.Addr, in.Amount)
+
+	digest, err := suiWallet.SendSui(in.Addr, uint64(in.Amount))
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendcoins-sui] tx digest: %v", digest.String())
+
+	return &lnrpc.SendCoinsResponse{Txid: digest.String()}, nil
 }
 
 // SendMany handles a request for a transaction create multiple specified

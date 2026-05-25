@@ -70,6 +70,11 @@ func (n *NoopSuiClient) BuildMoveCall(_ string, _ *chainhash.Hash, _ []byte) ([]
 	return nil, nil
 }
 
+// BuildPaySuiTx returns empty tx bytes.
+func (n *NoopSuiClient) BuildPaySuiTx(_, _ string, _, _ uint64, _ []SuiCoin) ([]byte, error) {
+	return nil, nil
+}
+
 // ExecuteTransactionBlock does nothing.
 func (n *NoopSuiClient) ExecuteTransactionBlock(_, _ []byte) (chainhash.Hash, error) {
 	return chainhash.Hash{}, nil

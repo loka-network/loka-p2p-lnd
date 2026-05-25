@@ -57,6 +57,13 @@ type SuiClient interface {
 	// BuildMoveCall requests the Sui Node to build an unsigned BCS PTB.
 	BuildMoveCall(sender string, channelID *chainhash.Hash, payloadBytes []byte) ([]byte, error)
 
+	// BuildPaySuiTx builds an unsigned BCS PTB that transfers amountMist
+	// from sender to recipient. The Sui node picks the gas coin from the
+	// supplied input coins; any remainder is returned to sender. Used by
+	// the lnrpc SendCoins RPC when the active wallet is sui.
+	BuildPaySuiTx(sender, recipient string, amountMist, gasBudget uint64,
+		inputCoins []SuiCoin) ([]byte, error)
+
 	// ExecuteTransactionBlock executes a signed Sui transaction block.
 	ExecuteTransactionBlock(txBytes []byte, suiSignature []byte) (chainhash.Hash, error)
 
