@@ -156,11 +156,17 @@ fi
 # same lnd it's funded from (e.g. agents-pay-service + Prism share Alice).
 
 # Start Alice
+# --no-rest-tls: the REST endpoints (8081/8082) are bound to 127.0.0.1 and
+# only consumed by local clients in this test (lncli, robosats coordinator
+# container reaching us via host.docker.internal). TLS on the REST port
+# adds no security here and makes downstream clients require an explicit
+# CA bundle — turn it off.
 $LND_BIN \
     --lnddir="$ALICE_DIR" \
     --listen="127.0.0.1:$ALICE_PORT" \
     --rpclisten="127.0.0.1:$ALICE_RPC" \
     --restlisten="127.0.0.1:$ALICE_REST" \
+    --no-rest-tls \
     --suinode.active \
     --suinode.devnet \
     --suinode.rpchost="$SUI_RPC_HOST" \
@@ -180,6 +186,7 @@ $LND_BIN \
     --listen="127.0.0.1:$BOB_PORT" \
     --rpclisten="127.0.0.1:$BOB_RPC" \
     --restlisten="127.0.0.1:$BOB_REST" \
+    --no-rest-tls \
     --suinode.active \
     --suinode.devnet \
     --suinode.rpchost="$SUI_RPC_HOST" \
