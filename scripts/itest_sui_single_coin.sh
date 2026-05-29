@@ -176,6 +176,7 @@ $LND_BIN \
     --noseedbackup \
     --maxpendingchannels=10 \
     --allow-circular-route \
+    --max-cltv-expiry=70000 \
     "${TLS_EXTRA_ARGS[@]}" \
     > "$ALICE_DIR/lnd.log" 2>&1 &
 ALICE_PID=$!
@@ -196,6 +197,7 @@ $LND_BIN \
     --noseedbackup \
     --maxpendingchannels=10 \
     --allow-circular-route \
+    --max-cltv-expiry=70000 \
     "${TLS_EXTRA_ARGS[@]}" \
     > "$BOB_DIR/lnd.log" 2>&1 &
 BOB_PID=$!
