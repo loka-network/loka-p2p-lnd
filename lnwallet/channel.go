@@ -4081,6 +4081,26 @@ type NewCommitState struct {
 	PendingHTLCs []channeldb.HTLC
 }
 
+// suiChainActive reports whether this lnd node runs on a Sui MoveVM chain. It
+// is set once at startup from the active chain (--chain=sui / suinode.active)
+// and gates the Move-native commitment-payload injection used during
+// commitment signing/verification.
+//
+// On a Sui node the BCS payload must be spliced into the commitment input's
+// SignatureScript before signing so the peer's Move VM can re-derive the
+// validation hash. On a Bitcoin node that same injection mutates the
+// commitment txid that the HTLC second-level signatures already reference, so
+// the peer rejects the commitment with invalid_commit_sig / invalid_htlc_sig
+// and the link dies on the very first HTLC. It defaults to false so standard
+// Bitcoin signing is byte-for-byte identical to upstream lnd.
+var suiChainActive bool
+
+// SetSuiChainActive records whether the active chain is Sui. It is called once
+// during configuration, before any channel state machine starts.
+func SetSuiChainActive(active bool) {
+	suiChainActive = active
+}
+
 // SignNextCommitment signs a new commitment which includes any previous
 // unsettled HTLCs, any new HTLCs, and any modifications to prior HTLCs
 // committed in previous commitment updates. Signing a new commitment
@@ -4308,58 +4328,68 @@ func (lc *LightningChannel) SignNextCommitment(
 			newCommitView.txn,
 		)
 		
-		// SUI Payload Construction: Intercept the empty Bitcoin signature script
-		// and supply the SUI Move payload parameters required to enforce Hash Validation natively.
-		// Since we cannot conditionally import SUI state into lnwallet core without cycles,
-		// we inject this payload safely and then erase it post-signing to prevent P2WSH pollution.
-		var revHash [32]byte
-		expectedHashBytes, _ := hex.DecodeString("9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4")
-		copy(revHash[:], expectedHashBytes)
-		
-		// Channel-absolute direction: 0 = A→B, 1 = B→A, where A = funder/initiator.
-		// Both peers must compute identical values for the same HTLC, so we
-		// derive from IsInitiator rather than the signer's perspective.
-		var outgoingDir, incomingDir uint8
-		if lc.channelState.IsInitiator {
-			outgoingDir, incomingDir = 0, 1
-		} else {
-			outgoingDir, incomingDir = 1, 0
-		}
+		// On a Sui MoveVM chain the commitment signature must commit to the
+		// Move-native BCS payload, so we splice it into the input's
+		// SignatureScript before signing and strip it immediately after.
+		// This is gated on suiChainActive: on Bitcoin, mutating
+		// SignatureScript changes the commitment txid that the HTLC
+		// second-level sigs already reference (genRemoteHtlcSigJobs captured
+		// it from txn.TxHash()), so the peer rejects the commitment with
+		// invalid_htlc_sig and the link dies on the first HTLC.
+		if suiChainActive {
+			var revHash [32]byte
+			expectedHashBytes, _ := hex.DecodeString("9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4")
+			copy(revHash[:], expectedHashBytes)
 
-		// Gather all HTLCs with their channel-absolute direction, then sort
-		// deterministically by (direction asc, htlc_id asc). Without this
-		// sort the two peers serialise the vector in opposite orders during
-		// a circular self-payment (each peer puts its *own* outgoing first),
-		// which makes the BCS payload hash diverge and triggers
-		// invalid_commit_sig + force-close.
-		slots := buildSuiHTLCSlots(
-			newCommitView.outgoingHTLCs, outgoingDir,
-			newCommitView.incomingHTLCs, incomingDir,
-		)
-		htlcIDs, htlcAmounts, htlcHashes, htlcExpiries, htlcDirections :=
-			unpackSuiHTLCSlots(slots)
+			// Channel-absolute direction: 0 = A→B, 1 = B→A, where A =
+			// funder/initiator. Both peers must compute identical values for
+			// the same HTLC, so we derive from IsInitiator rather than the
+			// signer's perspective.
+			var outgoingDir, incomingDir uint8
+			if lc.channelState.IsInitiator {
+				outgoingDir, incomingDir = 0, 1
+			} else {
+				outgoingDir, incomingDir = 1, 0
+			}
 
-		payload := input.ChannelForceClosePayload{
-			StateNum:          newCommitView.height,
-			LocalBalance:      uint64(newCommitView.theirBalance.ToSatoshis()),
-			RemoteBalance:     uint64(newCommitView.ourBalance.ToSatoshis()),
-			RevocationHash:    revHash,
-			HtlcIDs:           htlcIDs,
-			HtlcAmounts:       htlcAmounts,
-			HtlcPaymentHashes: htlcHashes,
-			HtlcExpiries:      htlcExpiries,
-			HtlcDirections:    htlcDirections,
+			// Gather all HTLCs with their channel-absolute direction, then
+			// sort deterministically by (direction asc, htlc_id asc).
+			// Without this sort the two peers serialise the vector in
+			// opposite orders during a circular self-payment (each peer puts
+			// its *own* outgoing first), which makes the BCS payload hash
+			// diverge and triggers invalid_commit_sig + force-close.
+			slots := buildSuiHTLCSlots(
+				newCommitView.outgoingHTLCs, outgoingDir,
+				newCommitView.incomingHTLCs, incomingDir,
+			)
+			htlcIDs, htlcAmounts, htlcHashes, htlcExpiries, htlcDirections :=
+				unpackSuiHTLCSlots(slots)
+
+			payload := input.ChannelForceClosePayload{
+				StateNum:          newCommitView.height,
+				LocalBalance:      uint64(newCommitView.theirBalance.ToSatoshis()),
+				RemoteBalance:     uint64(newCommitView.ourBalance.ToSatoshis()),
+				RevocationHash:    revHash,
+				HtlcIDs:           htlcIDs,
+				HtlcAmounts:       htlcAmounts,
+				HtlcPaymentHashes: htlcHashes,
+				HtlcExpiries:      htlcExpiries,
+				HtlcDirections:    htlcDirections,
+			}
+			payloadBytes, _ := json.Marshal(payload)
+			walletLog.Infof("Sui SignNextCommitment Payload: %s", string(payloadBytes))
+			newCommitView.txn.TxIn[0].SignatureScript = append([]byte("SUI_PAYLOAD:"), payloadBytes...)
 		}
-		payloadBytes, _ := json.Marshal(payload)
-		walletLog.Infof("Sui Debug SignNextCommitment Payload: %s", string(payloadBytes))
-		newCommitView.txn.TxIn[0].SignatureScript = append([]byte("SUI_PAYLOAD:"), payloadBytes...)
 
 		rawSig, err := lc.Signer.SignOutputRaw(
 			newCommitView.txn, lc.signDesc,
 		)
-		
-		// Reset interceptor to preserve non-SUI SegWit network signatures.
-		newCommitView.txn.TxIn[0].SignatureScript = nil
+
+		// Strip any Sui payload spliced in above so the stored/broadcast
+		// commitment stays a clean SegWit transaction.
+		if suiChainActive {
+			newCommitView.txn.TxIn[0].SignatureScript = nil
+		}
 		if err != nil {
 			close(cancelChan)
 			return nil, err
@@ -5293,20 +5323,30 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			continue
 		}
 
-		wrappedSigHash := func() ([]byte, error) {
-			hash, err := sigHash()
-			if err != nil {
-				return nil, err
+		// On a Sui chain the HTLC signature is produced over
+		// SHA256(sighash) by the Move VM signer, so verification must
+		// double-hash to match. On Bitcoin the peer signs the raw BIP143
+		// sighash directly, so we must verify against that as-is — otherwise
+		// every remote HTLC signature is rejected as invalid_htlc_sig and
+		// the link dies on the first HTLC.
+		htlcSigHash := sigHash
+		if suiChainActive {
+			innerSigHash := sigHash
+			htlcSigHash = func() ([]byte, error) {
+				hash, err := innerSigHash()
+				if err != nil {
+					return nil, err
+				}
+				doubleSigHash := sha256.Sum256(hash)
+				return doubleSigHash[:], nil
 			}
-			doubleSigHash := sha256.Sum256(hash)
-			return doubleSigHash[:], nil
 		}
-		
+
 		verifyJobs = append(verifyJobs, VerifyJob{
 			HtlcIndex: htlcIndex,
 			PubKey:    keyRing.RemoteHtlcKey,
 			Sig:       sig,
-			SigHash:   wrappedSigHash,
+			SigHash:   htlcSigHash,
 		})
 
 		if len(auxHtlcSigs) > i {
@@ -5614,10 +5654,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			return err
 		}
 		isValid := cSig.Verify(sigHash, verifyKey)
-		if !isValid {
+		if !isValid && suiChainActive {
 			// Sui Move VM enforces hashing on raw signature verification, so
 			// signatures generated natively on Sui will be over SHA256(sigHash).
-			// We add a fallback verification here.
+			// We add a fallback verification here. Gated on suiChainActive so a
+			// genuinely-invalid Bitcoin commitment signature still fails fast.
 			suiHash := sha256.Sum256(sigHash)
 			isValid = cSig.Verify(suiHash[:], verifyKey)
 			

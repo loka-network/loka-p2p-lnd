@@ -1257,6 +1257,11 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			return nil, mkErr("invalid sui config: %v", err)
 		}
 
+		// Enable Move-native commitment-payload injection in lnwallet. On a
+		// Bitcoin node this stays false, so commitment signing follows the
+		// standard SegWit path and peers accept the commitment.
+		lnwallet.SetSuiChainActive(true)
+
 		suiNetName := chainreg.SuiDevNetParams.Name // default
 		if cfg.SuiMode.MainNet {
 			suiNetName = chainreg.SuiMainNetParams.Name
