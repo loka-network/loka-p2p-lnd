@@ -1,0 +1,28 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+# Opinionated style lints disabled deliberately:
+#   - pascal-case-struct: `HTLC` keeps the BOLT/LND acronym used across the fork
+#     (and lives in the locked IChannelManager interface).
+#   - screaming-snake-case-immutable: lowercase immutables give clean public
+#     getters (`token()` / `challengePeriod()`), idiomatic for read-only config.
+#   - asm-keccak256: inline-assembly hashing hurts readability with no gain on
+#     these cold paths.
+[lint]
+exclude_lints = [
+    "pascal-case-struct",
+    "screaming-snake-case-immutable",
+    "asm-keccak256",
+]
+
+# See https://book.getfoundry.sh/reference/config/ for more options.

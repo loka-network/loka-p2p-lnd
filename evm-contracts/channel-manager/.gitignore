@@ -1,0 +1,20 @@
+# Foundry build artifacts
+out/
+cache/
+
+# Broadcast logs (deployment receipts; may contain RPC URLs / sensitive data)
+broadcast/
+!broadcast/**/dry-run/
+
+# Dependencies — installed locally with `forge install`, not pushed to remote.
+# Reproduce a fresh checkout with the commands in README.md (## Setup).
+lib/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Misc
+*.log
+.DS_Store

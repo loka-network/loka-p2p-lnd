@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] - 2026-06-08
+
+### Added
+- **EVM Multi-Chain Integration Design**: Created the architectural design, refactoring plan, and testing strategy under `1-refactor-docs/evm/` to adapt LND to EVM-compatible chains (e.g., Base, Taiko) and assets (USDT, USDC). It introduces a generic EVM adapter pattern, isolated state directories, decimals scaling with asymmetric rounding/dust floor rules, contract-based channel state management, EIP-712 state-update signing, trustless cross-chain HTLC-based routing, deterministic contract deployments via Foundry (CREATE2), `ShortChannelID` and `GenesisHash` derivation, and a multi-process orchestration manager tool (`lnd-evm-manager.sh`).
+- **EVM `ChannelManager` Escrow Contract**: Implemented the on-chain settlement surface under `evm-contracts/channel-manager/` (Foundry project). `ChannelManager.sol` realizes the `IChannelManager` interface — `openChannel`/`closeChannel`/`forceClose`/`claimHtlc`/`timeoutHtlc`/`penalize`/`distributeFunds` — with EIP-712 `StateUpdate` verification (OpenZeppelin `ECDSA`, rejecting `s`-malleability), SHA-256 BOLT hashlocks, Merkle-proved HTLC resolution, `SafeERC20` transfers, `block.timestamp` challenge window with broadcaster-bound delay, and breach penalty. Ships a CREATE2 `Deploy.s.sol` script and an 18-case Forge test suite (open, cooperative/unilateral close, breach penalty, HTLC claim/timeout) over a `MockERC20`; all passing.
+
 ## [Unreleased] - 2026-04-21
 
 ### Changed
