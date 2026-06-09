@@ -251,6 +251,11 @@ const (
 	// Sui chain backend adapters instead of the Bitcoin ones.
 	SuiChainName = "sui"
 
+	// EvmChainName is a string that represents an EVM-compatible
+	// blockchain. When --chain=evm is passed on the command line, LND will
+	// use the EVM chain backend adapters instead of the Bitcoin ones.
+	EvmChainName = "evm"
+
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
@@ -390,6 +395,12 @@ type Config struct {
 	Sui *lncfg.Chain `group:"Sui" namespace:"sui"`
 	// SuiMode holds the Sui node connection parameters.
 	SuiMode *lncfg.SuiNode `group:"suinode" namespace:"suinode"`
+
+	// Evm holds per-channel routing parameters for EVM channels, mirroring
+	// the Bitcoin field.  It is active when --chain=evm is specified.
+	Evm *lncfg.Chain `group:"Evm" namespace:"evm-chan"`
+	// EvmMode holds the EVM node connection parameters.
+	EvmMode *lncfg.EvmNode `group:"evm" namespace:"evm"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
@@ -625,6 +636,16 @@ func DefaultConfig() Config {
 			Node:          "sui",
 		},
 		SuiMode: lncfg.DefaultSuiNode(),
+		Evm: &lncfg.Chain{
+			MinHTLCIn:     chainreg.DefaultEvmMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultEvmMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultEvmBaseFeeMSat,
+			FeeRate:       chainreg.DefaultEvmFeeRate,
+			TimeLockDelta: chainreg.DefaultEvmTimeLockDelta,
+			MaxLocalDelay: defaultMaxLocalCSVDelay,
+			Node:          "evm",
+		},
+		EvmMode: lncfg.DefaultEvmNode(),
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
@@ -1288,6 +1309,36 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 		activeChainName = SuiChainName
 		activeNetworkName = lncfg.NormalizeNetwork(suiNetName)
+	} else if cfg.EvmMode.Active {
+		// --- EVM chain validation ---
+		if err := cfg.EvmMode.Validate(); err != nil {
+			return nil, mkErr("invalid evm config: %v", err)
+		}
+
+		// Gate the EIP-712 StateUpdate commitment-signing path in
+		// lnwallet. On a Bitcoin node this stays false, so commitment
+		// signing follows the standard SegWit path unchanged.
+		lnwallet.SetEvmChainActive(true)
+
+		// Resolve the sub-network params, overlaying the CLI chain id /
+		// token / contract and recomputing the synthesized genesis hash.
+		evmParams := chainreg.ResolveEvmParams(
+			cfg.EvmMode.Chain, cfg.EvmMode.ChainID,
+			cfg.EvmMode.TokenAddress, cfg.EvmMode.ContractAddress,
+		)
+
+		// Use Bitcoin's regtest params as a structural placeholder for
+		// ActiveNetParams.Params.  The EVM chain control does not rely
+		// on chaincfg.Params but the field must be non-nil for shared
+		// infrastructure code.
+		cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
+
+		cfg.Evm.ChainDir = filepath.Join(
+			cfg.DataDir, defaultChainSubDirname, EvmChainName,
+		)
+
+		activeChainName = EvmChainName
+		activeNetworkName = lncfg.NormalizeNetwork(evmParams.Name)
 	} else {
 		// --- Bitcoin chain validation ---
 		numNets := 0

@@ -4101,6 +4101,27 @@ func SetSuiChainActive(active bool) {
 	suiChainActive = active
 }
 
+// evmChainActive reports whether this lnd node runs on an EVM-compatible chain.
+// It is set once at startup from the active chain (--chain=evm / evm.active) and
+// gates the EIP-712 StateUpdate commitment-signing path: when true the artifact
+// each party signs per commitment is the typed-data StateUpdate{channelId,
+// nonce, balanceA, balanceB, htlcsHash} rather than a SegWit commitment
+// transaction. It defaults to false so standard Bitcoin signing is byte-for-byte
+// identical to upstream lnd.
+var evmChainActive bool
+
+// SetEvmChainActive records whether the active chain is EVM. It is called once
+// during configuration, before any channel state machine starts.
+func SetEvmChainActive(active bool) {
+	evmChainActive = active
+}
+
+// EvmChainActive reports whether the EVM commitment-signing path is enabled.
+// Exposed for adapter packages that need to branch on the active chain.
+func EvmChainActive() bool {
+	return evmChainActive
+}
+
 // SignNextCommitment signs a new commitment which includes any previous
 // unsettled HTLCs, any new HTLCs, and any modifications to prior HTLCs
 // committed in previous commitment updates. Signing a new commitment
