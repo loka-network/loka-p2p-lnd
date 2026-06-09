@@ -90,6 +90,25 @@ func (s *EvmSigner) SignCooperativeClose(keyDesc keychain.KeyDescriptor,
 	return s.SignDigest(keyDesc, cc.Digest(domain))
 }
 
+// SignStateUpdateWire signs the EIP-712 StateUpdate digest and returns it as an
+// input.Signature (a 64-byte ECDSA r,s), the form carried in the BOLT
+// commitment_signed message. This is the off-chain commitment signature the EVM
+// channel hook produces in place of a SegWit sighash signature; the recovery
+// byte (v) the contract needs at forceClose/penalize is re-derived on-chain from
+// the known signer address, so it is not transported here.
+func (s *EvmSigner) SignStateUpdateWire(keyDesc keychain.KeyDescriptor,
+	domain EvmDomain, su EvmStateUpdate) (Signature, error) {
+
+	privKey, err := s.keyRing.DerivePrivKey(keyDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	digest := su.Digest(domain)
+
+	return btcecdsa.Sign(privKey, digest[:]), nil
+}
+
 // signDigestWithKey is the shared core: it produces a btcec recoverable compact
 // signature and reformats it from btcec's [v ‖ r ‖ s] layout to Ethereum's
 // [r ‖ s ‖ v].

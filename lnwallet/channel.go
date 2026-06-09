@@ -4344,11 +4344,31 @@ func (lc *LightningChannel) SignNextCommitment(
 		}
 
 		partialSig = musig.ToWireSig()
+	} else if evmChainActive {
+		// On an EVM chain the per-commitment artifact is an EIP-712
+		// StateUpdate digest, not a SegWit sighash. We build the
+		// canonical (keyless, channel-absolute) StateUpdate for the
+		// remote's new commitment view and sign it with the funding
+		// multisig key; the resulting ECDSA signature travels in
+		// commitment_signed exactly like the Bitcoin one. The HTLC set
+		// is bound on-chain via the StateUpdate's htlcsHash (Merkle
+		// root): claimHtlc/timeoutHtlc prove inclusion against that root
+		// rather than spending second-level HTLC outputs. The legacy
+		// per-HTLC SegWit sig batch above still runs and is exchanged
+		// (it self-verifies between EVM peers over the identical
+		// internal commitment tx); collapsing it away is deferred to the
+		// resolver/sweep simplification in phase 3.4. Gated on
+		// evmChainActive so the Bitcoin path is byte-for-byte unchanged.
+		sig, err = lc.signEvmCommitment(newCommitView)
+		if err != nil {
+			close(cancelChan)
+			return nil, err
+		}
 	} else {
 		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(
 			newCommitView.txn,
 		)
-		
+
 		// On a Sui MoveVM chain the commitment signature must commit to the
 		// Move-native BCS payload, so we splice it into the input's
 		// SignatureScript before signing and strip it immediately after.
@@ -5651,6 +5671,32 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			return err
 		}
 		lc.musigSessions.LocalSession = newLocalSession
+	} else if evmChainActive {
+		// EVM mirror of the SegWit verification below: the remote signed
+		// the EIP-712 StateUpdate digest for this state, so we rebuild
+		// the canonical StateUpdate for our local commitment view and
+		// verify their signature against it with the remote funding
+		// multisig pubkey. No SegWit sighash, witness script or
+		// per-HTLC verification is involved — the HTLC set is bound by
+		// the StateUpdate's htlcsHash. Gated on evmChainActive so the
+		// Bitcoin path is untouched.
+		cSig, err := commitSigs.CommitSig.ToSignature()
+		if err != nil {
+			return err
+		}
+		if !lc.verifyEvmCommitment(localCommitmentView, cSig) {
+			close(cancelChan)
+
+			digest := lc.stateUpdateForView(
+				localCommitmentView,
+			).Digest(evmCommitmentDomain)
+
+			return &InvalidCommitSigError{
+				commitHeight: nextHeight,
+				commitSig:    commitSigs.CommitSig.ToSignatureBytes(), //nolint:ll
+				sigHash:      digest[:],
+			}
+		}
 	} else {
 		multiSigScript := lc.signDesc.WitnessScript
 		prevFetcher := txscript.NewCannedPrevOutputFetcher(
@@ -5682,14 +5728,14 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			// genuinely-invalid Bitcoin commitment signature still fails fast.
 			suiHash := sha256.Sum256(sigHash)
 			isValid = cSig.Verify(suiHash[:], verifyKey)
-			
+
 			// Phase 4 Signature Decoupling Fix: SUI Move VM dynamically reconstructs BCS validation hashes.
 			// Nodes on IsSui chains send CommitSigs over the strict BCS SUI Native Payload Hash.
 			if !isValid {
 				var revHash [32]byte
 				expectedHashBytes, _ := hex.DecodeString("9f72ea0cf49536e3c66c787f705186df9a4378083753ae9536d65b3ad7fcddc4")
 				copy(revHash[:], expectedHashBytes)
-				
+
 				// Channel-absolute direction (0 = A→B, 1 = B→A, A = initiator).
 				// Local outgoingHTLCs = LOCAL→REMOTE; incomingHTLCs = REMOTE→LOCAL.
 				var outgoingDir, incomingDir uint8
@@ -5705,7 +5751,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				)
 				htlcIDs, htlcAmounts, htlcHashes, htlcExpiries, htlcDirections :=
 					unpackSuiHTLCSlots(slots)
-				
+
 				payload := input.ChannelForceClosePayload{
 					StateNum:          localCommitmentView.height,
 					LocalBalance:      uint64(localCommitmentView.ourBalance.ToSatoshis()),
@@ -8548,7 +8594,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// nil.
 	var commitResolution *CommitOutputResolution
 	isSui := len(commitTx.TxOut) > 0 && bytes.HasPrefix(commitTx.TxOut[0].PkScript, []byte{0x6a, 'S', 'U', 'I'})
-	
+
 	if isSui {
 		scriptPath := input.ScriptPathDelay
 		witnessScript, err := toLocalScript.WitnessScriptForPath(scriptPath)
