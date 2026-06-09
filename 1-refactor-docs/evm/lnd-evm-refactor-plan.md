@@ -112,10 +112,33 @@ Implements `chainntnfs.ChainNotifier` by subscribing to Solidity contract events
 - `htlcsHash` ← a deterministic Merkle/keccak root over the active `UpdateLog` HTLC set, so the on-chain `claimHtlc`/`timeoutHtlc` can be proven against the committed state.
 
 ### 2.6 Revocation Reconciliation (`lnwallet/channel.go` + contract)
-LND already produces a `per_commitment_secret` per state via the **shachain** producer (`KeyFamily 5: RevocationRoot`) and transmits it in `revoke_and_ack`. The EVM contract's `revocationHash`/`penalize` scheme **must reuse that existing secret** rather than invent a parallel one:
 
-- `revocationHash_N = keccak256(per_commitment_secret_N)` is bound to state `N` when the next state is signed.
-- On `revoke_and_ack`, the counterparty already learns `per_commitment_secret_N`. If a cheater later `forceClose`s with state `N`, the honest party submits that secret to `penalize` — no new key material, no change to `revoke_and_ack`. This is the direct analogue of how Bitcoin's revocation key is reused, and of the Sui `revocation_key`/`revocation_hash` object fields.
+> **Design correction (phase 3.2, 2026-06-09).** The deployed `ChannelManager`
+> does **not** implement a `revocationHash = keccak256(per_commitment_secret)`
+> scheme. The original sketch below is superseded; the contract uses the
+> **newer-nonce penalty** model (`penalize(channelId, correctNonce, …,
+> correctSig)` with `correctNonce > storedNonce` and `ECDSA.recover(correctSig)
+> == broadcaster`). EVM has no on-chain revocation-key construction, so there is
+> nothing to bind a hashed secret to. Revocation reduces to: **retain the
+> counterparty's latest signed `StateUpdate`** (already received in
+> `commitment_signed` and persisted as `channeldb` `CommitSig`) and, if the
+> cheater force-closes an obsolete state, submit that newer signed state to
+> `penalize`. `revoke_and_ack` and the shachain producer are genuinely
+> untouched — the per-commitment secret is simply not used on-chain.
+>
+> The one new primitive this requires is **recovering the signature's `v`**: the
+> wire `commitment_signed` carries only the 64-byte `(r, s)` (`lnwire.Sig` drops
+> `v`), but `forceClose`/`penalize` need the 65-byte `(r, s, v)` the contract's
+> `ECDSA.recover` resolves. `input.RecoverEvmSigV` brute-forces `v ∈ {27, 28}`
+> against the known counterparty funding address; `lnwallet.evmBreachEvidence`
+> assembles the full calldata tuple. Both are cross-checked against the contract
+> (`SigRecoveryVectors.t.sol`). The actual on-chain submission is wired in the
+> `BreachArbitrator` branch of phase 3.4.
+
+~~LND already produces a `per_commitment_secret` per state via the **shachain** producer (`KeyFamily 5: RevocationRoot`) and transmits it in `revoke_and_ack`. The EVM contract's `revocationHash`/`penalize` scheme **must reuse that existing secret** rather than invent a parallel one:~~
+
+- ~~`revocationHash_N = keccak256(per_commitment_secret_N)` is bound to state `N` when the next state is signed.~~
+- ~~On `revoke_and_ack`, the counterparty already learns `per_commitment_secret_N`. If a cheater later `forceClose`s with state `N`, the honest party submits that secret to `penalize` — no new key material, no change to `revoke_and_ack`.~~
 
 ### 2.7 Funding Manager Adaptation (`funding/manager.go`)
 - `waitForFundingConfirmation`: in EVM mode, wait for the `ChannelOpened` event receipt to reach `evm.numconfs` confirmations (`evmnotify.RegisterConfirmationsNtfn`) instead of N Bitcoin blocks. L2 finality is fast but **not instant** — see the reorg discussion in `evm/security-audit.md`.

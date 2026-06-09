@@ -109,6 +109,54 @@ func (s *EvmSigner) SignStateUpdateWire(keyDesc keychain.KeyDescriptor,
 	return btcecdsa.Sign(privKey, digest[:]), nil
 }
 
+// RecoverEvmSigV reconstructs the 65-byte (r ‖ s ‖ v) Ethereum signature the
+// ChannelManager's ECDSA.recover expects, from the 64-byte (r ‖ s) commitment
+// signature LND carries on the wire (lnwire.Sig drops the recovery byte). It is
+// the keystone of EVM breach handling: the off-chain commitment_signed only
+// transports r,s, but forceClose / penalize must recover the signer on-chain, so
+// v has to be re-derived before the retained counterparty signature can be
+// submitted.
+//
+// EVM has no on-chain revocation-key construction; "revocation" reduces to
+// retaining the counterparty's latest StateUpdate signature and proving a newer
+// one exists (contract penalize, newer-nonce model). This function turns that
+// retained 64-byte signature into the form the contract accepts.
+//
+// It tries both legal recovery ids (v ∈ {27, 28}) over digest and returns the
+// 65-byte signature whose recovered key derives expected; it errors if neither
+// does — i.e. rs is not expected's signature over digest.
+func RecoverEvmSigV(rs []byte, digest [32]byte, expected [20]byte) ([]byte,
+	error) {
+
+	if len(rs) != 64 {
+		return nil, fmt.Errorf("evm_signer: want 64-byte r||s sig, "+
+			"got %d", len(rs))
+	}
+
+	// btcec RecoverCompact wants [header ‖ r ‖ s]; header = 27 + recid for an
+	// uncompressed key, which is exactly Ethereum's v.
+	for _, v := range []byte{27, 28} {
+		compact := make([]byte, 65)
+		compact[0] = v
+		copy(compact[1:], rs)
+
+		pub, _, err := btcecdsa.RecoverCompact(compact, digest[:])
+		if err != nil {
+			continue
+		}
+		if EvmAddressFromPubKey(pub) == expected {
+			ethSig := make([]byte, 65)
+			copy(ethSig, rs)
+			ethSig[64] = v
+
+			return ethSig, nil
+		}
+	}
+
+	return nil, fmt.Errorf("evm_signer: no recovery id recovers signer "+
+		"%x for the given digest", expected)
+}
+
 // signDigestWithKey is the shared core: it produces a btcec recoverable compact
 // signature and reformats it from btcec's [v ‖ r ‖ s] layout to Ethereum's
 // [r ‖ s ‖ v].

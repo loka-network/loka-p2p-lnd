@@ -4,8 +4,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -80,6 +84,90 @@ func TestBuildEvmStateUpdateSymmetry(t *testing.T) {
 	// htlcsHash must be the non-zero Merkle root of the single shared HTLC.
 	if suA.HtlcsHash == ([32]byte{}) {
 		t.Fatal("expected non-zero htlcsHash for a 1-HTLC state")
+	}
+}
+
+// TestEvmBreachEvidence exercises the full phase-3.2 breach path: the
+// counterparty signs the canonical StateUpdate (as it would in commitment_signed),
+// LND retains only the 64-byte wire form, and evmBreachEvidence must reconstruct
+// the 65-byte signature the contract's forceClose/penalize accept — recovering to
+// the remote funding address. This is the EVM analogue of breach retribution data
+// (no per-commitment secret; the signed newer state is the proof).
+func TestEvmBreachEvidence(t *testing.T) {
+	SetEvmCommitmentParams(input.EvmDomain{ChainID: 31337}, 6)
+
+	// Local and remote funding keys; the remote is the "counterparty" whose
+	// signature the contract must recover.
+	localPriv, _ := btcec.NewPrivateKey()
+	remotePriv, _ := btcec.NewPrivateKey()
+
+	var fundingHash [32]byte
+	fundingHash[0] = 0xFE
+
+	chanState := &channeldb.OpenChannel{
+		IsInitiator: true,
+		LocalChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: localPriv.PubKey(),
+			},
+		},
+		RemoteChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: remotePriv.PubKey(),
+			},
+		},
+	}
+	chanState.FundingOutpoint.Hash = fundingHash
+	lc := &LightningChannel{channelState: chanState}
+
+	view := &commitment{
+		height:       12,
+		ourBalance:   lnwire.NewMSatFromSatoshis(700_000_000),
+		theirBalance: lnwire.NewMSatFromSatoshis(300_000_000),
+	}
+
+	// The counterparty signs the canonical StateUpdate digest; LND keeps only
+	// the 64-byte r||s on the wire.
+	digest := lc.stateUpdateForView(view).Digest(EvmCommitmentDomain())
+	rawSig := btcecdsa.Sign(remotePriv, digest[:])
+	wireSig, err := lnwire.NewSigFromSignature(rawSig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ev, err := lc.evmBreachEvidence(view, wireSig)
+	if err != nil {
+		t.Fatalf("evmBreachEvidence: %v", err)
+	}
+	if len(ev.Sig) != 65 {
+		t.Fatalf("want 65-byte sig, got %d", len(ev.Sig))
+	}
+	if ev.Nonce != 12 {
+		t.Fatalf("nonce = %d, want 12", ev.Nonce)
+	}
+	if ev.ChannelID != fundingHash {
+		t.Fatalf("channelId = %x, want %x", ev.ChannelID, fundingHash)
+	}
+
+	// The reconstructed signature must recover to the remote funding address,
+	// exactly as the contract's ECDSA.recover would.
+	compact := make([]byte, 65)
+	compact[0] = ev.Sig[64]
+	copy(compact[1:], ev.Sig[:64])
+	recovered, _, err := btcecdsa.RecoverCompact(compact, digest[:])
+	if err != nil {
+		t.Fatalf("recover failed: %v", err)
+	}
+	wantAddr := input.EvmAddressFromPubKey(remotePriv.PubKey())
+	if input.EvmAddressFromPubKey(recovered) != wantAddr {
+		t.Fatal("breach evidence does not recover to the counterparty")
+	}
+
+	// A signature from the wrong party must be rejected.
+	badSig := btcecdsa.Sign(localPriv, digest[:])
+	badWire, _ := lnwire.NewSigFromSignature(badSig)
+	if _, err := lc.evmBreachEvidence(view, badWire); err == nil {
+		t.Fatal("expected error for a signature not from the counterparty")
 	}
 }
 

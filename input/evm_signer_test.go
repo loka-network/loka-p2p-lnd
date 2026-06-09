@@ -184,6 +184,95 @@ func TestEvmChannelID(t *testing.T) {
 	}
 }
 
+// Golden vector emitted by SigRecoveryVectors.t.sol: Anvil account 0's signature
+// over goldenStateDig, as the canonical (r, s) the contract's ECDSA.recover
+// accepts. anvilAcct0Addr is that key's EVM address (== TestEvmAddressFromPubKey).
+const (
+	goldenSigR     = "3427a7c5a654686fd5d583e5aae99933b019732c8283d3de3e4e87c60b1af8e6"
+	goldenSigS     = "1e8edaf5dcc1a4d512bc2a280da16ee8deca041ee7244829efb07115e818b138"
+	anvilAcct0Addr = "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+)
+
+// TestRecoverEvmSigV pins the v-recovery to a contract-accepted signature: given
+// only the 64-byte (r ‖ s) LND retains on the wire plus the signer's address,
+// RecoverEvmSigV must reproduce the 65-byte (r ‖ s ‖ v) that the ChannelManager's
+// ECDSA.recover resolves to that signer — the keystone of EVM breach handling.
+func TestRecoverEvmSigV(t *testing.T) {
+	t.Parallel()
+
+	digest := hexToBytes32(t, goldenStateDig)
+	r := hexToBytes32(t, goldenSigR)
+	s := hexToBytes32(t, goldenSigS)
+	rs := append(append([]byte{}, r[:]...), s[:]...)
+
+	addrBytes, err := hex.DecodeString(anvilAcct0Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected [20]byte
+	copy(expected[:], addrBytes)
+
+	sig, err := RecoverEvmSigV(rs, digest, expected)
+	if err != nil {
+		t.Fatalf("RecoverEvmSigV: %v", err)
+	}
+	if len(sig) != 65 {
+		t.Fatalf("want 65-byte sig, got %d", len(sig))
+	}
+	if !bytes.Equal(sig[:64], rs) {
+		t.Fatal("recovered sig must preserve the original r||s")
+	}
+	if v := sig[64]; v != 27 && v != 28 {
+		t.Fatalf("v must be 27 or 28, got %d", v)
+	}
+
+	// Independently confirm the reconstructed signature recovers to the
+	// signer, exactly as the contract would.
+	compact := make([]byte, 65)
+	compact[0] = sig[64]
+	copy(compact[1:], rs)
+	recovered, _, err := btcecdsa.RecoverCompact(compact, digest[:])
+	if err != nil {
+		t.Fatalf("recover failed: %v", err)
+	}
+	if EvmAddressFromPubKey(recovered) != expected {
+		t.Fatal("reconstructed sig does not recover to expected signer")
+	}
+
+	// A wrong expected signer must be rejected, not silently mis-attributed.
+	var wrong [20]byte
+	wrong[0] = 0x01
+	if _, err := RecoverEvmSigV(rs, digest, wrong); err == nil {
+		t.Fatal("expected error recovering to a non-signer address")
+	}
+}
+
+// TestRecoverEvmSigVRoundTrip guards the byte layout end-to-end: a freshly
+// produced 65-byte signature, stripped to its wire 64-byte r||s, must recover to
+// the identical 65 bytes.
+func TestRecoverEvmSigVRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const pkHex = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+	pkb, _ := hex.DecodeString(pkHex)
+	priv, _ := btcec.PrivKeyFromBytes(pkb)
+	addr := EvmAddressFromPubKey(priv.PubKey())
+
+	digest := Keccak256([]byte("breach evidence digest"))
+	full, err := signDigestWithKey(priv, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := RecoverEvmSigV(full[:64], digest, addr)
+	if err != nil {
+		t.Fatalf("RecoverEvmSigV: %v", err)
+	}
+	if !bytes.Equal(got, full) {
+		t.Fatalf("round-trip mismatch\n got %x\nwant %x", got, full)
+	}
+}
+
 // TestEvmAddressFromPubKey checks the EVM address derivation against the
 // well-known Anvil account 0 keypair.
 func TestEvmAddressFromPubKey(t *testing.T) {

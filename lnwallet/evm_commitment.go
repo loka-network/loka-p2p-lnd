@@ -211,6 +211,54 @@ func (lc *LightningChannel) signEvmCommitment(
 	return lnwire.NewSigFromSignature(rawSig)
 }
 
+// EvmBreachEvidence is the calldata a forceClose or penalize submits: the
+// canonical StateUpdate fields plus the counterparty's 65-byte (r ‖ s ‖ v)
+// signature over that state's EIP-712 digest. The signature is reconstructed
+// from the 64-byte form LND retained in commitment_signed — EVM has no on-chain
+// revocation key, so the breach remedy is simply proving the counterparty signed
+// this state (forceClose) or a newer one (penalize, newer-nonce model).
+type EvmBreachEvidence struct {
+	ChannelID [32]byte
+	Nonce     uint64
+	BalanceA  *big.Int
+	BalanceB  *big.Int
+	HtlcsHash [32]byte
+
+	// Sig is the 65-byte counterparty signature the contract's ECDSA.recover
+	// resolves to the remote funding address.
+	Sig []byte
+}
+
+// evmBreachEvidence assembles the on-chain evidence for a commitment view from
+// the counterparty's retained wire signature over that state. It rebuilds the
+// canonical StateUpdate, recovers the signature's v against the remote funding
+// address, and returns the tuple forceClose / penalize consume. It errors if the
+// retained signature does not recover to the counterparty (i.e. it is not their
+// signature over this state).
+func (lc *LightningChannel) evmBreachEvidence(view *commitment,
+	counterpartySig lnwire.Sig) (EvmBreachEvidence, error) {
+
+	su := lc.stateUpdateForView(view)
+	digest := su.Digest(evmCommitmentDomain)
+
+	_, theirAddr := evmPartyAddrs(lc.channelState)
+	sig65, err := input.RecoverEvmSigV(
+		counterpartySig.RawBytes(), digest, theirAddr,
+	)
+	if err != nil {
+		return EvmBreachEvidence{}, err
+	}
+
+	return EvmBreachEvidence{
+		ChannelID: su.ChannelID,
+		Nonce:     su.Nonce,
+		BalanceA:  su.BalanceA,
+		BalanceB:  su.BalanceB,
+		HtlcsHash: su.HtlcsHash,
+		Sig:       sig65,
+	}, nil
+}
+
 // verifyEvmCommitment checks a remote commitment signature against the EIP-712
 // StateUpdate for the given view, using the remote funding multisig pubkey. It
 // is the EVM replacement for SegWit sighash verification, gated by
