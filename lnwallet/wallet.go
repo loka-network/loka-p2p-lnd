@@ -1700,6 +1700,39 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		}
 		return
 
+	case *chanfunding.EvmIntent:
+		// For EVM the channelId is deterministic — keccak256(funder,
+		// counterparty, salt) over the bound funding keys — so unlike
+		// Sui nothing needs to be broadcast to learn the chan point.
+		// Bind the keys, compile the openChannel carrier, and let the
+		// standard funding flow publish it (PublishTransaction →
+		// evmwallet.executeCarrier) once the counterparty's signatures
+		// are in.
+		fundingIntent.BindKeys(
+			&pendingReservation.ourContribution.MultiSigKey,
+			theirContribution.MultiSigKey.PubKey,
+		)
+
+		fundingTx, err := fundingIntent.CompileFunds()
+		if err != nil {
+			req.err <- fmt.Errorf("evm: unable to build "+
+				"openChannel carrier: %v", err)
+			return
+		}
+
+		chanPoint, err = fundingIntent.ChanPoint()
+		if err != nil {
+			req.err <- fmt.Errorf("evm: unable to obtain chan "+
+				"point: %v", err)
+			return
+		}
+
+		pendingReservation.fundingTx = fundingTx
+		pendingReservation.partialState.FundingOutpoint = *chanPoint
+		pendingReservation.ourFundingInputScripts = make(
+			[]*input.Script, 0,
+		)
+
 	case *chanfunding.SuiIntent:
 		// For Sui, we must execute the open_channel transaction now to
 		// obtain the ObjectID. We bind the keys, compile the dummy tx,

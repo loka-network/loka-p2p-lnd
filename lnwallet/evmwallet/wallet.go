@@ -198,7 +198,9 @@ func (w *Wallet) SendOutputs(_ fn.Set[wire.OutPoint], outputs []*wire.TxOut,
 // ExecuteOpenChannelCall builds, signs and broadcasts the EVM call carried in
 // the wire.MsgTx envelope, returning the resulting EVM transaction hash. Used by
 // the funding assembler for openChannel and by the resolvers for settlement
-// calls.
+// calls. Two envelope forms are accepted: the raw "EVM_CALL:" {to,data,value}
+// form, and the input.BuildEvmCallTx ChannelManager carrier, which is
+// translated (decimals scaling, allowance, ABI encoding) by executeCarrier.
 func (w *Wallet) ExecuteOpenChannelCall(tx *wire.MsgTx) (chainhash.Hash,
 	error) {
 
@@ -206,16 +208,16 @@ func (w *Wallet) ExecuteOpenChannelCall(tx *wire.MsgTx) (chainhash.Hash,
 	if err != nil {
 		return chainhash.Hash{}, err
 	}
-	if !ok {
-		return chainhash.Hash{}, fmt.Errorf("evmwallet: tx is not an " +
-			"EVM_CALL envelope")
-	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
+
+	if !ok {
+		return w.executeCarrier(ctx, tx)
+	}
 
 	return w.broadcastCall(ctx, call)
 }
@@ -289,11 +291,21 @@ func (w *Wallet) AddressInfo(btcutil.Address) (waddrmgr.ManagedAddress, error) {
 	return nil, ErrUnsupported
 }
 
-// ListAccounts is unsupported on EVM.
-func (w *Wallet) ListAccounts(string, *waddrmgr.KeyScope) (
+// ListAccounts reports the single account an EVM chain has: the node address
+// under the default name. Exposing it (rather than erroring) lets the
+// WalletBalance RPC walk its usual account loop and land in ConfirmedBalance,
+// which reads the ERC20 balance.
+func (w *Wallet) ListAccounts(name string, _ *waddrmgr.KeyScope) (
 	[]*waddrmgr.AccountProperties, error) {
 
-	return nil, ErrUnsupported
+	if name != "" && name != lnwallet.DefaultAccountName {
+		return nil, nil
+	}
+
+	return []*waddrmgr.AccountProperties{{
+		AccountName: lnwallet.DefaultAccountName,
+		KeyScope:    waddrmgr.KeyScopeBIP0084,
+	}}, nil
 }
 
 // ListAddresses is unsupported on EVM.
@@ -364,9 +376,10 @@ func (w *Wallet) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
 	return ErrUnsupported
 }
 
-// ListLeasedOutputs is unsupported on EVM.
+// ListLeasedOutputs reports no leases; EVM has no UTXOs to lock for funding
+// reservations.
 func (w *Wallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, error) {
-	return nil, ErrUnsupported
+	return nil, nil
 }
 
 // LabelTransaction is unsupported on EVM.

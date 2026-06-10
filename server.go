@@ -1009,6 +1009,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if cfg.SuiMode != nil && cfg.SuiMode.Active {
 		assumeChannelValid = true
 	}
+	// Like Sui, EVM has no FilteredChainView (no UTXO set to filter), so
+	// graph pruning must run in zombie mode rather than spentness mode.
+	if cfg.EvmMode != nil && cfg.EvmMode.Active {
+		assumeChannelValid = true
+	}
 
 	s.graphBuilder, err = graph.NewBuilder(&graph.Config{
 		SelfNode:            nodePubKey,

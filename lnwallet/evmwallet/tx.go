@@ -96,12 +96,26 @@ func (w *Wallet) nodeECDSAKey() (*ecdsa.PrivateKey, common.Address, error) {
 func (w *Wallet) broadcastCall(ctx context.Context, call EvmCall) (
 	chainhash.Hash, error) {
 
+	ecdsaKey, _, err := w.nodeECDSAKey()
+	if err != nil {
+		return chainhash.Hash{}, err
+	}
+
+	return w.broadcastCallFrom(ctx, call, ecdsaKey)
+}
+
+// broadcastCallFrom is broadcastCall with an explicit signing key. Channel
+// settlement calls (openChannel, forceClose, …) must originate from the
+// channel's funding-key address — the contract binds participantA/B to
+// openChannel's msg.sender/counterparty and StateUpdate signatures recover to
+// those same addresses — so those calls are signed with the per-channel
+// multisig key rather than the node key.
+func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
+	ecdsaKey *ecdsa.PrivateKey) (chainhash.Hash, error) {
+
 	var zero chainhash.Hash
 
-	ecdsaKey, from, err := w.nodeECDSAKey()
-	if err != nil {
-		return zero, err
-	}
+	from := gethcrypto.PubkeyToAddress(ecdsaKey.PublicKey)
 
 	chainID, err := w.cfg.Client.ChainID(ctx)
 	if err != nil {

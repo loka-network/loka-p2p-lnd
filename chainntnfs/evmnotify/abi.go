@@ -22,14 +22,25 @@ var channelManagerABIJSON string
 // ChannelManagerABI is the parsed ChannelManager ABI.
 var ChannelManagerABI = mustParseABI(channelManagerABIJSON)
 
-// erc20BalanceABI is the minimal ABI fragment needed to read an ERC20 balance.
+// erc20BalanceABI is the minimal ABI fragment the adapters need from an ERC20:
+// balance/decimals reads plus approve (the ChannelManager pulls deposits via
+// transferFrom, so the funder must grant an allowance before openChannel).
 const erc20BalanceABI = `[{"constant":true,"inputs":[{"name":"account",` +
 	`"type":"address"}],"name":"balanceOf","outputs":[{"name":"",` +
 	`"type":"uint256"}],"stateMutability":"view","type":"function"},` +
 	`{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"",` +
-	`"type":"uint8"}],"stateMutability":"view","type":"function"}]`
+	`"type":"uint8"}],"stateMutability":"view","type":"function"},` +
+	`{"constant":false,"inputs":[{"name":"spender","type":"address"},` +
+	`{"name":"amount","type":"uint256"}],"name":"approve","outputs":` +
+	`[{"name":"","type":"bool"}],"stateMutability":"nonpayable",` +
+	`"type":"function"},` +
+	`{"constant":false,"inputs":[{"name":"to","type":"address"},` +
+	`{"name":"amount","type":"uint256"}],"name":"transfer","outputs":` +
+	`[{"name":"","type":"bool"}],"stateMutability":"nonpayable",` +
+	`"type":"function"}]`
 
-// ERC20ABI is the parsed minimal ERC20 ABI (balanceOf + decimals).
+// ERC20ABI is the parsed minimal ERC20 ABI (balanceOf + decimals + approve +
+// transfer).
 var ERC20ABI = mustParseABI(erc20BalanceABI)
 
 // Event topic-0 hashes, keccak256 of the canonical event signatures. The
@@ -111,6 +122,96 @@ func PackPenalize(channelID [32]byte, correctNonce, balA, balB *big.Int,
 		"penalize", channelID, correctNonce, balA, balB, htlcsHash,
 		correctSig,
 	)
+}
+
+// EvmHTLCArg mirrors the contract's HTLC struct in the field order and types
+// go-ethereum's ABI packer expects for the tuple.
+type EvmHTLCArg struct {
+	Index     *big.Int
+	Amount    *big.Int
+	Hashlock  [32]byte
+	Timelock  uint32
+	Recipient common.Address
+}
+
+// PackClaimHtlc ABI-encodes a claimHtlc(channelId, htlc, merkleProof,
+// preimage) call.
+func PackClaimHtlc(channelID [32]byte, htlc EvmHTLCArg,
+	merkleProof [][32]byte, preimage [32]byte) ([]byte, error) {
+
+	return ChannelManagerABI.Pack(
+		"claimHtlc", channelID, htlc, merkleProof, preimage,
+	)
+}
+
+// PackTimeoutHtlc ABI-encodes a timeoutHtlc(channelId, htlc, merkleProof)
+// call.
+func PackTimeoutHtlc(channelID [32]byte, htlc EvmHTLCArg,
+	merkleProof [][32]byte) ([]byte, error) {
+
+	return ChannelManagerABI.Pack(
+		"timeoutHtlc", channelID, htlc, merkleProof,
+	)
+}
+
+// PackApprove ABI-encodes an ERC20 approve(spender, amount) call.
+func PackApprove(spender common.Address, amount *big.Int) ([]byte, error) {
+	return ERC20ABI.Pack("approve", spender, amount)
+}
+
+// PackTransfer ABI-encodes an ERC20 transfer(to, amount) call.
+func PackTransfer(to common.Address, amount *big.Int) ([]byte, error) {
+	return ERC20ABI.Pack("transfer", to, amount)
+}
+
+// PackToken ABI-encodes the ChannelManager token() getter.
+func PackToken() ([]byte, error) {
+	return ChannelManagerABI.Pack("token")
+}
+
+// UnpackToken decodes the address result of the token() getter.
+func UnpackToken(data []byte) (common.Address, error) {
+	vals, err := ChannelManagerABI.Unpack("token", data)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if len(vals) != 1 {
+		return common.Address{}, fmt.Errorf("evmnotify: unexpected " +
+			"token return")
+	}
+	addr, ok := vals[0].(common.Address)
+	if !ok {
+		return common.Address{}, fmt.Errorf("evmnotify: token not " +
+			"an address")
+	}
+
+	return addr, nil
+}
+
+// UnpackChannelOpened decodes the non-indexed data of a ChannelOpened log,
+// returning the two raw base-unit deposits.
+func UnpackChannelOpened(data []byte) (balanceA, balanceB *big.Int,
+	err error) {
+
+	vals, err := ChannelManagerABI.Events["ChannelOpened"].Inputs.
+		NonIndexed().Unpack(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	// participantA, participantB, balanceA, balanceB.
+	if len(vals) != 4 {
+		return nil, nil, fmt.Errorf("evmnotify: unexpected " +
+			"ChannelOpened data")
+	}
+
+	balanceA, okA := vals[2].(*big.Int)
+	balanceB, okB := vals[3].(*big.Int)
+	if !okA || !okB {
+		return nil, nil, fmt.Errorf("evmnotify: ChannelOpened " +
+			"balances not uint256")
+	}
+
+	return balanceA, balanceB, nil
 }
 
 // PackBalanceOf ABI-encodes an ERC20 balanceOf(account) call.

@@ -62,6 +62,12 @@ type EvmChainNotifier struct {
 	contractAddr common.Address
 	pollInterval time.Duration
 
+	// decimals caches the escrow token's ERC20 decimals, resolved lazily
+	// on the first ChannelOpened confirmation.
+	decimalsMu    sync.Mutex
+	decimals      uint8
+	decimalsKnown bool
+
 	blockEpochClients map[uint64]*blockEpochRegistration
 	epochMu           sync.Mutex
 
@@ -195,8 +201,15 @@ func (n *EvmChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	return confEvent, nil
 }
 
-// waitForConfirmation polls the receipt for txHash until it is buried under
-// numConfs blocks, then fires the confirmation.
+// waitForConfirmation polls until the registered hash is buried under
+// numConfs blocks, then fires the confirmation. The hash is matched two ways,
+// because LND registers two kinds of identifiers through the unchanged
+// ChainNotifier interface:
+//
+//   - an actual EVM transaction hash (settlement calls): matched by receipt;
+//   - the 32-byte channelId (funding: the funding "txid" IS the channelId,
+//     per the OutPoint.Hash ↔ channelId mapping): matched by the
+//     ChannelOpened log carrying that channelId as its indexed topic.
 func (n *EvmChainNotifier) waitForConfirmation(txHash chainhash.Hash,
 	pkScript []byte, numConfs uint32,
 	confEvent *chainntnfs.ConfirmationEvent) {
@@ -219,26 +232,34 @@ func (n *EvmChainNotifier) waitForConfirmation(txHash chainhash.Hash,
 			ctx, cancel := context.WithTimeout(
 				context.Background(), n.pollInterval,
 			)
-			receipt, err := n.client.TransactionReceipt(ctx, ethHash)
+			target, found := n.locateConfTarget(ctx, ethHash)
 			cancel()
-			if err != nil || receipt == nil {
+			if !found {
 				continue
 			}
 
 			tip := atomic.LoadInt64(&n.bestHeight)
-			confs := tip - receipt.BlockNumber.Int64() + 1
+			confs := tip - target.height + 1
 			if confs < int64(numConfs) {
 				continue
 			}
 
-			bh := chainhash.Hash(receipt.BlockHash)
+			bh := chainhash.Hash(target.blockHash)
+
+			// The synthetic 0-in/1-out tx satisfies lnwallet's
+			// ValidateChannel capacity check: value carries the
+			// channel capacity in internal units when the target
+			// was a ChannelOpened event (zero otherwise).
 			fakeTx := wire.NewMsgTx(2)
-			fakeTx.AddTxOut(&wire.TxOut{PkScript: pkScript})
+			fakeTx.AddTxOut(&wire.TxOut{
+				Value:    target.value,
+				PkScript: pkScript,
+			})
 			select {
 			case confEvent.Confirmed <- &chainntnfs.TxConfirmation{
 				BlockHash:   &bh,
-				BlockHeight: uint32(receipt.BlockNumber.Int64()),
-				TxIndex:     uint32(receipt.TransactionIndex),
+				BlockHeight: uint32(target.height),
+				TxIndex:     target.txIndex,
 				Tx:          fakeTx,
 			}:
 			case <-n.quit:
@@ -249,6 +270,139 @@ func (n *EvmChainNotifier) waitForConfirmation(txHash chainhash.Hash,
 			return
 		}
 	}
+}
+
+// confTarget is the resolved on-chain location of a confirmation
+// registration, plus the channel capacity in LND-internal units when the
+// registration matched a ChannelOpened event.
+type confTarget struct {
+	height    int64
+	txIndex   uint32
+	blockHash common.Hash
+	value     int64
+}
+
+// locateConfTarget resolves the registered hash to on-chain coordinates,
+// first as a transaction hash (receipt lookup), then as a channelId (a
+// ChannelOpened log with that indexed topic).
+func (n *EvmChainNotifier) locateConfTarget(ctx context.Context,
+	hash common.Hash) (confTarget, bool) {
+
+	receipt, err := n.client.TransactionReceipt(ctx, hash)
+	if err == nil && receipt != nil {
+		return confTarget{
+			height:    receipt.BlockNumber.Int64(),
+			txIndex:   uint32(receipt.TransactionIndex),
+			blockHash: receipt.BlockHash,
+		}, true
+	}
+
+	logs, err := n.client.FilterLogs(ctx, ethereum.FilterQuery{
+		Addresses: []common.Address{n.contractAddr},
+		Topics: [][]common.Hash{
+			{TopicChannelOpened},
+			{hash},
+		},
+	})
+	if err != nil || len(logs) == 0 {
+		return confTarget{}, false
+	}
+
+	l := logs[0]
+	target := confTarget{
+		height:    int64(l.BlockNumber),
+		txIndex:   uint32(l.TxIndex),
+		blockHash: l.BlockHash,
+	}
+
+	// Recover the channel capacity from the event's deposits so the
+	// synthetic confirmation tx passes lnwallet's capacity validation.
+	balA, balB, err := UnpackChannelOpened(l.Data)
+	if err != nil {
+		chainntnfs.Log.Errorf("evmnotify: bad ChannelOpened data: %v",
+			err)
+
+		return target, true
+	}
+	decimals, err := n.tokenDecimals(ctx)
+	if err != nil {
+		chainntnfs.Log.Errorf("evmnotify: token decimals: %v", err)
+
+		return target, true
+	}
+	target.value = scaleRawToInternal(
+		new(big.Int).Add(balA, balB), decimals,
+	)
+
+	return target, true
+}
+
+// tokenDecimals lazily resolves and caches the escrow token's decimals via
+// ChannelManager.token() → ERC20.decimals().
+func (n *EvmChainNotifier) tokenDecimals(ctx context.Context) (uint8, error) {
+	n.decimalsMu.Lock()
+	defer n.decimalsMu.Unlock()
+
+	if n.decimalsKnown {
+		return n.decimals, nil
+	}
+
+	tokenCall, err := PackToken()
+	if err != nil {
+		return 0, err
+	}
+	out, err := n.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &n.contractAddr,
+		Data: tokenCall,
+	}, nil)
+	if err != nil {
+		return 0, err
+	}
+	tokenAddr, err := UnpackToken(out)
+	if err != nil {
+		return 0, err
+	}
+
+	decCall, err := PackDecimals()
+	if err != nil {
+		return 0, err
+	}
+	out, err = n.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &tokenAddr,
+		Data: decCall,
+	}, nil)
+	if err != nil {
+		return 0, err
+	}
+	dec, err := UnpackDecimals(out)
+	if err != nil {
+		return 0, err
+	}
+
+	n.decimals = dec
+	n.decimalsKnown = true
+
+	return dec, nil
+}
+
+// internalDecimals mirrors the Decimals Scaling Factor's internal scale
+// (1 token = 1e8 internal units, evmwallet/amounts.go).
+const internalDecimals = 8
+
+// scaleRawToInternal converts raw token base-units into LND-internal units.
+// It mirrors evmwallet.ScaleToInternal (which cannot be imported here —
+// evmwallet depends on this package).
+func scaleRawToInternal(raw *big.Int, tokenDecimals uint8) int64 {
+	scaled := new(big.Int).Mul(
+		raw, new(big.Int).Exp(
+			big.NewInt(10), big.NewInt(internalDecimals), nil,
+		),
+	)
+	scaled.Quo(scaled, new(big.Int).Exp(
+		big.NewInt(10), big.NewInt(int64(tokenDecimals)), nil,
+	))
+
+	return scaled.Int64()
 }
 
 // RegisterSpendNtfn registers to be notified once the channel identified by

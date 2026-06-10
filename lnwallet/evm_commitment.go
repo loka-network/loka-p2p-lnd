@@ -276,6 +276,8 @@ func (lc *LightningChannel) evmForceCloseTx(view *commitment,
 	return input.BuildEvmForceCloseTx(
 		chainhash.Hash(ev.ChannelID), ev.Nonce, ev.BalanceA,
 		ev.BalanceB, ev.HtlcsHash, ev.Sig,
+		lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed(),
 	)
 }
 
@@ -293,6 +295,8 @@ func (lc *LightningChannel) evmPenalizeTx(view *commitment,
 	return input.BuildEvmPenalizeTx(
 		chainhash.Hash(ev.ChannelID), ev.Nonce, ev.BalanceA,
 		ev.BalanceB, ev.HtlcsHash, ev.Sig,
+		lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed(),
 	)
 }
 

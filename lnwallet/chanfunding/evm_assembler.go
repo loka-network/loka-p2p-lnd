@@ -181,7 +181,17 @@ func (e *EvmIntent) CompileFunds() (*wire.MsgTx, error) {
 // Cancel releases any resources; EVM funding holds none until broadcast.
 func (e *EvmIntent) Cancel() {}
 
+// FundingTxAvailable signals that the assembler provides the channel's
+// funding transaction (the openChannel carrier) through its intent, so the
+// funding manager keeps the standard broadcast-after-funding_signed flow
+// instead of setting NoFundingTxBit. The carrier is published via
+// PublishTransaction → evmwallet.executeCarrier.
+//
+// NOTE: This method is a part of the FundingTxAssembler interface.
+func (e *EvmAssembler) FundingTxAvailable() {}
+
 var (
-	_ Assembler = (*EvmAssembler)(nil)
-	_ Intent    = (*EvmIntent)(nil)
+	_ Assembler          = (*EvmAssembler)(nil)
+	_ FundingTxAssembler = (*EvmAssembler)(nil)
+	_ Intent             = (*EvmIntent)(nil)
 )

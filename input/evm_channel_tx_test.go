@@ -73,7 +73,7 @@ func TestEvmForceCloseTxRoundTrip(t *testing.T) {
 
 	tx, err := BuildEvmForceCloseTx(
 		channelID, 9, big.NewInt(600_000_000), big.NewInt(400_000_000),
-		htlcsHash, sig,
+		htlcsHash, sig, []byte{0x02, 0xAA},
 	)
 	if err != nil {
 		t.Fatalf("BuildEvmForceCloseTx: %v", err)

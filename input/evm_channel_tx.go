@@ -148,6 +148,12 @@ type EvmStateClosePayload struct {
 
 	// Sig is the 65-byte (r ‖ s ‖ v) signature, hex-encoded.
 	Sig string `json:"sig"`
+
+	// LocalKey is this node's compressed funding pubkey, hex-encoded. The
+	// contract accepts forceClose/penalize only from a participant, and
+	// participantA/B are the funding-key addresses — evmwallet derives the
+	// signing key for the broadcast from this.
+	LocalKey string `json:"local_key,omitempty"`
 }
 
 // EvmHTLCData is the contract HTLC struct in carrier form, presented to
@@ -199,10 +205,12 @@ func proofToHex(proof [][32]byte) []string {
 }
 
 // BuildEvmForceCloseTx creates the carrier tx for a forceClose call (broadcast
-// the latest agreed state, co-signed by the counterparty).
+// the latest agreed state, co-signed by the counterparty). localKey is this
+// node's compressed funding pubkey: the contract only accepts the call from a
+// participant, so evmwallet signs the broadcast with that key.
 func BuildEvmForceCloseTx(channelID chainhash.Hash, nonce uint64,
 	balanceA, balanceB *big.Int, htlcsHash [32]byte,
-	sig []byte) (*wire.MsgTx, error) {
+	sig, localKey []byte) (*wire.MsgTx, error) {
 
 	return BuildEvmCallTx(channelID, EvmCallForceClose, EvmStateClosePayload{
 		Nonce:     nonce,
@@ -210,14 +218,16 @@ func BuildEvmForceCloseTx(channelID chainhash.Hash, nonce uint64,
 		BalanceB:  bigOrZero(balanceB).String(),
 		HtlcsHash: hex.EncodeToString(htlcsHash[:]),
 		Sig:       hex.EncodeToString(sig),
+		LocalKey:  hex.EncodeToString(localKey),
 	})
 }
 
 // BuildEvmPenalizeTx creates the carrier tx for a penalize call (submit a
 // strictly-higher signed state, proving the broadcast one was revoked).
+// localKey is as in BuildEvmForceCloseTx.
 func BuildEvmPenalizeTx(channelID chainhash.Hash, correctNonce uint64,
 	balanceA, balanceB *big.Int, htlcsHash [32]byte,
-	correctSig []byte) (*wire.MsgTx, error) {
+	correctSig, localKey []byte) (*wire.MsgTx, error) {
 
 	return BuildEvmCallTx(channelID, EvmCallPenalize, EvmStateClosePayload{
 		Nonce:     correctNonce,
@@ -225,6 +235,7 @@ func BuildEvmPenalizeTx(channelID chainhash.Hash, correctNonce uint64,
 		BalanceB:  bigOrZero(balanceB).String(),
 		HtlcsHash: hex.EncodeToString(htlcsHash[:]),
 		Sig:       hex.EncodeToString(correctSig),
+		LocalKey:  hex.EncodeToString(localKey),
 	})
 }
 
