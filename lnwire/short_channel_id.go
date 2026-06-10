@@ -31,6 +31,31 @@ type ShortChannelID struct {
 	TxPosition uint16
 }
 
+// scidMax24 is the largest value the 24-bit BlockHeight / TxIndex fields hold.
+const scidMax24 = 1<<24 - 1
+
+// NewEvmShortChanID derives a ShortChannelID from the coordinates of an EVM
+// ChannelManager `ChannelOpened` log: the block number, the transaction index
+// within that block, and the log index of the event (integration doc §6.1.3).
+// The mapping is direct — EVM exposes the same three coordinates Bitcoin's
+// block:tx:output locator carries — so no protocol change is needed; the
+// canonical channel identifier remains the 32-byte channelId in the
+// wire.OutPoint.Hash, this is only the gossip/routing handle.
+//
+// blockNumber is reduced mod 2²⁴ to fit the 24-bit field: L2 block heights can
+// exceed 2²⁴, so this is the documented escape hatch (a TLV carrying the full
+// height is the complement, reserved for the routing layer). txIndex is likewise
+// masked to 24 bits; logIndex already fits the 16-bit TxPosition.
+func NewEvmShortChanID(blockNumber uint64, txIndex uint32,
+	logIndex uint16) ShortChannelID {
+
+	return ShortChannelID{
+		BlockHeight: uint32(blockNumber % (scidMax24 + 1)),
+		TxIndex:     txIndex & scidMax24,
+		TxPosition:  logIndex,
+	}
+}
+
 // NewShortChanIDFromInt returns a new ShortChannelID which is the decoded
 // version of the compact channel ID encoded within the uint64. The format of
 // the compact channel ID is as follows: 3 bytes for the block height, 3 bytes

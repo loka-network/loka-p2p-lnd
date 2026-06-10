@@ -1327,11 +1327,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			cfg.EvmMode.TokenAddress, cfg.EvmMode.ContractAddress,
 		)
 
-		// Use Bitcoin's regtest params as a structural placeholder for
-		// ActiveNetParams.Params.  The EVM chain control does not rely
-		// on chaincfg.Params but the field must be non-nil for shared
-		// infrastructure code.
-		cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
+		// Bitcoin's regtest params remain the structural placeholder
+		// for ActiveNetParams.Params, but with the synthesized
+		// sub-network GenesisHash, the per-sub-network invoice HRP
+		// and the EVM coin type overlaid, so the funding/gossip
+		// ChainHash checks and zpay32 invoices segregate
+		// (chain, token) sub-networks with no core changes
+		// (integration doc §6.1.1).
+		cfg.ActiveNetParams = chainreg.EvmNetParams(evmParams)
 
 		cfg.Evm.ChainDir = filepath.Join(
 			cfg.DataDir, defaultChainSubDirname, EvmChainName,

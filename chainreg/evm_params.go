@@ -95,6 +95,49 @@ func SynthesizeEvmGenesisHash(chainID uint64, token string) chainhash.Hash {
 	return chainhash.Hash(sha256.Sum256([]byte(preimage)))
 }
 
+// Bech32HRP returns the bech32 human-readable part for this sub-network's
+// invoices. zpay32 forms the invoice prefix as "ln" + Bech32HRPSegwit and, on
+// decode, rejects any invoice whose prefix differs from the receiver's network
+// (zpay32/decode.go compares net.Bech32HRPSegwit). Deriving the HRP from the
+// GenesisHash — itself a function of (chainID, token) — therefore makes invoices
+// non-cross-decodable between sub-networks for free, with no zpay32 change
+// (integration doc §6.1.1). The form is "evm" + 8 hex chars of the GenesisHash:
+// lowercase and digit-free-of-ambiguity, a valid bech32 HRP, and collision-safe
+// across realistic sub-network counts.
+func (p EvmParams) Bech32HRP() string {
+	return fmt.Sprintf("evm%x", p.GenesisHash[:4])
+}
+
+// EvmNetParams returns the ActiveNetParams stand-in for an EVM sub-network.
+// Bitcoin's regtest params remain the structural placeholder (the EVM chain
+// control never interprets chaincfg.Params as Bitcoin consensus rules), but
+// the fields downstream code actually reads are overlaid on a private copy:
+//
+//   - GenesisHash becomes the synthesized (chainID, token) hash, so the
+//     funding manager's ChainHash stamping and the gossiper's ChainHash
+//     filter segregate sub-networks with zero changes to funding/ or
+//     discovery/ (integration doc §6.1.1).
+//   - Bech32HRPSegwit becomes Bech32HRP(), so zpay32 invoices carry a
+//     per-sub-network prefix and are not cross-decodable.
+//   - CoinType/HDCoinType follow EvmParams.CoinType so HD derivation lands
+//     on the EVM coin type (60 for mainnets).
+//
+// The copy leaves the global regtest params unmutated, unlike the in-place
+// HDCoinType override the Bitcoin simnet branch performs in config.go.
+func EvmNetParams(p EvmParams) BitcoinNetParams {
+	params := *BitcoinRegTestNetParams.Params
+	genesis := p.GenesisHash
+	params.GenesisHash = &genesis
+	params.Bech32HRPSegwit = p.Bech32HRP()
+	params.HDCoinType = p.CoinType
+
+	return BitcoinNetParams{
+		Params:   &params,
+		RPCPort:  BitcoinRegTestNetParams.RPCPort,
+		CoinType: p.CoinType,
+	}
+}
+
 // evmParamsByName indexes the built-in sub-network presets.
 var evmParamsByName = map[string]EvmParams{
 	EvmBaseParams.Name:  EvmBaseParams,
