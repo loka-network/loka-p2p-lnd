@@ -896,6 +896,11 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// If we're in Sui mode, use the SuiAssembler.
 		if l.BackEnd() == "sui" {
 			req.ChanFunder = chanfunding.NewSuiAssembler()
+		} else if l.BackEnd() == "evm" {
+			// EVM mode provisions ChannelManager escrow funding
+			// (openChannel + ERC20 approve) rather than selecting
+			// UTXOs.
+			req.ChanFunder = chanfunding.NewEvmAssembler()
 		} else {
 			// We use the P2WSH dust limit since it is larger than the
 			// P2WPKH dust limit and to avoid threading through two
