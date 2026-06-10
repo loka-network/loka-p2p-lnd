@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# evm_e2e_itest.sh — full-flow E2E test of the EVM (ChannelManager) backend.
+# itest_evm.sh — full-flow E2E test of the EVM (ChannelManager) backend.
 #
 # Spins up a local Anvil devnet, deploys MockERC20 + ChannelManager, boots two
 # lnd --evm.active nodes, then drives and asserts the whole channel lifecycle:
@@ -13,7 +13,7 @@
 #                         after expiry, escrow 0
 #
 # Requirements: go, anvil/forge/cast (Foundry), python3.
-# Usage: ./scripts/evm_e2e_itest.sh
+# Usage: ./scripts/itest_evm.sh
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
