@@ -50,6 +50,14 @@ type Config struct {
 	// when the Sui chain backend is active.
 	SuiMode *lncfg.SuiNode
 
+	// Evm defines per-channel routing parameters for EVM channels.
+	// It is populated when --evm.active is specified on the command line.
+	Evm *lncfg.Chain
+
+	// EvmMode holds the EVM node connection parameters used when the EVM
+	// chain backend is active.
+	EvmMode *lncfg.EvmNode
+
 	// HeightHintCacheQueryDisable is a boolean that disables height hint
 	// queries if true.
 	HeightHintCacheQueryDisable bool
@@ -183,6 +191,13 @@ type PartialChainControl struct {
 	// It is only populated when the Sui chain backend is active.
 	SuiClient interface{}
 
+	// EvmClient is the client used to communicate with the EVM node. It is
+	// only populated when the EVM chain backend is active; the chain
+	// builder asserts it back to evmnotify.EvmClient (an interface{} field
+	// for symmetry with SuiClient, keeping heavyweight client types out of
+	// this struct's API).
+	EvmClient interface{}
+
 	// SecretKeyRing is the keyring that contains the private keys for
 	// this chain.
 	SecretKeyRing keychain.SecretKeyRing
@@ -247,6 +262,14 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		log.Infof("Initializing Sui chain backend (node: %s)",
 			cfg.SuiMode.RPCAddr())
 		return newSuiPartialChainControl(cfg)
+	}
+
+	// Likewise, when EVM mode is enabled via --evm.active, delegate to the
+	// EVM-specific constructor.
+	if cfg.EvmMode != nil && cfg.EvmMode.Active {
+		log.Infof("Initializing EVM chain backend (node: %s)",
+			cfg.EvmMode.RPCHost)
+		return newEvmPartialChainControl(cfg)
 	}
 
 	cc := &PartialChainControl{

@@ -118,6 +118,28 @@ func PackBalanceOf(account common.Address) ([]byte, error) {
 	return ERC20ABI.Pack("balanceOf", account)
 }
 
+// PackDecimals ABI-encodes an ERC20 decimals() call.
+func PackDecimals() ([]byte, error) {
+	return ERC20ABI.Pack("decimals")
+}
+
+// UnpackDecimals decodes the uint8 result of an ERC20 decimals call.
+func UnpackDecimals(data []byte) (uint8, error) {
+	vals, err := ERC20ABI.Unpack("decimals", data)
+	if err != nil {
+		return 0, err
+	}
+	if len(vals) != 1 {
+		return 0, fmt.Errorf("evmnotify: unexpected decimals return")
+	}
+	dec, ok := vals[0].(uint8)
+	if !ok {
+		return 0, fmt.Errorf("evmnotify: decimals not a uint8")
+	}
+
+	return dec, nil
+}
+
 // UnpackBalanceOf decodes the uint256 result of an ERC20 balanceOf call.
 func UnpackBalanceOf(data []byte) (*big.Int, error) {
 	vals, err := ERC20ABI.Unpack("balanceOf", data)

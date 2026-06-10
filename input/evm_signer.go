@@ -8,6 +8,7 @@ import (
 	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/crypto/sha3"
@@ -180,14 +181,42 @@ func signDigestWithKey(privKey *btcec.PrivateKey,
 	return ethSig, nil
 }
 
-// SignOutputRaw satisfies input.Signer. On EVM there is no SegWit sighash; the
-// commitment artifact is an EIP-712 StateUpdate signed via SignStateUpdate.
-// Callers in the EVM commitment path use SignStateUpdate directly, so this
-// generic entry point is unsupported.
-func (s *EvmSigner) SignOutputRaw(_ *wire.MsgTx,
-	_ *SignDescriptor) (Signature, error) {
+// SignOutputRaw satisfies input.Signer with standard SegWit-v0 sighash
+// signing. The EVM commitment signature itself is an EIP-712 StateUpdate
+// (signed via SignStateUpdateWire in channel.go's evmChainActive branch), but
+// the legacy per-HTLC signature batch still runs over the internal commitment
+// transaction: both peers build the identical tx, so the sigs self-verify
+// peer-to-peer through the unchanged genHtlcSigValidationJobs path. The math
+// here is therefore byte-for-byte the Bitcoin signer's (plain witness sighash,
+// no extra hashing), mirroring suiwallet.SuiSigner's fallback branch.
+func (s *EvmSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *SignDescriptor) (Signature, error) {
 
-	return nil, ErrEvmUnsupported
+	privKey, err := s.keyRing.DerivePrivKey(signDesc.KeyDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the single/double tweaks the descriptor demands, exactly as
+	// the Bitcoin signers do, so tweaked keys (HTLC, revocation) derive
+	// identically on both peers.
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = TweakPrivKey(privKey, signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = DeriveRevocationPrivKey(privKey, signDesc.DoubleTweak)
+	}
+
+	sigHash, err := txscript.CalcWitnessSigHash(
+		signDesc.WitnessScript, signDesc.SigHashes, signDesc.HashType,
+		tx, signDesc.InputIndex, signDesc.Output.Value,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("evm_signer: failed to calc sighash: %w",
+			err)
+	}
+
+	return btcecdsa.Sign(privKey, sigHash), nil
 }
 
 // ComputeInputScript satisfies input.Signer; EVM has no Bitcoin input scripts.

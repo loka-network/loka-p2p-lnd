@@ -1,0 +1,191 @@
+package lnd
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/lightningnetwork/lnd/chainntnfs/evmnotify"
+	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/evmwallet"
+)
+
+// evmDecimalsTimeout bounds the one-shot ERC20 decimals() startup query.
+const evmDecimalsTimeout = 30 * time.Second
+
+// buildEvmChainControl assembles a fully populated ChainControl for the EVM
+// backend, mirroring buildSuiChainControl. EVM reuses secp256k1, so the
+// internal btcwallet keystore and BtcWalletKeyRing carry over unchanged — only
+// the BIP-44 coin type differs (60 for mainnets, testnet type otherwise).
+//
+// The function is called from DefaultWalletImpl.BuildChainControl when
+// partialChainControl.Cfg.EvmMode is active.
+func buildEvmChainControl(
+	pcc *chainreg.PartialChainControl,
+	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
+
+	cfg := pcc.Cfg
+
+	// Use the CoinType from the active net params (EvmNetParams set it to
+	// the sub-network's coin type). The internally managed btcwallet
+	// hardcodes scope creation from netParams, so we must match it to
+	// avoid 'scope not found' crashes on DeriveKey.
+	evmCoinType := cfg.ActiveNetParams.CoinType
+
+	// First, create the base wallet controller hosting the HD keystore.
+	walletController, err := btcwallet.New(
+		*walletConfig, cfg.BlockCache,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create wallet "+
+			"controller: %w", err)
+	}
+
+	bWallet := walletController.InternalWallet()
+
+	if bWallet.AddrManager().IsLocked() {
+		if walletConfig.PrivatePass != nil {
+			err := bWallet.Unlock(walletConfig.PrivatePass, nil)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to unlock "+
+					"internal btc wallet for evm: %w", err)
+			}
+		}
+	}
+
+	// The custom LND 1017 scope is normally lazily initialised inside
+	// BtcWallet.Start(), which the EVM orchestration bypasses; create it
+	// here manually or DeriveKey crashes with scope-not-found (same
+	// workaround as the Sui builder).
+	evmScope := waddrmgr.KeyScope{
+		Purpose: keychain.BIP0043Purpose,
+		Coin:    evmCoinType,
+	}
+	_, err = bWallet.AddrManager().FetchScopedKeyManager(evmScope)
+	if waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound) {
+		_, err = bWallet.AddScopeManager(
+			evmScope, waddrmgr.ScopeAddrSchema{
+				ExternalAddrType: waddrmgr.WitnessPubKey,
+				InternalAddrType: waddrmgr.WitnessPubKey,
+			},
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create evm "+
+				"keyscope: %w", err)
+		}
+	} else if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch evm keyscope: %w",
+			err)
+	}
+
+	// EVM reuses secp256k1 directly, so the plain BtcWalletKeyRing is the
+	// keyring — no Ed25519-style wrapper is needed (unlike Sui).
+	keyRing := keychain.NewBtcWalletKeyRing(bWallet, evmCoinType)
+
+	// Recover the shared RPC client dialled by newEvmPartialChainControl.
+	evmClient, ok := pcc.EvmClient.(evmnotify.EvmClient)
+	if !ok {
+		return nil, nil, fmt.Errorf("evm chain control: EvmClient is "+
+			"%T, not evmnotify.EvmClient", pcc.EvmClient)
+	}
+
+	// Resolve the sub-network params the same way config.go did and query
+	// the ERC20's decimals — the Decimals Scaling Factor every amount
+	// conversion depends on.
+	evmParams := chainreg.ResolveEvmParams(
+		cfg.EvmMode.Chain, cfg.EvmMode.ChainID,
+		cfg.EvmMode.TokenAddress, cfg.EvmMode.ContractAddress,
+	)
+	tokenDecimals, err := queryEvmTokenDecimals(
+		evmClient, evmParams.TokenAddress,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to query ERC20 decimals "+
+			"for %s: %w", evmParams.TokenAddress, err)
+	}
+
+	// Record the EIP-712 domain and token precision for the commitment
+	// bridge (lnwallet/evm_commitment.go). This must happen before any
+	// channel state machine starts; SetEvmChainActive was already called
+	// during config validation.
+	var verifyingContract [20]byte
+	copy(
+		verifyingContract[:],
+		common.HexToAddress(evmParams.ContractAddr).Bytes(),
+	)
+	lnwallet.SetEvmCommitmentParams(input.EvmDomain{
+		ChainID:           evmParams.ChainID,
+		VerifyingContract: verifyingContract,
+	}, tokenDecimals)
+
+	evmWalletController := evmwallet.New(evmwallet.Config{
+		KeyRing:       keyRing,
+		Client:        evmClient,
+		Params:        evmParams,
+		TokenDecimals: tokenDecimals,
+		GasLimit:      cfg.EvmMode.GasLimit,
+	})
+
+	signer := input.NewEvmSigner(keyRing)
+	chainIO := evmwallet.NewEvmBlockChainIO(evmClient)
+
+	lnWalletConfig := lnwallet.Config{
+		Database:         cfg.ChanStateDB,
+		Notifier:         pcc.ChainNotifier,
+		WalletController: evmWalletController,
+		Signer:           signer,
+		FeeEstimator:     pcc.FeeEstimator,
+		SecretKeyRing:    keyRing,
+		ChainIO:          chainIO,
+		// The EVM-overlaid regtest placeholder; EVM does not rely on
+		// chaincfg.Params for channel operations, but zpay32 reads the
+		// per-sub-network Bech32HRPSegwit from it.
+		NetParams:    *cfg.ActiveNetParams.Params,
+		AuxLeafStore: cfg.AuxLeafStore,
+		AuxSigner:    cfg.AuxSigner,
+	}
+
+	activeChainControl, cleanUp, err := chainreg.NewChainControl(
+		lnWalletConfig, evmWalletController, pcc,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create EVM chain "+
+			"control: %w", err)
+	}
+
+	return activeChainControl, cleanUp, nil
+}
+
+// queryEvmTokenDecimals reads the ERC20 decimals() of the sub-network's token
+// once at startup.
+func queryEvmTokenDecimals(client evmnotify.EvmClient, tokenAddr string) (
+	uint8, error) {
+
+	data, err := evmnotify.PackDecimals()
+	if err != nil {
+		return 0, err
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), evmDecimalsTimeout,
+	)
+	defer cancel()
+
+	token := common.HexToAddress(tokenAddr)
+	out, err := client.CallContract(ctx, ethereum.CallMsg{
+		To:   &token,
+		Data: data,
+	}, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	return evmnotify.UnpackDecimals(out)
+}

@@ -620,6 +620,8 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		Bitcoin:                     d.cfg.Bitcoin,
 		Sui:                         d.cfg.Sui,
 		SuiMode:                     d.cfg.SuiMode,
+		Evm:                         d.cfg.Evm,
+		EvmMode:                     d.cfg.EvmMode,
 		HeightHintCacheQueryDisable: d.cfg.HeightHintCacheQueryDisable,
 		NeutrinoMode:                d.cfg.NeutrinoMode,
 		BitcoindMode:                d.cfg.BitcoindMode,
@@ -764,6 +766,11 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// --suinode.active we bypass the Bitcoin wallet stack entirely.
 	if partialChainControl.Cfg.SuiMode != nil && partialChainControl.Cfg.SuiMode.Active {
 		return buildSuiChainControl(partialChainControl, walletConfig)
+	}
+
+	// Likewise for the EVM chain backend via --evm.active.
+	if partialChainControl.Cfg.EvmMode != nil && partialChainControl.Cfg.EvmMode.Active {
+		return buildEvmChainControl(partialChainControl, walletConfig)
 	}
 
 	walletController, err := btcwallet.New(
