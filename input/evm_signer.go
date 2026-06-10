@@ -110,6 +110,24 @@ func (s *EvmSigner) SignStateUpdateWire(keyDesc keychain.KeyDescriptor,
 	return btcecdsa.Sign(privKey, digest[:]), nil
 }
 
+// SignCooperativeCloseWire signs the EIP-712 CooperativeClose digest and
+// returns it as an input.Signature (64-byte ECDSA r,s), the form carried in
+// the BOLT closing_signed message. As with SignStateUpdateWire, the recovery
+// byte the contract's closeChannel needs is re-derived from the known signer
+// address before broadcast.
+func (s *EvmSigner) SignCooperativeCloseWire(keyDesc keychain.KeyDescriptor,
+	domain EvmDomain, cc EvmCooperativeClose) (Signature, error) {
+
+	privKey, err := s.keyRing.DerivePrivKey(keyDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	digest := cc.Digest(domain)
+
+	return btcecdsa.Sign(privKey, digest[:]), nil
+}
+
 // RecoverEvmSigV reconstructs the 65-byte (r ‖ s ‖ v) Ethereum signature the
 // ChannelManager's ECDSA.recover expects, from the 64-byte (r ‖ s) commitment
 // signature LND carries on the wire (lnwire.Sig drops the recovery byte). It is

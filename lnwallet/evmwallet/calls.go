@@ -53,6 +53,39 @@ func (w *Wallet) executeCarrier(ctx context.Context, tx *wire.MsgTx) (
 	case input.EvmCallChannelOpen:
 		return w.executeOpenChannel(ctx, payload)
 
+	case input.EvmCallChannelClose:
+		var p input.EvmChannelClosePayload
+		if err := json.Unmarshal(payload, &p); err != nil {
+			return zero, fmt.Errorf("evmwallet: bad %s payload: %w",
+				callType, err)
+		}
+
+		finalA, err := parseRawAmount(p.FinalBalanceA)
+		if err != nil {
+			return zero, err
+		}
+		finalB, err := parseRawAmount(p.FinalBalanceB)
+		if err != nil {
+			return zero, err
+		}
+		sigA, err := hex.DecodeString(p.SigA)
+		if err != nil {
+			return zero, fmt.Errorf("evmwallet: bad sigA hex: %w",
+				err)
+		}
+		sigB, err := hex.DecodeString(p.SigB)
+		if err != nil {
+			return zero, fmt.Errorf("evmwallet: bad sigB hex: %w",
+				err)
+		}
+
+		data, err = evmnotify.PackCloseChannel(
+			cid, finalA, finalB, sigA, sigB,
+		)
+		if err != nil {
+			return zero, err
+		}
+
 	case input.EvmCallForceClose, input.EvmCallPenalize:
 		var p input.EvmStateClosePayload
 		if err := json.Unmarshal(payload, &p); err != nil {

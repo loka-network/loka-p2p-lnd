@@ -8485,11 +8485,29 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 		return nil, err
 	}
 
+	// On an EVM chain the broadcast artifact of a unilateral close is the
+	// contract forceClose call (latest state + the counterparty's retained
+	// signature with v restored), not the signed internal commitment tx.
+	// It replaces CloseTx on every return path below.
+	var evmCarrier *wire.MsgTx
+	if evmChainActive {
+		evmCarrier, err = lc.evmLocalForceCloseCarrier()
+		if err != nil {
+			return nil, fmt.Errorf("unable to build evm force "+
+				"close carrier: %w", err)
+		}
+	}
+
 	if cfg.skipResolution {
+		closeTx := commitTx
+		if evmCarrier != nil {
+			closeTx = evmCarrier
+		}
+
 		return &LocalForceCloseSummary{
 			ChanPoint:    lc.channelState.FundingOutpoint,
 			ChanSnapshot: *lc.channelState.Snapshot(),
-			CloseTx:      commitTx,
+			CloseTx:      closeTx,
 		}, nil
 	}
 
@@ -8502,6 +8520,13 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen force close "+
 			"summary: %w", err)
+	}
+
+	// The summary's resolutions still derive from the internal tx; their
+	// EVM on-chain actions are the claim/timeout/distributeFunds carriers
+	// (resolver grafting, phase 5).
+	if evmCarrier != nil {
+		summary.CloseTx = evmCarrier
 	}
 
 	// Mark the channel as closed to block future closure requests.
@@ -8928,6 +8953,20 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		if err != nil {
 			return nil, nil, 0, err
 		}
+	} else if evmChainActive {
+		// On an EVM chain the cooperative-close artifact is the
+		// EIP-712 CooperativeClose digest over the canonical
+		// (finalA, finalB) split — the negotiated fee plays no role
+		// (gas is paid out-of-band; the contract demands the split sum
+		// to totalDeposited exactly), so every fee proposal round
+		// yields the same digest and the negotiation converges
+		// immediately. The internal closing tx above is still built
+		// for the callers that track its txid. Gated on
+		// evmChainActive so the Bitcoin path is untouched.
+		sig, err = lc.signEvmCoopClose()
+		if err != nil {
+			return nil, nil, 0, err
+		}
 	} else {
 		// For regular channels we'll, sign the completed cooperative
 		// closure transaction. As the initiator we'll simply send our
@@ -9064,6 +9103,22 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	prevOut := lc.signDesc.Output
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
 		return nil, 0, err
+	}
+
+	// On an EVM chain both closing_signed signatures are over the EIP-712
+	// CooperativeClose digest; verify them, restore their recovery bytes
+	// and assemble the contract closeChannel carrier in place of the
+	// SegWit witness below. The carrier is what PublishTransaction hands
+	// to evmwallet for ABI encoding and broadcast.
+	if evmChainActive {
+		carrier, err := lc.evmCoopCloseCarrier(localSig, remoteSig)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		lc.isClosed = true
+
+		return carrier, ourBalance, nil
 	}
 
 	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -124,26 +125,55 @@ func buildEvmHTLCs(view *commitment, ourAddr,
 	return htlcs
 }
 
+// evmBalanceSplit computes the channel-absolute (balanceA, balanceB) pair the
+// contract accounts in. The contract requires the broadcast state to satisfy
+// balanceA + balanceB + Σhtlc == totalDeposited exactly (any shortfall is
+// treated as unresolved HTLC funds and strands the channel in
+// distributeFunds), but LND's internal balances are net of the commit fee and
+// anchor amounts — artifacts that do not exist on EVM — and down-scaling can
+// truncate sub-base-unit msat tails. So only B's balance and the HTLC sum are
+// scaled (floored); A — the funder, who fronted fee and anchors — absorbs the
+// remainder. Both peers compute the identical pair because B's balance and
+// the HTLC set are channel-absolute.
+func evmBalanceSplit(capacity, bBalance btcutil.Amount,
+	htlcs []input.EvmHTLC) (*big.Int, *big.Int) {
+
+	totalRaw := evmScaleToBase(capacity)
+	balanceB := evmScaleToBase(bBalance)
+
+	balanceA := new(big.Int).Sub(totalRaw, balanceB)
+	for _, h := range htlcs {
+		balanceA.Sub(balanceA, h.Amount)
+	}
+	if balanceA.Sign() < 0 {
+		// Cannot happen for a real channel (capacity covers balances
+		// and HTLCs); clamp defensively rather than emit a negative.
+		balanceA.SetInt64(0)
+	}
+
+	return balanceA, balanceB
+}
+
 // buildEvmStateUpdate translates a commitment view into the EIP-712 StateUpdate
 // the peers sign for that state. Balances are mapped to the channel-absolute
 // (A, B) convention — A is always the funder/initiator — so both peers compute
 // the same digest regardless of perspective; nonce is the LND commitment height
 // (StateNum); htlcsHash is the Merkle root over the active HTLC set (zero when
 // empty). channelID is the on-chain channelId (the funding outpoint hash).
-func buildEvmStateUpdate(view *commitment, channelID [32]byte, isInitiator bool,
+func buildEvmStateUpdate(view *commitment, channelID [32]byte,
+	capacity btcutil.Amount, isInitiator bool,
 	ourAddr, theirAddr [20]byte) input.EvmStateUpdate {
 
-	ourBase := evmScaleToBase(view.ourBalance.ToSatoshis())
-	theirBase := evmScaleToBase(view.theirBalance.ToSatoshis())
+	htlcs := buildEvmHTLCs(view, ourAddr, theirAddr)
 
-	// A = initiator/funder. If we are the initiator, our balance is A;
-	// otherwise the remote (the initiator) is A.
-	balanceA, balanceB := ourBase, theirBase
+	// B = the non-funder. From the initiator's PoV that is the remote
+	// balance, from the non-initiator's its own.
+	bBalance := view.theirBalance.ToSatoshis()
 	if !isInitiator {
-		balanceA, balanceB = theirBase, ourBase
+		bBalance = view.ourBalance.ToSatoshis()
 	}
 
-	htlcs := buildEvmHTLCs(view, ourAddr, theirAddr)
+	balanceA, balanceB := evmBalanceSplit(capacity, bBalance, htlcs)
 
 	return input.EvmStateUpdate{
 		ChannelID: channelID,
@@ -183,7 +213,7 @@ func (lc *LightningChannel) stateUpdateForView(
 	our, their := evmPartyAddrs(lc.channelState)
 
 	return buildEvmStateUpdate(
-		view, evmChannelID(lc.channelState),
+		view, evmChannelID(lc.channelState), lc.channelState.Capacity,
 		lc.channelState.IsInitiator, our, their,
 	)
 }
@@ -342,6 +372,198 @@ func (lc *LightningChannel) evmHtlcResolution(view *commitment,
 func (lc *LightningChannel) evmDistributeFundsTx() (*wire.MsgTx, error) {
 	return input.BuildEvmDistributeFundsTx(
 		chainhash.Hash(evmChannelID(lc.channelState)),
+	)
+}
+
+// evmCoopCloseFinalBalances computes the canonical cooperative-close split in
+// raw token base-units. The contract requires finalA + finalB ==
+// totalDeposited exactly, and gas is paid out-of-band, so the negotiated
+// closing fee plays no role: B (the non-funder) receives its settled
+// commitment balance floored to base-units, and A (the funder) receives the
+// remainder — which folds the commit fee, anchor amounts and any sub-unit
+// dust back to the party that funded them. Both peers derive the same pair
+// because B's balance is channel-absolute.
+func evmCoopCloseFinalBalances(
+	chanState *channeldb.OpenChannel) (*big.Int, *big.Int) {
+
+	commit := chanState.LocalCommitment
+
+	// B's settled balance from this node's PoV: the remote balance if we
+	// are the initiator (A), our own balance otherwise.
+	bBalance := commit.RemoteBalance.ToSatoshis()
+	if !chanState.IsInitiator {
+		bBalance = commit.LocalBalance.ToSatoshis()
+	}
+
+	totalRaw := evmScaleToBase(chanState.Capacity)
+	finalB := evmScaleToBase(bBalance)
+	finalA := new(big.Int).Sub(totalRaw, finalB)
+
+	return finalA, finalB
+}
+
+// evmCoopClose builds the canonical EIP-712 CooperativeClose artifact both
+// peers sign for this channel's current settled state.
+func (lc *LightningChannel) evmCoopClose() input.EvmCooperativeClose {
+	finalA, finalB := evmCoopCloseFinalBalances(lc.channelState)
+
+	return input.EvmCooperativeClose{
+		ChannelID:     evmChannelID(lc.channelState),
+		FinalBalanceA: finalA,
+		FinalBalanceB: finalB,
+	}
+}
+
+// signEvmCoopClose signs the EIP-712 CooperativeClose digest with the funding
+// multisig key, returning the wire signature carried in closing_signed. It is
+// the EVM replacement for signing the SegWit closing transaction, gated by
+// evmChainActive in CreateCloseProposal.
+func (lc *LightningChannel) signEvmCoopClose() (input.Signature, error) {
+	evmSigner, ok := lc.Signer.(*input.EvmSigner)
+	if !ok {
+		return nil, fmt.Errorf("evm chain active but signer is %T, "+
+			"not *input.EvmSigner", lc.Signer)
+	}
+
+	return evmSigner.SignCooperativeCloseWire(
+		lc.channelState.LocalChanCfg.MultiSigKey,
+		evmCommitmentDomain, lc.evmCoopClose(),
+	)
+}
+
+// evmSigToRS64 converts an input.Signature (DER-serialising ECDSA) into the
+// fixed 64-byte r ‖ s form RecoverEvmSigV consumes.
+func evmSigToRS64(sig input.Signature) ([]byte, error) {
+	wireSig, err := lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return nil, err
+	}
+
+	return wireSig.RawBytes(), nil
+}
+
+// evmCoopCloseCarrier verifies both parties' CooperativeClose signatures
+// against the canonical digest, restores their recovery bytes, and assembles
+// the closeChannel carrier tx. It is the EVM replacement for the SegWit
+// witness assembly in CompleteCooperativeClose.
+func (lc *LightningChannel) evmCoopCloseCarrier(localSig,
+	remoteSig input.Signature) (*wire.MsgTx, error) {
+
+	cc := lc.evmCoopClose()
+	digest := cc.Digest(evmCommitmentDomain)
+	ourAddr, theirAddr := evmPartyAddrs(lc.channelState)
+
+	localRS, err := evmSigToRS64(localSig)
+	if err != nil {
+		return nil, err
+	}
+	remoteRS, err := evmSigToRS64(remoteSig)
+	if err != nil {
+		return nil, err
+	}
+
+	ourSig65, err := input.RecoverEvmSigV(localRS, digest, ourAddr)
+	if err != nil {
+		return nil, fmt.Errorf("evm coop close: local sig: %w", err)
+	}
+	theirSig65, err := input.RecoverEvmSigV(remoteRS, digest, theirAddr)
+	if err != nil {
+		return nil, fmt.Errorf("evm coop close: remote sig: %w", err)
+	}
+
+	// Map our/their onto the channel-absolute A/B the contract checks.
+	sigA, sigB := ourSig65, theirSig65
+	if !lc.channelState.IsInitiator {
+		sigA, sigB = theirSig65, ourSig65
+	}
+
+	return input.BuildEvmChannelCloseTx(
+		chainhash.Hash(cc.ChannelID), cc.FinalBalanceA,
+		cc.FinalBalanceB, sigA, sigB,
+	)
+}
+
+// evmStateUpdateFromDiskCommit rebuilds the canonical StateUpdate for a
+// persisted commitment, mirroring buildEvmStateUpdate over the channeldb form
+// (used at force-close time, when no in-memory commitment view is at hand).
+func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
+	commit *channeldb.ChannelCommitment) input.EvmStateUpdate {
+
+	ourAddr, theirAddr := evmPartyAddrs(chanState)
+
+	var htlcs []input.EvmHTLC
+	for _, h := range commit.Htlcs {
+		recipient := theirAddr
+		if h.Incoming {
+			recipient = ourAddr
+		}
+
+		var hashlock [32]byte
+		copy(hashlock[:], h.RHash[:])
+
+		htlcs = append(htlcs, input.EvmHTLC{
+			Index:     h.HtlcIndex,
+			Amount:    evmScaleToBase(h.Amt.ToSatoshis()),
+			Hashlock:  hashlock,
+			Timelock:  h.RefundTimeout,
+			Recipient: recipient,
+		})
+	}
+
+	// B = the non-funder, same channel-absolute convention (and the same
+	// remainder-to-A rule) as buildEvmStateUpdate.
+	bBalance := commit.RemoteBalance.ToSatoshis()
+	if !chanState.IsInitiator {
+		bBalance = commit.LocalBalance.ToSatoshis()
+	}
+
+	balanceA, balanceB := evmBalanceSplit(
+		chanState.Capacity, bBalance, htlcs,
+	)
+
+	return input.EvmStateUpdate{
+		ChannelID: evmChannelID(chanState),
+		Nonce:     commit.CommitHeight,
+		BalanceA:  balanceA,
+		BalanceB:  balanceB,
+		HtlcsHash: input.HtlcsMerkleRoot(htlcs),
+	}
+}
+
+// evmLocalForceCloseCarrier assembles the forceClose carrier for this node's
+// latest persisted local commitment: the canonical StateUpdate plus the
+// counterparty's retained commitment signature with its recovery byte
+// restored. It replaces the signed Bitcoin commitment tx as the broadcast
+// artifact of a unilateral close, gated by evmChainActive in ForceClose.
+func (lc *LightningChannel) evmLocalForceCloseCarrier() (*wire.MsgTx, error) {
+	commit := lc.channelState.LocalCommitment
+	su := evmStateUpdateFromDiskCommit(lc.channelState, &commit)
+	digest := su.Digest(evmCommitmentDomain)
+
+	// The persisted CommitSig is the remote's DER signature over our
+	// commitment state; restore the fixed 64-byte form, then its v.
+	derSig, err := ecdsa.ParseDERSignature(commit.CommitSig)
+	if err != nil {
+		return nil, fmt.Errorf("evm force close: parse retained "+
+			"commit sig: %w", err)
+	}
+	remoteRS, err := evmSigToRS64(derSig)
+	if err != nil {
+		return nil, err
+	}
+
+	_, theirAddr := evmPartyAddrs(lc.channelState)
+	sig65, err := input.RecoverEvmSigV(remoteRS, digest, theirAddr)
+	if err != nil {
+		return nil, fmt.Errorf("evm force close: retained sig does "+
+			"not recover to counterparty: %w", err)
+	}
+
+	return input.BuildEvmForceCloseTx(
+		chainhash.Hash(su.ChannelID), su.Nonce, su.BalanceA,
+		su.BalanceB, su.HtlcsHash, sig65,
+		lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed(),
 	)
 }
 

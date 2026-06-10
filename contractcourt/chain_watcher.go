@@ -1786,6 +1786,23 @@ func (c *chainWatcher) handleCommitSpend(
 		return fmt.Errorf("create commit set: %w", err)
 	}
 
+	// On an EVM chain the spend is a synthetic transaction carrying the
+	// ChannelManager close event in a marker; classify and dispatch from
+	// that directly — there is no Bitcoin state hint or txid to compare.
+	if lnwallet.EvmChainActive() {
+		topicByte, payload, ok := decodeEvmSpendMarker(
+			commitTxBroadcast,
+		)
+		if ok {
+			return c.handleEvmSpend(
+				commitSpend, topicByte, payload, chainSet,
+			)
+		}
+
+		log.Warnf("ChannelPoint(%v): EVM mode but spend carries no "+
+			"event marker", c.cfg.chanState.FundingOutpoint)
+	}
+
 	// Decode the state hint encoded within the commitment transaction to
 	// determine if this is a revoked state or not.
 	var broadcastStateNum uint64

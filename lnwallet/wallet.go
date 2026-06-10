@@ -2980,6 +2980,13 @@ func ValidateUpfrontShutdown(shutdown lnwire.DeliveryAddress,
 		return true
 	}
 
+	// On an EVM chain the shutdown "script" is the raw 20-byte account
+	// address; the closeChannel contract call pays the participants
+	// directly, so the BOLT#02 script forms do not apply.
+	if evmChainActive && len(shutdown) == 20 {
+		return true
+	}
+
 	// We don't need to worry about a large UpfrontShutdownScript since it
 	// was already checked in lnwire when decoding from the wire.
 	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(shutdown, params)

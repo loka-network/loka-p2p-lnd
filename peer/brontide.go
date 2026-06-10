@@ -1047,6 +1047,16 @@ func (p *Brontide) addrWithInternalKey(
 		}, nil
 	}
 
+	// EVM delivery "scripts" are raw 20-byte account addresses; there is
+	// no script type to derive an internal key from (the closeChannel
+	// contract call pays participants directly).
+	if p.cfg.Wallet.BackEnd() == "evm" && len(deliveryScript) == 20 {
+		return &chancloser.DeliveryAddrWithKey{
+			DeliveryAddress: deliveryScript,
+			InternalKey:     fn.None[btcec.PublicKey](),
+		}, nil
+	}
+
 	// Currently, custom channels cannot be created with external upfront
 	// shutdown addresses, so this shouldn't be an issue. We only require
 	// the internal key for taproot addresses to be able to provide a non
@@ -2957,6 +2967,13 @@ func (p *Brontide) genDeliveryScript() ([]byte, error) {
 		deliveryAddr)
 
 	if fmt.Sprintf("%T", deliveryAddr) == "*suiwallet.SuiAddress" || fmt.Sprintf("%T", deliveryAddr) == "suiwallet.SuiAddress" {
+		return deliveryAddr.ScriptAddress(), nil
+	}
+
+	// EVM delivery "scripts" are the raw 20-byte account address: the
+	// closeChannel contract call pays the participants directly, so this
+	// value only rides through the internal closing-tx plumbing.
+	if fmt.Sprintf("%T", deliveryAddr) == "*evmwallet.EvmAddress" {
 		return deliveryAddr.ScriptAddress(), nil
 	}
 

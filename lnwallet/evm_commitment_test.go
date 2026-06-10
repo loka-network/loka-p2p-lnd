@@ -68,17 +68,37 @@ func TestBuildEvmStateUpdateSymmetry(t *testing.T) {
 		incomingHTLCs: []paymentDescriptor{htlc},
 	}
 
-	suA := buildEvmStateUpdate(viewA, channelID, true, addrA, addrB)
-	suB := buildEvmStateUpdate(viewB, channelID, false, addrB, addrA)
+	// Capacity covers both balances plus the in-flight HTLC; the funder's
+	// internal balance is additionally short the (EVM-irrelevant) commit
+	// fee, which the balance split must fold back to A.
+	const commitFee = btcutil.Amount(10_000)
+	capacity := balAInternal + balBInternal + htlcAmt + commitFee
+
+	suA := buildEvmStateUpdate(viewA, channelID, capacity, true, addrA, addrB)
+	suB := buildEvmStateUpdate(viewB, channelID, capacity, false, addrB, addrA)
 
 	domain := EvmCommitmentDomain()
 	if suA.Digest(domain) != suB.Digest(domain) {
 		t.Fatalf("perspective digests diverge:\n A: %+v\n B: %+v", suA, suB)
 	}
 
-	// Sanity: A is the funder, so balanceA must be A's balance regardless of
-	// which view computed it.
-	wantA := evmScaleToBase(balAInternal)
+	// Conservation: the contract requires A + B + Σhtlc == totalDeposited
+	// exactly — A (the funder) absorbs the commit fee and scaling dust.
+	totalRaw := evmScaleToBase(capacity)
+	sum := new(big.Int).Add(suA.BalanceA, suA.BalanceB)
+	sum.Add(sum, evmScaleToBase(htlcAmt))
+	if sum.Cmp(totalRaw) != 0 {
+		t.Fatalf("A+B+htlc = %s, want totalDeposited %s", sum, totalRaw)
+	}
+
+	// B's balance scales directly; A gets the remainder (its own balance
+	// plus the refunded commit fee).
+	wantB := evmScaleToBase(balBInternal)
+	wantA := evmScaleToBase(balAInternal + commitFee)
+	if suA.BalanceB.Cmp(wantB) != 0 || suB.BalanceB.Cmp(wantB) != 0 {
+		t.Fatalf("balanceB mismatch: A=%s B=%s want=%s",
+			suA.BalanceB, suB.BalanceB, wantB)
+	}
 	if suA.BalanceA.Cmp(wantA) != 0 || suB.BalanceA.Cmp(wantA) != 0 {
 		t.Fatalf("balanceA mismatch: A=%s B=%s want=%s",
 			suA.BalanceA, suB.BalanceA, wantA)

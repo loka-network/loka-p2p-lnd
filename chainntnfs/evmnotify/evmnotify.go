@@ -512,10 +512,19 @@ func (n *EvmChainNotifier) buildSpendDetail(outpoint wire.OutPoint,
 
 	spendTx := wire.NewMsgTx(2)
 
-	// payload: [0x6a OP_RETURN]['E','V','M'][topic0[0]] [+ preimage if any].
+	// payload: [0x6a OP_RETURN]['E','V','M'][topic0[0]] [+ event extras].
 	payload := []byte{0x6a, 'E', 'V', 'M', l.Topics[0][0]}
-	if l.Topics[0] == TopicHTLCClaimed && len(l.Data) >= 32 {
+	switch {
+	case l.Topics[0] == TopicHTLCClaimed && len(l.Data) >= 32:
 		payload = append(payload, l.Data[:32]...)
+
+	// UnilateralCloseInitiated(channelId idx, broadcaster, nonce,
+	// balanceA, balanceB, challengeExpiry): embed the broadcaster address
+	// and the uint64 tail of the nonce so the chain watcher can tell a
+	// local from a remote force close and at which state.
+	case l.Topics[0] == TopicUnilateralCloseInitiated && len(l.Data) >= 64:
+		payload = append(payload, l.Data[12:32]...) // broadcaster
+		payload = append(payload, l.Data[56:64]...) // nonce (BE tail)
 	}
 	spendTx.AddTxOut(&wire.TxOut{PkScript: payload})
 	for i := 1; i < maxSpendTxOutputs; i++ {

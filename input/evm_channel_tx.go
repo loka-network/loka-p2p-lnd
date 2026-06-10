@@ -156,6 +156,37 @@ type EvmStateClosePayload struct {
 	LocalKey string `json:"local_key,omitempty"`
 }
 
+// EvmChannelClosePayload carries a cooperative closeChannel call: the final
+// split (raw token base-units, channel-absolute A = funder) plus both
+// parties' 65-byte EIP-712 CooperativeClose signatures. The contract pays out
+// directly, so anyone may broadcast — no LocalKey is needed.
+type EvmChannelClosePayload struct {
+	// FinalBalanceA / FinalBalanceB are raw token base-units (decimal
+	// strings); their sum must equal the channel's totalDeposited.
+	FinalBalanceA string `json:"final_balance_a"`
+	FinalBalanceB string `json:"final_balance_b"`
+
+	// SigA / SigB are the participants' 65-byte (r ‖ s ‖ v) signatures
+	// over the CooperativeClose digest, hex-encoded.
+	SigA string `json:"sig_a"`
+	SigB string `json:"sig_b"`
+}
+
+// BuildEvmChannelCloseTx creates the carrier tx for a cooperative
+// closeChannel call.
+func BuildEvmChannelCloseTx(channelID chainhash.Hash, finalA, finalB *big.Int,
+	sigA, sigB []byte) (*wire.MsgTx, error) {
+
+	return BuildEvmCallTx(
+		channelID, EvmCallChannelClose, EvmChannelClosePayload{
+			FinalBalanceA: bigOrZero(finalA).String(),
+			FinalBalanceB: bigOrZero(finalB).String(),
+			SigA:          hex.EncodeToString(sigA),
+			SigB:          hex.EncodeToString(sigB),
+		},
+	)
+}
+
 // EvmHTLCData is the contract HTLC struct in carrier form, presented to
 // claimHtlc / timeoutHtlc and proven against the committed htlcsHash. The fields
 // (and thus the Merkle leaf) must reproduce exactly what HtlcsMerkleRoot hashed.
