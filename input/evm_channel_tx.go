@@ -1,8 +1,10 @@
 package input
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -41,6 +43,10 @@ const (
 
 	// EvmCallPenalize is a penalize(newer signed state) call.
 	EvmCallPenalize EvmCallType = "Penalize"
+
+	// EvmCallDistributeFunds is the distributeFunds call that pays out after
+	// the challenge window closes and all HTLCs are resolved.
+	EvmCallDistributeFunds EvmCallType = "DistributeFunds"
 )
 
 // EvmChannelOpenPayload carries the parameters of an openChannel call. Salt and
@@ -113,6 +119,151 @@ func BuildEvmChannelOpenTx(channelID chainhash.Hash,
 	payload EvmChannelOpenPayload) (*wire.MsgTx, error) {
 
 	return BuildEvmCallTx(channelID, EvmCallChannelOpen, payload)
+}
+
+// --------------------------------------------------------------------------
+// Settlement-call payloads (resolver surface, spec §2.4)
+// --------------------------------------------------------------------------
+//
+// Unlike openChannel (whose amounts are LND-internal and scaled by evmwallet),
+// these payloads carry values already in the contract's units: balances and
+// HTLC amounts are raw token base-units (decimal strings, since uint256 exceeds
+// int64), because they must match byte-for-byte what was committed in the
+// htlcsHash / StateUpdate digest. evmwallet ABI-encodes them verbatim.
+
+// EvmStateClosePayload carries a forceClose or penalize call: a StateUpdate
+// (nonce/balances/htlcsHash) plus the 65-byte signature recovering to the
+// counterparty (forceClose) or the cheating broadcaster (penalize).
+type EvmStateClosePayload struct {
+	// Nonce is the StateUpdate nonce: the broadcast state for forceClose, the
+	// strictly-higher correctNonce for penalize.
+	Nonce uint64 `json:"nonce"`
+
+	// BalanceA / BalanceB are raw token base-units (decimal string).
+	BalanceA string `json:"balance_a"`
+	BalanceB string `json:"balance_b"`
+
+	// HtlcsHash is the Merkle root committed in the state, hex-encoded.
+	HtlcsHash string `json:"htlcs_hash"`
+
+	// Sig is the 65-byte (r ‖ s ‖ v) signature, hex-encoded.
+	Sig string `json:"sig"`
+}
+
+// EvmHTLCData is the contract HTLC struct in carrier form, presented to
+// claimHtlc / timeoutHtlc and proven against the committed htlcsHash. The fields
+// (and thus the Merkle leaf) must reproduce exactly what HtlcsMerkleRoot hashed.
+type EvmHTLCData struct {
+	Index     uint64 `json:"index"`
+	Amount    string `json:"amount"` // raw base-units, decimal
+	Hashlock  string `json:"hashlock"`
+	Timelock  uint32 `json:"timelock"`
+	Recipient string `json:"recipient"`
+}
+
+// EvmHtlcResolvePayload carries a claimHtlc (preimage set) or timeoutHtlc
+// (preimage empty) call: the HTLC plus its Merkle proof against htlcsHash.
+type EvmHtlcResolvePayload struct {
+	HTLC        EvmHTLCData `json:"htlc"`
+	MerkleProof []string    `json:"merkle_proof"`
+
+	// Preimage is the SHA-256 preimage for claimHtlc, hex-encoded; empty for
+	// timeoutHtlc.
+	Preimage string `json:"preimage,omitempty"`
+}
+
+// htlcToData serialises an EvmHTLC into the carrier form.
+func htlcToData(h EvmHTLC) EvmHTLCData {
+	amt := h.Amount
+	if amt == nil {
+		amt = big.NewInt(0)
+	}
+
+	return EvmHTLCData{
+		Index:     h.Index,
+		Amount:    amt.String(),
+		Hashlock:  hex.EncodeToString(h.Hashlock[:]),
+		Timelock:  h.Timelock,
+		Recipient: hex.EncodeToString(h.Recipient[:]),
+	}
+}
+
+// proofToHex hex-encodes a Merkle proof for the carrier payload.
+func proofToHex(proof [][32]byte) []string {
+	out := make([]string, len(proof))
+	for i, p := range proof {
+		out[i] = hex.EncodeToString(p[:])
+	}
+
+	return out
+}
+
+// BuildEvmForceCloseTx creates the carrier tx for a forceClose call (broadcast
+// the latest agreed state, co-signed by the counterparty).
+func BuildEvmForceCloseTx(channelID chainhash.Hash, nonce uint64,
+	balanceA, balanceB *big.Int, htlcsHash [32]byte,
+	sig []byte) (*wire.MsgTx, error) {
+
+	return BuildEvmCallTx(channelID, EvmCallForceClose, EvmStateClosePayload{
+		Nonce:     nonce,
+		BalanceA:  bigOrZero(balanceA).String(),
+		BalanceB:  bigOrZero(balanceB).String(),
+		HtlcsHash: hex.EncodeToString(htlcsHash[:]),
+		Sig:       hex.EncodeToString(sig),
+	})
+}
+
+// BuildEvmPenalizeTx creates the carrier tx for a penalize call (submit a
+// strictly-higher signed state, proving the broadcast one was revoked).
+func BuildEvmPenalizeTx(channelID chainhash.Hash, correctNonce uint64,
+	balanceA, balanceB *big.Int, htlcsHash [32]byte,
+	correctSig []byte) (*wire.MsgTx, error) {
+
+	return BuildEvmCallTx(channelID, EvmCallPenalize, EvmStateClosePayload{
+		Nonce:     correctNonce,
+		BalanceA:  bigOrZero(balanceA).String(),
+		BalanceB:  bigOrZero(balanceB).String(),
+		HtlcsHash: hex.EncodeToString(htlcsHash[:]),
+		Sig:       hex.EncodeToString(correctSig),
+	})
+}
+
+// BuildEvmClaimHtlcTx creates the carrier tx for a claimHtlc call: the HTLC, its
+// Merkle proof against htlcsHash, and the SHA-256 preimage.
+func BuildEvmClaimHtlcTx(channelID chainhash.Hash, htlc EvmHTLC,
+	proof [][32]byte, preimage [32]byte) (*wire.MsgTx, error) {
+
+	return BuildEvmCallTx(channelID, EvmCallClaimHtlc, EvmHtlcResolvePayload{
+		HTLC:        htlcToData(htlc),
+		MerkleProof: proofToHex(proof),
+		Preimage:    hex.EncodeToString(preimage[:]),
+	})
+}
+
+// BuildEvmTimeoutHtlcTx creates the carrier tx for a timeoutHtlc call: the HTLC
+// and its Merkle proof, presented after the timelock expires.
+func BuildEvmTimeoutHtlcTx(channelID chainhash.Hash, htlc EvmHTLC,
+	proof [][32]byte) (*wire.MsgTx, error) {
+
+	return BuildEvmCallTx(channelID, EvmCallTimeoutHtlc, EvmHtlcResolvePayload{
+		HTLC:        htlcToData(htlc),
+		MerkleProof: proofToHex(proof),
+	})
+}
+
+// BuildEvmDistributeFundsTx creates the carrier tx for the distributeFunds call
+// that pays out after the challenge window closes and all HTLCs are resolved.
+func BuildEvmDistributeFundsTx(channelID chainhash.Hash) (*wire.MsgTx, error) {
+	return BuildEvmCallTx(channelID, EvmCallDistributeFunds, struct{}{})
+}
+
+// bigOrZero returns v, or zero if v is nil.
+func bigOrZero(v *big.Int) *big.Int {
+	if v == nil {
+		return big.NewInt(0)
+	}
+
+	return v
 }
 
 // DecodeEvmCallTx extracts the channelId, call type, and raw payload from a

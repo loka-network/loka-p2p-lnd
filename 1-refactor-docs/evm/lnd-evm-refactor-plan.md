@@ -146,7 +146,31 @@ Implements `chainntnfs.ChainNotifier` by subscribing to Solidity contract events
 - `ChainHash` for the channel comes from `ActiveNetParams.GenesisHash` (the synthesized tuple-hash, §6.1.1 of the integration doc) — no signature change.
 
 ### 2.8 Contract Court Resolver Mapping (`contractcourt/`)
-Each LND resolver maps to a `ChannelManager` method; the resolver *state machines stay unchanged*, only the on-chain action they trigger is swapped (gate on the EVM chain type, same pattern as the Sui resolver branch):
+
+> **Status (phase 3.4).** The EVM **settlement-call layer** and the bridge that
+> assembles each call are built and unit-verified, but they are NOT yet grafted
+> into the `contractcourt/` resolver state machines. Unlike channel.go (which had
+> a Sui precedent to mirror), `contractcourt/` has **no** Sui branch — the Sui
+> adapter never wired on-chain resolution there — so there is no safe pattern to
+> copy and no way to exercise the graft until the phase-5 Anvil itests. Grafting
+> blindly risks the Bitcoin path, so it is deliberately bundled with phase 5.
+>
+> What exists now:
+> - `input` carrier builders for every call: `BuildEvmForceCloseTx`,
+>   `BuildEvmPenalizeTx`, `BuildEvmClaimHtlcTx`, `BuildEvmTimeoutHtlcTx`,
+>   `BuildEvmDistributeFundsTx` (settlement amounts in raw token base-units).
+> - `lnwallet` bridge methods that build each carrier from a commitment view:
+>   `evmForceCloseTx` / `evmPenalizeTx` (via `evmBreachEvidence`, phase 3.2),
+>   `evmHtlcResolution` (HTLC + Merkle proof against the committed htlcsHash,
+>   phase 3.1a), `evmDistributeFundsTx`. The claim/timeout proof is unit-tested to
+>   verify against the state's htlcsHash exactly as the contract's
+>   `_verifyHtlcInclusion` does.
+>
+> Phase 5 then routes each resolver's "broadcast the resolution tx" point to the
+> matching bridge method when `evmChainActive`, and collapses the vestigial
+> per-HTLC SegWit sig batch (see the channel.go 3.1b note).
+
+Each LND resolver maps to a `ChannelManager` method; the resolver *state machines stay unchanged*, only the on-chain action they trigger is swapped (gate on the EVM chain type):
 
 | LND resolver              | Bitcoin action            | EVM action (`ChannelManager`)              |
 | ------------------------- | ------------------------- | ------------------------------------------ |
@@ -154,7 +178,7 @@ Each LND resolver maps to a `ChannelManager` method; the resolver *state machine
 | `htlcSuccessResolver`     | spend with preimage       | `claimHtlc(preimage)`                      |
 | `htlcTimeoutResolver`     | spend after CLTV          | `timeoutHtlc()` after `timelock`           |
 | `anchorResolver`          | CPFP anchor               | n/a (gas paid directly; no anchor outputs) |
-| `BreachArbitrator`        | broadcast justice tx      | `penalize(revocationSecret)`               |
+| `BreachArbitrator`        | broadcast justice tx      | `penalize(newer signed state)` (§2.6)      |
 
 The challenge-period timer replaces CSV; the absolute `timelock` replaces CLTV. `sweep/` is simplified to a no-op for cooperative paths (the contract pays out directly) and to a single `distributeFunds()`/`claimHtlc()` call for force-close paths — mirroring the Sui sweep simplification.
 

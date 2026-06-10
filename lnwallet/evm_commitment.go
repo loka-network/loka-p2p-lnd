@@ -5,6 +5,8 @@ import (
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -257,6 +259,86 @@ func (lc *LightningChannel) evmBreachEvidence(view *commitment,
 		HtlcsHash: su.HtlcsHash,
 		Sig:       sig65,
 	}, nil
+}
+
+// evmForceCloseTx builds the forceClose carrier tx that broadcasts the given
+// state, co-signed by the counterparty. It is the EVM action behind the
+// commitSweepResolver (spec §2.8). The carrier is decoded and ABI-encoded by
+// evmwallet; the on-chain challenge window then replaces the Bitcoin CSV.
+func (lc *LightningChannel) evmForceCloseTx(view *commitment,
+	counterpartySig lnwire.Sig) (*wire.MsgTx, error) {
+
+	ev, err := lc.evmBreachEvidence(view, counterpartySig)
+	if err != nil {
+		return nil, err
+	}
+
+	return input.BuildEvmForceCloseTx(
+		chainhash.Hash(ev.ChannelID), ev.Nonce, ev.BalanceA,
+		ev.BalanceB, ev.HtlcsHash, ev.Sig,
+	)
+}
+
+// evmPenalizeTx builds the penalize carrier tx submitting a strictly-newer
+// signed state, the EVM action behind the BreachArbitrator (spec §2.8). The
+// view must be a higher-nonce state than the one the cheater broadcast.
+func (lc *LightningChannel) evmPenalizeTx(view *commitment,
+	counterpartySig lnwire.Sig) (*wire.MsgTx, error) {
+
+	ev, err := lc.evmBreachEvidence(view, counterpartySig)
+	if err != nil {
+		return nil, err
+	}
+
+	return input.BuildEvmPenalizeTx(
+		chainhash.Hash(ev.ChannelID), ev.Nonce, ev.BalanceA,
+		ev.BalanceB, ev.HtlcsHash, ev.Sig,
+	)
+}
+
+// evmHtlcResolution builds a claimHtlc (preimage non-nil, the htlcSuccessResolver
+// action) or timeoutHtlc (preimage nil, the htlcTimeoutResolver action) carrier
+// for the HTLC at htlcIndex within the view. The HTLC and its Merkle proof are
+// reconstructed from the same committed set that produced the state's htlcsHash,
+// so the contract's _verifyHtlcInclusion accepts them.
+func (lc *LightningChannel) evmHtlcResolution(view *commitment,
+	htlcIndex uint64, preimage *[32]byte) (*wire.MsgTx, error) {
+
+	our, their := evmPartyAddrs(lc.channelState)
+	htlcs := buildEvmHTLCs(view, our, their)
+
+	proof, ok := input.HtlcMerkleProof(htlcs, htlcIndex)
+	if !ok {
+		return nil, fmt.Errorf("evm: no HTLC with index %d in the "+
+			"committed set", htlcIndex)
+	}
+
+	var target input.EvmHTLC
+	for _, h := range htlcs {
+		if h.Index == htlcIndex {
+			target = h
+
+			break
+		}
+	}
+
+	channelID := chainhash.Hash(evmChannelID(lc.channelState))
+	if preimage != nil {
+		return input.BuildEvmClaimHtlcTx(
+			channelID, target, proof, *preimage,
+		)
+	}
+
+	return input.BuildEvmTimeoutHtlcTx(channelID, target, proof)
+}
+
+// evmDistributeFundsTx builds the distributeFunds carrier that finalises a
+// unilateral close after the challenge window — the simplified EVM sweep (the
+// contract pushes funds directly, so there is no second-level sweep tx).
+func (lc *LightningChannel) evmDistributeFundsTx() (*wire.MsgTx, error) {
+	return input.BuildEvmDistributeFundsTx(
+		chainhash.Hash(evmChannelID(lc.channelState)),
+	)
 }
 
 // verifyEvmCommitment checks a remote commitment signature against the EIP-712

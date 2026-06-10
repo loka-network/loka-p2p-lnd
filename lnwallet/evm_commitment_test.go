@@ -1,12 +1,15 @@
 package lnwallet
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	btcecdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -169,6 +172,131 @@ func TestEvmBreachEvidence(t *testing.T) {
 	if _, err := lc.evmBreachEvidence(view, badWire); err == nil {
 		t.Fatal("expected error for a signature not from the counterparty")
 	}
+}
+
+// TestEvmHtlcResolution checks the resolver bridge: the claimHtlc carrier it
+// produces embeds an HTLC whose leaf + Merkle proof verify against the very
+// htlcsHash committed in that state's StateUpdate. If they didn't, the contract's
+// _verifyHtlcInclusion would reject the claim. Three HTLCs exercise a non-trivial
+// proof.
+func TestEvmHtlcResolution(t *testing.T) {
+	SetEvmCommitmentParams(input.EvmDomain{ChainID: 31337}, 6)
+
+	localPriv, _ := btcec.NewPrivateKey()
+	remotePriv, _ := btcec.NewPrivateKey()
+
+	var fundingHash [32]byte
+	fundingHash[0] = 0xFE
+	chanState := &channeldb.OpenChannel{
+		IsInitiator: true,
+		LocalChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{PubKey: localPriv.PubKey()},
+		},
+		RemoteChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{PubKey: remotePriv.PubKey()},
+		},
+	}
+	chanState.FundingOutpoint.Hash = fundingHash
+	lc := &LightningChannel{channelState: chanState}
+
+	mkHtlc := func(idx uint64, amt btcutil.Amount, b byte) paymentDescriptor {
+		var rh PaymentHash
+		rh[0] = b
+		return paymentDescriptor{
+			HtlcIndex: idx,
+			Amount:    lnwire.NewMSatFromSatoshis(amt),
+			RHash:     rh,
+			Timeout:   1_700_000_000,
+		}
+	}
+	view := &commitment{
+		height:       7,
+		ourBalance:   lnwire.NewMSatFromSatoshis(500_000_000),
+		theirBalance: lnwire.NewMSatFromSatoshis(300_000_000),
+		outgoingHTLCs: []paymentDescriptor{
+			mkHtlc(1, 10_000_000, 0x01),
+			mkHtlc(2, 20_000_000, 0x02),
+		},
+		incomingHTLCs: []paymentDescriptor{
+			mkHtlc(3, 30_000_000, 0x03),
+		},
+	}
+
+	// The htlcsHash this state commits to.
+	committed := lc.stateUpdateForView(view).HtlcsHash
+
+	var preimage [32]byte
+	preimage[0] = 0xBE
+	tx, err := lc.evmHtlcResolution(view, 2, &preimage)
+	if err != nil {
+		t.Fatalf("evmHtlcResolution: %v", err)
+	}
+
+	gotID, callType, raw, err := input.DecodeEvmCallTx(tx)
+	if err != nil {
+		t.Fatalf("DecodeEvmCallTx: %v", err)
+	}
+	if gotID != chainhash.Hash(fundingHash) {
+		t.Fatalf("channelId mismatch: %x", gotID)
+	}
+	if callType != input.EvmCallClaimHtlc {
+		t.Fatalf("callType = %s, want ClaimHtlc", callType)
+	}
+
+	var p input.EvmHtlcResolvePayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rebuild the HTLC leaf from the payload and verify the proof against the
+	// committed root — exactly what the contract does on-chain.
+	amt, _ := new(big.Int).SetString(p.HTLC.Amount, 10)
+	hashlock := mustHex32(t, p.HTLC.Hashlock)
+	var recip [20]byte
+	copy(recip[:], mustHexBytes(t, p.HTLC.Recipient))
+	leaf := input.EvmHTLC{
+		Index:     p.HTLC.Index,
+		Amount:    amt,
+		Hashlock:  hashlock,
+		Timelock:  p.HTLC.Timelock,
+		Recipient: recip,
+	}.Leaf()
+
+	proof := make([][32]byte, len(p.MerkleProof))
+	for i, h := range p.MerkleProof {
+		proof[i] = mustHex32(t, h)
+	}
+	if !input.VerifyHtlcMerkleProof(proof, committed, leaf) {
+		t.Fatal("claim HTLC leaf+proof do not verify against the " +
+			"committed htlcsHash")
+	}
+
+	// A non-existent index must error.
+	if _, err := lc.evmHtlcResolution(view, 99, &preimage); err == nil {
+		t.Fatal("expected error for an unknown HTLC index")
+	}
+}
+
+func mustHex32(t *testing.T, s string) [32]byte {
+	t.Helper()
+	b := mustHexBytes(t, s)
+	if len(b) != 32 {
+		t.Fatalf("want 32 bytes, got %d", len(b))
+	}
+	var out [32]byte
+	copy(out[:], b)
+
+	return out
+}
+
+func mustHexBytes(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatalf("bad hex %q: %v", s, err)
+	}
+
+	return b
 }
 
 // TestEvmScaleToBase pins the local Decimals Scaling Factor (kept in lockstep
