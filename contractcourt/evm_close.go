@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/evmnotify"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // EVM close events reach the chain watcher as synthetic spend transactions
@@ -57,8 +58,8 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 
 		return c.dispatchCooperativeClose(commitSpend)
 
-	// Unilateral close: the marker carries the broadcaster address and
-	// the broadcast StateUpdate nonce.
+	// Unilateral close: the marker carries the broadcaster address, the
+	// broadcast StateUpdate nonce, and the challenge deadline.
 	case evmnotify.TopicUnilateralCloseInitiated[0]:
 		if len(payload) < 28 {
 			return fmt.Errorf("evm unilateral close marker too "+
@@ -68,6 +69,13 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 		var broadcaster [20]byte
 		copy(broadcaster[:], payload[:20])
 		nonce := binary.BigEndian.Uint64(payload[20:28])
+
+		var challengeExpiry uint64
+		if len(payload) >= 36 {
+			challengeExpiry = binary.BigEndian.Uint64(
+				payload[28:36],
+			)
+		}
 
 		localAddr := input.EvmAddressFromPubKey(
 			c.cfg.chanState.LocalChanCfg.MultiSigKey.PubKey,
@@ -81,9 +89,22 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 				LocalHtlcSet,
 			)
 
+			c.launchEvmSettler(
+				c.cfg.chanState.LocalCommitment,
+				challengeExpiry,
+			)
+
 			return c.dispatchLocalForceClose(
 				commitSpend, nonce, chainSet.commitSet,
 			)
+		}
+
+		// The remote broadcast. If the nonce is older than the latest
+		// state we hold their signature for, this is a breach: the
+		// remedy is presenting that newer co-signed state to the
+		// contract's penalize, which awards the entire escrow to us.
+		if nonce < c.cfg.chanState.LocalCommitment.CommitHeight {
+			return c.dispatchEvmBreach(nonce)
 		}
 
 		log.Infof("Remote unilateral close of ChannelPoint(%v) "+
@@ -91,6 +112,10 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 			chanPoint, nonce, broadcaster)
 
 		chainSet.commitSet.ConfCommitKey = fn.Some(RemoteHtlcSet)
+
+		c.launchEvmSettler(
+			c.cfg.chanState.RemoteCommitment, challengeExpiry,
+		)
 
 		return c.dispatchRemoteForceClose(
 			commitSpend, chainSet.remoteCommit, chainSet.commitSet,
@@ -106,4 +131,42 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 
 		return nil
 	}
+}
+
+// dispatchEvmBreach handles a revoked-state broadcast: it submits the
+// penalize carrier — this node's latest commitment co-signed by the cheater
+// at a strictly higher nonce — and marks the channel borked. The contract
+// awards the full escrow to this node; no Bitcoin-style justice transaction
+// machinery is involved.
+func (c *chainWatcher) dispatchEvmBreach(staleNonce uint64) error {
+	chanPoint := c.cfg.chanState.FundingOutpoint
+
+	log.Warnf("Remote peer broadcast REVOKED state #%d for "+
+		"ChannelPoint(%v) (latest co-signed: #%d) — submitting "+
+		"penalize", staleNonce, chanPoint,
+		c.cfg.chanState.LocalCommitment.CommitHeight)
+
+	if c.cfg.publishTx == nil {
+		return fmt.Errorf("evm breach on %v but no publishTx",
+			chanPoint)
+	}
+
+	tx, err := lnwallet.EvmPenalizeTx(c.cfg.chanState)
+	if err != nil {
+		return fmt.Errorf("build penalize carrier: %w", err)
+	}
+	if err := c.cfg.publishTx(tx, "evm-penalize"); err != nil {
+		return fmt.Errorf("broadcast penalize: %w", err)
+	}
+
+	// Block any further state transitions on this channel. Full breach
+	// bookkeeping (close summary, subscriber notification) is part of the
+	// remaining hardening; the on-chain remedy above is what secures the
+	// funds.
+	if err := c.cfg.chanState.MarkBorked(); err != nil {
+		log.Errorf("ChannelPoint(%v): unable to mark borked: %v",
+			chanPoint, err)
+	}
+
+	return nil
 }

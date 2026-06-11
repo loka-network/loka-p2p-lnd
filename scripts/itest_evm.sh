@@ -32,7 +32,10 @@ WORKDIR=$(mktemp -d /tmp/lnd-evm-itest.XXXXXX)
 RPC_PORT=18545
 RPC="http://127.0.0.1:${RPC_PORT}"
 DEVKEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-CHALLENGE_PERIOD=30
+# Short challenge window so the force-close → auto-distributeFunds path
+# (driven by the in-node EVM settler, which gates on wall-clock vs the
+# contract's challengeExpiry) completes quickly.
+CHALLENGE_PERIOD=12
 CHAIN_ID=31337
 
 LND_BIN=${LND_BIN:-$WORKDIR/lnd}
@@ -257,22 +260,14 @@ wait_until 60 "forceClose on-chain" unilateral_seen
 kill $FORCE_PID 2>/dev/null || true
 ok "forceClose landed; channel in challenge window"
 
-# Jump past the challenge window, then distribute. distributeFunds is
-# permissionless once the window expired and no HTLCs are pending.
-cast rpc evm_increaseTime $((CHALLENGE_PERIOD + 5)) --rpc-url "$RPC" >/dev/null
-cast rpc evm_mine --rpc-url "$RPC" >/dev/null
-
-CHANNEL_ID=$(cast logs --from-block 0 --address "$CM" \
-    'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' \
-    --rpc-url "$RPC" --json | json 'print(json.load(sys.stdin)[0]["topics"][1])')
-cast send "$CM" "distributeFunds(bytes32)" "$CHANNEL_ID" \
-    --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
-
-# Only the reverse channel's deposit remains in escrow.
-wait_until 30 "escrow paid out after distributeFunds" escrow_is 50000000
+# No manual distributeFunds: node1's in-node EVM settler broadcasts it on
+# its own once the challenge window elapses (no HTLCs are pending, the
+# payment settled before the force close). We just wait for the on-chain
+# effect. Only the reverse channel's deposit should remain escrowed.
+wait_until 60 "settler auto-broadcasts distributeFunds" escrow_is 50000000
 [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" = "1" ] \
     || fail "no FundsDistributed event"
-ok "distributeFunds paid out the force-closed escrow"
+ok "EVM settler auto-distributed the force-closed escrow"
 
 # ---------------------------------------------------------------------------
 # Suspended mode: keep both nodes (and Anvil) up for manual RPC/REST poking,

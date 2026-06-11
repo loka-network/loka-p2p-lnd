@@ -1161,6 +1161,10 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			auxCloser:           c.cfg.AuxCloser,
 			chanCloseConfs:      c.cfg.ChannelCloseConfs,
 			isSui:               c.cfg.IsSui,
+			publishTx:           c.cfg.PublishTx,
+			preimageDB:          c.cfg.PreimageDB,
+			registry:            c.cfg.Registry,
+			settlerQuit:         c.quit,
 		},
 	)
 	if err != nil {
@@ -1341,6 +1345,10 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 				auxCloser:           c.cfg.AuxCloser,
 				chanCloseConfs:      c.cfg.ChannelCloseConfs,
 				isSui:               c.cfg.IsSui,
+				publishTx:           c.cfg.PublishTx,
+				preimageDB:          c.cfg.PreimageDB,
+				registry:            c.cfg.Registry,
+				settlerQuit:         c.quit,
 			},
 		)
 		if err != nil {

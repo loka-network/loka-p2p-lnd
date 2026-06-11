@@ -256,6 +256,11 @@ itest-only: clean-itest-logs db-instance
 #? itest: Build and run integration tests
 itest: build-itest itest-only
 
+#? itest-evm: Run the EVM (ChannelManager) backend end-to-end test against a local Anvil devnet. Requires Foundry (anvil/forge/cast) and python3.
+itest-evm:
+	@$(call print, "Running EVM E2E integration test.")
+	ITEST_EVM_SUSPEND=0 ./scripts/itest_evm.sh </dev/null
+
 #? itest-race: Build and run integration tests in race detector mode
 itest-race: build-itest-race itest-only
 

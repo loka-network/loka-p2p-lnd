@@ -4294,35 +4294,51 @@ func (lc *LightningChannel) SignNextCommitment(
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
-	sigBatch, auxSigBatch, cancelChan, err := genRemoteHtlcSigJobs(
-		keyRing, lc.channelState, leaseExpiry, newCommitView,
-		lc.leafStore,
+
+	var (
+		sigBatch    []SignJob
+		auxSigBatch []AuxSigJob
+		cancelChan  chan struct{}
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	// We'll need to send over the signatures to the remote party in the
-	// order as they appear on the commitment transaction after BIP 69
-	// sorting.
-	slices.SortFunc(sigBatch, func(i, j SignJob) int {
-		return cmp.Compare(i.OutputIndex, j.OutputIndex)
-	})
-	slices.SortFunc(auxSigBatch, func(i, j AuxSigJob) int {
-		return cmp.Compare(i.OutputIndex, j.OutputIndex)
-	})
-
-	lc.sigPool.SubmitSignBatch(sigBatch)
-
-	err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
-		return a.SubmitSecondLevelSigBatch(
-			NewAuxChanState(lc.channelState), newCommitView.txn,
-			auxSigBatch,
+	if evmChainActive {
+		// On an EVM chain the per-HTLC second-level signatures have no
+		// on-chain consumer: the HTLC set is bound by the StateUpdate's
+		// htlcsHash and resolved via claimHtlc/timeoutHtlc Merkle
+		// proofs. Skip generating the batch entirely (the peer's
+		// verification side is gated identically), saving one ECDSA
+		// signature + verification per HTLC per state.
+		cancelChan = make(chan struct{})
+	} else {
+		sigBatch, auxSigBatch, cancelChan, err = genRemoteHtlcSigJobs(
+			keyRing, lc.channelState, leaseExpiry, newCommitView,
+			lc.leafStore,
 		)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error submitting second level sig "+
-			"batch: %w", err)
+		if err != nil {
+			return nil, err
+		}
+
+		// We'll need to send over the signatures to the remote party
+		// in the order as they appear on the commitment transaction
+		// after BIP 69 sorting.
+		slices.SortFunc(sigBatch, func(i, j SignJob) int {
+			return cmp.Compare(i.OutputIndex, j.OutputIndex)
+		})
+		slices.SortFunc(auxSigBatch, func(i, j AuxSigJob) int {
+			return cmp.Compare(i.OutputIndex, j.OutputIndex)
+		})
+
+		lc.sigPool.SubmitSignBatch(sigBatch)
+
+		err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
+			return a.SubmitSecondLevelSigBatch(
+				NewAuxChanState(lc.channelState),
+				newCommitView.txn, auxSigBatch,
+			)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error submitting second "+
+				"level sig batch: %w", err)
+		}
 	}
 
 	// While the jobs are being carried out, we'll Sign their version of
@@ -5594,14 +5610,24 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
-	verifyJobs, auxVerifyJobs, err := genHtlcSigValidationJobs(
-		lc.channelState, localCommitmentView, keyRing,
-		commitSigs.HtlcSigs, leaseExpiry, lc.leafStore, lc.auxSigner,
-		auxSigBlob,
+
+	var (
+		verifyJobs    []VerifyJob
+		auxVerifyJobs []AuxVerifyJob
 	)
-	if err != nil {
-		return err
+	if !evmChainActive {
+		verifyJobs, auxVerifyJobs, err = genHtlcSigValidationJobs(
+			lc.channelState, localCommitmentView, keyRing,
+			commitSigs.HtlcSigs, leaseExpiry, lc.leafStore,
+			lc.auxSigner, auxSigBlob,
+		)
+		if err != nil {
+			return err
+		}
 	}
+	// On an EVM chain the peer sends no per-HTLC signatures (the HTLC set
+	// is bound by the StateUpdate's htlcsHash), so there is nothing to
+	// verify here; the empty job set keeps the pool plumbing inert.
 
 	cancelChan := make(chan struct{})
 	verifyResps := lc.sigPool.SubmitVerifyBatch(verifyJobs, cancelChan)

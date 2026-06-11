@@ -283,6 +283,29 @@ type chainWatcherConfig struct {
 
 	// isSui is true if the backend is the Sui network.
 	isSui bool
+
+	// publishTx broadcasts a transaction; on EVM the settler uses it to
+	// send the claimHtlc/timeoutHtlc/distributeFunds/penalize carriers.
+	// May be nil (non-EVM construction sites and tests).
+	publishTx func(*wire.MsgTx, string) error
+
+	// preimageDB is the global preimage store the EVM settler consults to
+	// claim incoming HTLCs after a unilateral close. May be nil.
+	preimageDB WitnessBeacon
+
+	// registry is the invoice registry, the settler's second preimage
+	// source (hold-invoice preimages live here, not in the witness
+	// cache). May be nil.
+	registry Registry
+
+	// settlerQuit is the lifecycle signal for the EVM post-close settler.
+	// It is the ChainArbitrator's quit (node lifetime), NOT the
+	// chainWatcher's: a force-closed EVM channel has no Bitcoin contract
+	// resolvers, so the arbitrator resolves it immediately and tears down
+	// this watcher — but the settler must keep running through the
+	// challenge window to claim HTLCs and call distributeFunds. May be
+	// nil (non-EVM / tests).
+	settlerQuit <-chan struct{}
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty

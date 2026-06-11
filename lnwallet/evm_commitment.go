@@ -483,11 +483,11 @@ func (lc *LightningChannel) evmCoopCloseCarrier(localSig,
 	)
 }
 
-// evmStateUpdateFromDiskCommit rebuilds the canonical StateUpdate for a
-// persisted commitment, mirroring buildEvmStateUpdate over the channeldb form
-// (used at force-close time, when no in-memory commitment view is at hand).
-func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
-	commit *channeldb.ChannelCommitment) input.EvmStateUpdate {
+// evmHTLCsFromDiskCommit converts a persisted commitment's HTLC set into the
+// contract form, assigning channel-absolute recipients exactly like
+// buildEvmHTLCs does for in-memory views.
+func evmHTLCsFromDiskCommit(chanState *channeldb.OpenChannel,
+	commit *channeldb.ChannelCommitment) []input.EvmHTLC {
 
 	ourAddr, theirAddr := evmPartyAddrs(chanState)
 
@@ -509,6 +509,17 @@ func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
 			Recipient: recipient,
 		})
 	}
+
+	return htlcs
+}
+
+// evmStateUpdateFromDiskCommit rebuilds the canonical StateUpdate for a
+// persisted commitment, mirroring buildEvmStateUpdate over the channeldb form
+// (used at force-close time, when no in-memory commitment view is at hand).
+func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
+	commit *channeldb.ChannelCommitment) input.EvmStateUpdate {
+
+	htlcs := evmHTLCsFromDiskCommit(chanState, commit)
 
 	// B = the non-funder, same channel-absolute convention (and the same
 	// remainder-to-A rule) as buildEvmStateUpdate.
@@ -538,31 +549,115 @@ func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
 func (lc *LightningChannel) evmLocalForceCloseCarrier() (*wire.MsgTx, error) {
 	commit := lc.channelState.LocalCommitment
 	su := evmStateUpdateFromDiskCommit(lc.channelState, &commit)
-	digest := su.Digest(evmCommitmentDomain)
 
 	// The persisted CommitSig is the remote's DER signature over our
-	// commitment state; restore the fixed 64-byte form, then its v.
-	derSig, err := ecdsa.ParseDERSignature(commit.CommitSig)
-	if err != nil {
-		return nil, fmt.Errorf("evm force close: parse retained "+
-			"commit sig: %w", err)
-	}
-	remoteRS, err := evmSigToRS64(derSig)
+	// commitment state; restore the 65-byte (r ‖ s ‖ v) form.
+	sig65, err := evmRetainedSig65(lc.channelState, &commit)
 	if err != nil {
 		return nil, err
-	}
-
-	_, theirAddr := evmPartyAddrs(lc.channelState)
-	sig65, err := input.RecoverEvmSigV(remoteRS, digest, theirAddr)
-	if err != nil {
-		return nil, fmt.Errorf("evm force close: retained sig does "+
-			"not recover to counterparty: %w", err)
 	}
 
 	return input.BuildEvmForceCloseTx(
 		chainhash.Hash(su.ChannelID), su.Nonce, su.BalanceA,
 		su.BalanceB, su.HtlcsHash, sig65,
 		lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed(),
+	)
+}
+
+// evmRetainedSig65 restores the 65-byte form of the counterparty's retained
+// commitment signature (persisted as DER in commit.CommitSig) over the given
+// disk state's digest.
+func evmRetainedSig65(chanState *channeldb.OpenChannel,
+	commit *channeldb.ChannelCommitment) ([]byte, error) {
+
+	su := evmStateUpdateFromDiskCommit(chanState, commit)
+	digest := su.Digest(evmCommitmentDomain)
+
+	derSig, err := ecdsa.ParseDERSignature(commit.CommitSig)
+	if err != nil {
+		return nil, fmt.Errorf("evm: parse retained commit sig: %w",
+			err)
+	}
+	remoteRS, err := evmSigToRS64(derSig)
+	if err != nil {
+		return nil, err
+	}
+
+	_, theirAddr := evmPartyAddrs(chanState)
+
+	sig65, err := input.RecoverEvmSigV(remoteRS, digest, theirAddr)
+	if err != nil {
+		return nil, fmt.Errorf("evm: retained sig does not recover "+
+			"to counterparty: %w", err)
+	}
+
+	return sig65, nil
+}
+
+// EvmHtlcResolutionTx builds the claimHtlc (preimage non-nil) or timeoutHtlc
+// (preimage nil) carrier for the HTLC at htlcIndex within the given persisted
+// commitment — the on-chain state a unilateral close broadcast. Exposed for
+// the contractcourt settler, which resolves HTLCs after a force close.
+func EvmHtlcResolutionTx(chanState *channeldb.OpenChannel,
+	commit *channeldb.ChannelCommitment, htlcIndex uint64,
+	preimage *[32]byte) (*wire.MsgTx, error) {
+
+	htlcs := evmHTLCsFromDiskCommit(chanState, commit)
+
+	proof, ok := input.HtlcMerkleProof(htlcs, htlcIndex)
+	if !ok {
+		return nil, fmt.Errorf("evm: no HTLC with index %d in the "+
+			"committed set", htlcIndex)
+	}
+
+	var target input.EvmHTLC
+	for _, h := range htlcs {
+		if h.Index == htlcIndex {
+			target = h
+
+			break
+		}
+	}
+
+	channelID := chainhash.Hash(evmChannelID(chanState))
+	if preimage != nil {
+		return input.BuildEvmClaimHtlcTx(
+			channelID, target, proof, *preimage,
+		)
+	}
+
+	return input.BuildEvmTimeoutHtlcTx(channelID, target, proof)
+}
+
+// EvmDistributeFundsTx builds the distributeFunds carrier that finalises a
+// unilateral close after the challenge window. Exposed for the contractcourt
+// settler.
+func EvmDistributeFundsTx(chanState *channeldb.OpenChannel) (*wire.MsgTx,
+	error) {
+
+	return input.BuildEvmDistributeFundsTx(
+		chainhash.Hash(evmChannelID(chanState)),
+	)
+}
+
+// EvmPenalizeTx builds the penalize carrier proving the counterparty
+// broadcast a revoked state: it submits this node's latest persisted local
+// commitment — co-signed by the counterparty at a strictly higher nonce than
+// the one they broadcast. Exposed for the contractcourt breach path.
+func EvmPenalizeTx(chanState *channeldb.OpenChannel) (*wire.MsgTx, error) {
+	commit := chanState.LocalCommitment
+	su := evmStateUpdateFromDiskCommit(chanState, &commit)
+
+	sig65, err := evmRetainedSig65(chanState, &commit)
+	if err != nil {
+		return nil, err
+	}
+
+	return input.BuildEvmPenalizeTx(
+		chainhash.Hash(su.ChannelID), su.Nonce, su.BalanceA,
+		su.BalanceB, su.HtlcsHash, sig65,
+		chanState.LocalChanCfg.MultiSigKey.PubKey.
 			SerializeCompressed(),
 	)
 }
