@@ -8,9 +8,19 @@
 #   2. channel open     — openChannel escrow pulled on-chain, channel active
 #   3. payment          — lnevm… invoice paid over the channel (EIP-712
 #                         commitments + HTLC settle)
-#   4. cooperative close— closeChannel call pays both participants, escrow 0
+#   3b. reverse channel — node2 opens a channel back so the path-finder has
+#                         two distinct edges (self-payment prerequisite)
+#   3c. self-payment    — node1 pays its own invoice node1→node2→node1 over
+#                         the circular route, N rounds (mirrors the Sui
+#                         itest's step 8; common L402/paywall pattern)
+#   4. cooperative close— closeChannel call pays both participants; escrow
+#                         drops by exactly that channel's deposit
 #   5. force close      — forceClose call (challenge window) + distributeFunds
-#                         after expiry, escrow 0
+#                         after expiry
+#
+# After all checks pass the nodes stay up in suspended mode for manual
+# poking (RPC/REST); press Enter to tear down. Set ITEST_EVM_SUSPEND=0 to
+# exit immediately (CI), ITEST_EVM_SELF_PAY_ROUNDS=N to tune the loop.
 #
 # Requirements: go, anvil/forge/cast (Foundry), python3.
 # Usage: ./scripts/itest_evm.sh
@@ -38,8 +48,13 @@ cleanup() {
     pkill -f "lnddir=$WORKDIR" 2>/dev/null || true
     [ -n "${ANVIL_PID:-}" ] && kill "$ANVIL_PID" 2>/dev/null || true
     if [ $code -eq 0 ]; then
+        # Let the nodes finish their shutdown writes before removing the dir.
+        for _ in $(seq 1 10); do
+            pgrep -f "lnddir=$WORKDIR" >/dev/null 2>&1 || break
+            sleep 0.5
+        done
         rm -rf "$WORKDIR"
-        printf '\n\033[1;32mEVM E2E: ALL %d CHECKS PASSED\033[0m\n' "$PASS_COUNT"
+        printf '\n\033[1;32mEVM E2E: done — nodes terminated, workdir removed\033[0m\n'
     else
         printf '\n\033[1;31mEVM E2E: FAILED — logs kept in %s\033[0m\n' "$WORKDIR"
     fi
@@ -98,13 +113,19 @@ CM=$(echo "$DEPLOY_OUT" | grep -o 'Deployed ChannelManager to: 0x[0-9a-fA-F]*' |
 ok "token=$TOKEN manager=$CM (challenge ${CHALLENGE_PERIOD}s)"
 
 step "Boot two lnd --evm.active nodes"
+# --allow-circular-route is required for the self-payment step: the HTLC
+# leaves node1 over one channel and returns over the other; without the
+# flag the htlcswitch rejects the return hop (same rationale as the Sui
+# itest). REST stays on (no TLS) so the suspended nodes are usable from
+# Postman/curl after the run.
 for N in 1 2; do
     "$LND_BIN" --lnddir="$WORKDIR/node$N" --noseedbackup \
         --evm.active --evm.chain=anvil --evm.chainid=$CHAIN_ID \
         --evm.rpchost="$RPC" \
         --evm.tokenaddress="$TOKEN" --evm.contractaddress="$CM" \
         --listen=127.0.0.1:1190$N --rpclisten=127.0.0.1:1180$N \
-        --norest --debuglevel=info \
+        --restlisten=127.0.0.1:1280$N --no-rest-tls \
+        --allow-circular-route --debuglevel=info \
         >"$WORKDIR/node$N.log" 2>&1 &
 done
 for N in 1 2; do
@@ -113,12 +134,12 @@ done
 ok "both nodes serving rpc"
 
 # --------------------------------------------------------------------------
-step "1. Wallet funding (mint 1000 USDC to node1, gas to both nodes)"
+step "1. Wallet funding (mint 1000 USDC + gas to both nodes)"
 ADDR1=$(lncli_n 1 newaddress p2wkh | grep -o '0x[0-9a-fA-F]*')
 ADDR2=$(lncli_n 2 newaddress p2wkh | grep -o '0x[0-9a-fA-F]*')
-cast send "$TOKEN" "mint(address,uint256)" "$ADDR1" 1000000000 \
-    --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
 for A in "$ADDR1" "$ADDR2"; do
+    cast send "$TOKEN" "mint(address,uint256)" "$A" 1000000000 \
+        --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
     cast send "$A" --value 10ether \
         --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
 done
@@ -144,12 +165,14 @@ wait_until 60 "channel active on node2" chan_active 2 1
 [ "$(erc20_bal "$CM")" = "100000000" ] || fail "escrow != 100 USDC raw"
 ok "channel active on both peers; escrow holds 100000000 base-units"
 
-# pay_with_retry <payreq> — the link's outbound bandwidth can lag the
-# channel's "active" flag briefly, so retry a few times.
+# pay_with_retry <payer-node> <payreq> [extra payinvoice flags…] — the
+# link's outbound bandwidth can lag the channel's "active" flag briefly,
+# so retry a few times.
 pay_with_retry() {
-    local payreq=$1 status="" i
+    local n=$1 payreq=$2 status="" i
+    shift 2
     for i in 1 2 3 4 5; do
-        status=$(lncli_n 1 payinvoice --force --timeout 30s --json \
+        status=$(lncli_n "$n" payinvoice --force --timeout 30s --json "$@" \
             "$payreq" 2>/dev/null \
             | json 'print(json.load(sys.stdin)["status"])' || echo RETRY)
         [ "$status" = "SUCCEEDED" ] && return 0
@@ -158,11 +181,13 @@ pay_with_retry() {
     fail "payment status after retries: $status"
 }
 
+escrow_is() { [ "$(erc20_bal "$CM")" = "$1" ]; }
+
 step "3. Payment (5 USDC invoice)"
 PAYREQ=$(lncli_n 2 addinvoice --amt 500000000 --memo e2e \
     | json 'print(json.load(sys.stdin)["payment_request"])')
 case "$PAYREQ" in lnevm*) ;; *) fail "invoice prefix not lnevm…: $PAYREQ";; esac
-pay_with_retry "$PAYREQ"
+pay_with_retry 1 "$PAYREQ"
 
 bal2_is() {
     [ "$(lncli_n 2 listchannels | json 'print(json.load(sys.stdin)["channels"][0]["local_balance"])')" = "$1" ]
@@ -170,27 +195,57 @@ bal2_is() {
 wait_until 15 "node2 settled balance" bal2_is 500000000
 ok "payment SUCCEEDED, node2 local balance 500000000"
 
-step "4. Cooperative close"
+step "3b. Reverse channel (node2 → node1, 50 USDC)"
+PK1=$(lncli_n 1 getinfo | json 'print(json.load(sys.stdin)["identity_pubkey"])')
+CHAN_OPEN=$(lncli_n 2 openchannel --node_key="$PK1" --local_amt=5000000000)
+FUNDING_TXID_REV=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_txid"])')
+[ -n "$FUNDING_TXID_REV" ] || fail "reverse openchannel returned no funding txid"
+wait_until 60 "2 channels active on node1" chan_active 1 2
+wait_until 60 "2 channels active on node2" chan_active 2 2
+wait_until 15 "escrow holds both deposits" escrow_is 150000000
+ok "reverse channel active; escrow holds 150000000 base-units"
+
+# Self-payment: node1 pays its own invoice, the HTLC routes
+# node1 → node2 (channel 1) → node1 (reverse channel) and settles against
+# node1's own invoice registry. This exercises HTLC forwarding plus both
+# channels' EIP-712 commitment updates in one round trip — the everyday
+# pattern when an app pays a paywall backed by the same node (L402).
+SELF_PAY_ROUNDS=${ITEST_EVM_SELF_PAY_ROUNDS:-3}
+step "3c. Self-payment (node1 → node1 via node2) × $SELF_PAY_ROUNDS"
+for ROUND in $(seq 1 "$SELF_PAY_ROUNDS"); do
+    SELF_PAYREQ=$(lncli_n 1 addinvoice --amt 100000000 --memo "self-r$ROUND" \
+        | json 'print(json.load(sys.stdin)["payment_request"])')
+    lncli_n 1 resetmc >/dev/null 2>&1 || true
+    pay_with_retry 1 "$SELF_PAYREQ" --allow_self_payment
+    chan_active 1 2 || fail "round $ROUND left <2 active channels on node1"
+    echo "    ✓ round $ROUND settled"
+done
+# Circular payments are value-neutral, so both escrows must be untouched.
+escrow_is 150000000 || fail "escrow changed after self-payments"
+ok "$SELF_PAY_ROUNDS self-payment rounds settled; channels and escrow intact"
+
+step "4. Cooperative close (channel 1)"
 lncli_n 1 closechannel "$FUNDING_TXID" >/dev/null 2>&1 &
 CLOSE_PID=$!
 
-escrow_zero() { [ "$(erc20_bal "$CM")" = "0" ]; }
-wait_until 60 "escrow paid out" escrow_zero
+# Only channel 1's 100-USDC deposit leaves the escrow; the reverse channel
+# stays open (and stays available in suspended mode).
+wait_until 60 "channel-1 escrow paid out" escrow_is 50000000
 [ "$(log_count 'ChannelClosed(bytes32,uint256,uint256)')" = "1" ] \
     || fail "no ChannelClosed event"
-wait_until 60 "channel gone from node1" chan_active 1 0
+wait_until 60 "channel 1 gone from node1" chan_active 1 1
 kill $CLOSE_PID 2>/dev/null || true
-ok "closeChannel paid out the full escrow; ChannelClosed emitted"
+ok "closeChannel paid out channel 1's escrow; ChannelClosed emitted"
 
-step "5. Force close (open second channel, pay, then --force)"
+step "5. Force close (open third channel, pay, then --force)"
 CHAN_OPEN=$(lncli_n 1 openchannel --node_key="$PK2" --local_amt=5000000000)
 FUNDING_TXID2=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_txid"])')
-wait_until 60 "second channel active on node1" chan_active 1 1
-wait_until 60 "second channel active on node2" chan_active 2 1
+wait_until 60 "third channel active on node1" chan_active 1 2
+wait_until 60 "third channel active on node2" chan_active 2 2
 
 PAYREQ=$(lncli_n 2 addinvoice --amt 700000000 --memo e2e-fc \
     | json 'print(json.load(sys.stdin)["payment_request"])')
-pay_with_retry "$PAYREQ"
+pay_with_retry 1 "$PAYREQ"
 
 lncli_n 1 closechannel --force "$FUNDING_TXID2" >/dev/null 2>&1 &
 FORCE_PID=$!
@@ -213,7 +268,33 @@ CHANNEL_ID=$(cast logs --from-block 0 --address "$CM" \
 cast send "$CM" "distributeFunds(bytes32)" "$CHANNEL_ID" \
     --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
 
-wait_until 30 "escrow paid out after distributeFunds" escrow_zero
+# Only the reverse channel's deposit remains in escrow.
+wait_until 30 "escrow paid out after distributeFunds" escrow_is 50000000
 [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" = "1" ] \
     || fail "no FundsDistributed event"
 ok "distributeFunds paid out the force-closed escrow"
+
+# ---------------------------------------------------------------------------
+# Suspended mode: keep both nodes (and Anvil) up for manual RPC/REST poking,
+# mirroring the Sui itest. The reverse channel is still active. Press Enter
+# (or close stdin / set ITEST_EVM_SUSPEND=0) to tear everything down.
+printf '\n\033[1;32mEVM E2E: ALL %d CHECKS PASSED\033[0m\n' "$PASS_COUNT"
+if [ "${ITEST_EVM_SUSPEND:-1}" = "1" ]; then
+    echo "=================================================================================="
+    echo "✅ Test workflow completed! Nodes are now in [Suspended Mode], waiting for"
+    echo "   external RPC / REST requests. The node2→node1 channel is still active."
+    echo ""
+    echo " -> Anvil RPC:        $RPC  (token=$TOKEN manager=$CM)"
+    echo " -> node1 gRPC:       127.0.0.1:11801   REST: http://127.0.0.1:12801"
+    echo "    macaroon:         $WORKDIR/node1/data/chain/evm/anvil/admin.macaroon"
+    echo " -> node2 gRPC:       127.0.0.1:11802   REST: http://127.0.0.1:12802"
+    echo "    macaroon:         $WORKDIR/node2/data/chain/evm/anvil/admin.macaroon"
+    echo ""
+    echo "    lncli example:"
+    echo "    lncli --rpcserver=127.0.0.1:11801 --lnddir=$WORKDIR/node1 \\"
+    echo "          --macaroonpath=$WORKDIR/node1/data/chain/evm/anvil/admin.macaroon getinfo"
+    echo ""
+    echo "Once you are done testing, press [Enter] to terminate nodes and exit..."
+    echo "=================================================================================="
+    read -r _ || true
+fi
