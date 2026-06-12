@@ -93,3 +93,6 @@ sui-contracts/lightning/build/
 
 .alice_lnd.log
 .bob_lnd.log
+# Ephemeral local-devnet deployment record (public-network deploy_state_*.json
+# files ARE meant to be committed, mirroring sui-contracts/lightning/).
+evm-contracts/channel-manager/deploy_state_anvil.json
