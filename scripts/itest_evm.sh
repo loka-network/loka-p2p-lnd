@@ -94,9 +94,13 @@ log_count() { # log_count <event-sig>
 }
 
 # ---------------------------------------------------------------------------
+# The invoicesrpc/routerrpc sub-servers are needed for the in-flight HTLC
+# step (addholdinvoice / settleinvoice); chainrpc/signrpc/walletrpc round out
+# the standard dev RPC set.
+BUILD_TAGS="invoicesrpc routerrpc chainrpc signrpc walletrpc"
 step "Build lnd / lncli"
-( cd "$REPO" && GOWORK=off go build -o "$LND_BIN" ./cmd/lnd \
-             && GOWORK=off go build -o "$LNCLI_BIN" ./cmd/lncli )
+( cd "$REPO" && GOWORK=off go build -tags="$BUILD_TAGS" -o "$LND_BIN" ./cmd/lnd \
+             && GOWORK=off go build -tags="$BUILD_TAGS" -o "$LNCLI_BIN" ./cmd/lncli )
 ok "binaries built"
 
 step "Start Anvil + deploy MockERC20 / ChannelManager"
@@ -119,7 +123,10 @@ step "Boot two lnd --evm.active nodes"
 # --allow-circular-route is required for the self-payment step: the HTLC
 # leaves node1 over one channel and returns over the other; without the
 # flag the htlcswitch rejects the return hop (same rationale as the Sui
-# itest). REST stays on (no TLS) so the suspended nodes are usable from
+# itest). --protocol.no-anchors because EVM channels have no on-chain
+# commitment tx to CPFP, so anchor outputs are meaningless (and the
+# sweeper would otherwise try to sweep one to an EVM account address).
+# REST stays on (no TLS) so the suspended nodes are usable from
 # Postman/curl after the run.
 for N in 1 2; do
     "$LND_BIN" --lnddir="$WORKDIR/node$N" --noseedbackup \
@@ -128,7 +135,7 @@ for N in 1 2; do
         --evm.tokenaddress="$TOKEN" --evm.contractaddress="$CM" \
         --listen=127.0.0.1:1190$N --rpclisten=127.0.0.1:1180$N \
         --restlisten=127.0.0.1:1280$N --no-rest-tls \
-        --allow-circular-route --debuglevel=info \
+        --allow-circular-route --protocol.no-anchors --debuglevel=info \
         >"$WORKDIR/node$N.log" 2>&1 &
 done
 for N in 1 2; do
@@ -268,6 +275,60 @@ wait_until 60 "settler auto-broadcasts distributeFunds" escrow_is 50000000
 [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" = "1" ] \
     || fail "no FundsDistributed event"
 ok "EVM settler auto-distributed the force-closed escrow"
+
+step "6. In-flight HTLC force close (hold invoice → on-chain claimHtlc)"
+# Open a fresh node1 → node2 channel, route a HELD payment so an HTLC is
+# locked in-flight on both commitments, then force-close while it is
+# pending. The settlers must resolve the HTLC on-chain: node2 reveals the
+# preimage (settleinvoice) and its settler calls claimHtlc against the
+# committed htlcsHash, after which distributeFunds can finalise.
+CHAN_OPEN=$(lncli_n 1 openchannel --node_key="$PK2" --local_amt=5000000000)
+FUNDING_TXID3=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_txid"])')
+wait_until 60 "in-flight test channel active on node1" chan_active 1 2
+wait_until 60 "in-flight test channel active on node2" chan_active 2 2
+
+# Random preimage and its SHA-256 payment hash for the hold invoice.
+PREIMAGE=$(python3 -c "import os; print(os.urandom(32).hex())")
+PAYHASH=$(python3 -c "import hashlib,sys; print(hashlib.sha256(bytes.fromhex(sys.argv[1])).hexdigest())" "$PREIMAGE")
+HOLD_PR=$(lncli_n 2 addholdinvoice "$PAYHASH" --amt 300000000 \
+    | json 'print(json.load(sys.stdin)["payment_request"])')
+[ -n "$HOLD_PR" ] || fail "addholdinvoice returned no payment_request"
+
+# Pay in the background — a hold invoice never settles on its own, so this
+# call blocks with the HTLC locked in-flight until we cancel/settle.
+lncli_n 1 payinvoice --force --timeout 120s "$HOLD_PR" >/dev/null 2>&1 &
+HOLD_PAY_PID=$!
+
+htlc_pending_on_1() {
+    [ "$(lncli_n 1 listchannels \
+        | json 'd=json.load(sys.stdin); print(sum(len(c["pending_htlcs"]) for c in d["channels"]))')" -ge 1 ]
+}
+wait_until 60 "HTLC locked in-flight on node1" htlc_pending_on_1
+ok "held HTLC is in-flight (channel has a pending HTLC)"
+
+FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')
+lncli_n 1 closechannel --force "$FUNDING_TXID3" >/dev/null 2>&1 &
+FORCE_PID2=$!
+fc_incremented() {
+    [ "$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')" -gt "$FC_BEFORE" ]
+}
+wait_until 60 "forceClose with pending HTLC on-chain" fc_incremented
+kill $FORCE_PID2 2>/dev/null || true
+ok "forceClose landed with an in-flight HTLC committed"
+
+# Reveal the preimage at node2; its settler now claims the HTLC on-chain.
+lncli_n 2 settleinvoice "$PREIMAGE" >/dev/null 2>&1 || true
+kill $HOLD_PAY_PID 2>/dev/null || true
+htlc_claimed() {
+    [ "$(log_count 'HTLCClaimed(bytes32,uint256,bytes32)')" -ge 1 ]
+}
+wait_until 90 "settler broadcasts claimHtlc on-chain" htlc_claimed
+ok "in-flight HTLC resolved on-chain via claimHtlc (Merkle proof verified)"
+
+# With the only HTLC resolved, a settler finalises the channel.
+fd_two() { [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" -ge 2 ]; }
+wait_until 60 "distributeFunds after HTLC resolution" fd_two
+ok "channel finalised after in-flight HTLC resolution"
 
 # ---------------------------------------------------------------------------
 # Suspended mode: keep both nodes (and Anvil) up for manual RPC/REST poking,

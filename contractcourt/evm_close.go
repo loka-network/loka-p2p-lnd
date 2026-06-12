@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/evmnotify"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -159,14 +160,64 @@ func (c *chainWatcher) dispatchEvmBreach(staleNonce uint64) error {
 		return fmt.Errorf("broadcast penalize: %w", err)
 	}
 
-	// Block any further state transitions on this channel. Full breach
-	// bookkeeping (close summary, subscriber notification) is part of the
-	// remaining hardening; the on-chain remedy above is what secures the
-	// funds.
+	// Block any further state transitions, then record the close.
 	if err := c.cfg.chanState.MarkBorked(); err != nil {
 		log.Errorf("ChannelPoint(%v): unable to mark borked: %v",
 			chanPoint, err)
 	}
+	if err := c.recordEvmBreachClose(staleNonce); err != nil {
+		log.Errorf("ChannelPoint(%v): unable to record breach "+
+			"close: %v", chanPoint, err)
+	}
 
 	return nil
+}
+
+// recordEvmBreachClose persists a BreachClose summary to channeldb so the
+// channel leaves the open set with a complete close record. Unlike Bitcoin's
+// breach path there is no justice transaction to wait on — the penalize call
+// is the entire remedy and the contract awards us the full escrow — so we
+// write the summary directly rather than handing off to the BreachArbitrator
+// (whose Bitcoin sweep machinery has no EVM analogue).
+func (c *chainWatcher) recordEvmBreachClose(staleNonce uint64) error {
+	chanState := c.cfg.chanState
+
+	// On a successful penalize the contract pays the entire channel
+	// balance to us, so the settled balance is the full capacity.
+	summary := &channeldb.ChannelCloseSummary{
+		ChanPoint:               chanState.FundingOutpoint,
+		ChainHash:               chanState.ChainHash,
+		ClosingTXID:             chanState.FundingOutpoint.Hash,
+		CloseHeight:             0,
+		RemotePub:               chanState.IdentityPub,
+		Capacity:                chanState.Capacity,
+		SettledBalance:          chanState.Capacity,
+		CloseType:               channeldb.BreachClose,
+		IsPending:               false,
+		ShortChanID:             chanState.ShortChanID(),
+		RemoteCurrentRevocation: chanState.RemoteCurrentRevocation,
+		RemoteNextRevocation:    chanState.RemoteNextRevocation,
+		LocalChanConfig:         chanState.LocalChanCfg,
+	}
+
+	if chanSync, err := chanState.ChanSyncMsg(); err != nil {
+		log.Errorf("ChannelPoint(%v): unable to create channel sync "+
+			"message: %v", chanState.FundingOutpoint, err)
+	} else {
+		summary.LastChanSyncMsg = chanSync
+	}
+
+	// Notify subscribers so the channel arbitrator and higher layers see
+	// the resolution, mirroring the cooperative-close dispatch shape.
+	closeInfo := &CooperativeCloseInfo{ChannelCloseSummary: summary}
+	c.Lock()
+	for _, sub := range c.clientSubscriptions {
+		select {
+		case sub.CooperativeClosure <- closeInfo:
+		case <-c.quit:
+		}
+	}
+	c.Unlock()
+
+	return chanState.CloseChannel(summary)
 }

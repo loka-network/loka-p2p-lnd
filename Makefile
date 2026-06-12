@@ -253,13 +253,21 @@ itest-only: clean-itest-logs db-instance
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS) -test.v
 	$(COLLECT_ITEST_COVERAGE)
 
-#? itest: Build and run integration tests
-itest: build-itest itest-only
+#? itest: Build and run integration tests (btcd suite + EVM E2E when Foundry is present)
+itest: build-itest itest-only itest-evm-maybe
 
 #? itest-evm: Run the EVM (ChannelManager) backend end-to-end test against a local Anvil devnet. Requires Foundry (anvil/forge/cast) and python3.
 itest-evm:
 	@$(call print, "Running EVM E2E integration test.")
 	ITEST_EVM_SUSPEND=0 ./scripts/itest_evm.sh </dev/null
+
+#? itest-evm-maybe: Run the EVM E2E test if Foundry is installed, otherwise skip (used by the default itest batch so it stays green on toolchain-less CI).
+itest-evm-maybe:
+	@if command -v anvil >/dev/null 2>&1 && command -v forge >/dev/null 2>&1 && command -v cast >/dev/null 2>&1; then \
+		$(MAKE) itest-evm; \
+	else \
+		echo "Skipping EVM E2E test: Foundry (anvil/forge/cast) not found on PATH."; \
+	fi
 
 #? itest-race: Build and run integration tests in race detector mode
 itest-race: build-itest-race itest-only

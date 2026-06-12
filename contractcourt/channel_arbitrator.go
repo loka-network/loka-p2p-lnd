@@ -1355,14 +1355,22 @@ func (c *ChannelArbitrator) stateStep(
 			// happen to end up at this point in the code again, no
 			// harm is done by re-offering the anchors to the
 			// sweeper.
-			anchors, err := c.cfg.Channel.NewAnchorResolutions()
-			if err != nil {
-				return StateError, closeTx, err
-			}
+			// EVM channels have no on-chain anchor outputs (the
+			// ChannelManager pays out directly; there is no
+			// commitment tx to CPFP), so skip anchor sweeping —
+			// the wallet would otherwise hand the sweeper an EVM
+			// account address it can't build a pkScript for,
+			// logging a harmless but noisy error every tick.
+			if !lnwallet.EvmChainActive() {
+				anchors, err := c.cfg.Channel.NewAnchorResolutions()
+				if err != nil {
+					return StateError, closeTx, err
+				}
 
-			err = c.sweepAnchors(anchors, triggerHeight)
-			if err != nil {
-				return StateError, closeTx, err
+				err = c.sweepAnchors(anchors, triggerHeight)
+				if err != nil {
+					return StateError, closeTx, err
+				}
 			}
 
 			nextState = StateCommitmentBroadcasted
