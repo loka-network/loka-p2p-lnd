@@ -190,3 +190,25 @@ const (
 	// DefaultEvmTimeLockDelta is the default CLTV delta for forwarded HTLCs.
 	DefaultEvmTimeLockDelta = DefaultBitcoinTimeLockDelta
 )
+
+// EvmBlockTimeSecs returns the assumed (roughly constant) block time in
+// seconds for the given EVM chain id. It is used to translate a CLTV-expiry
+// block height into the block.timestamp deadline the ChannelManager checks
+// (see lnwallet.evmHtlcTimelock). Both channel peers are on the same chain id
+// (GenesisHash segregation enforces it), so they derive the same value and
+// the committed HTLC timelock agrees. Unknown chains default to 2s, the
+// common L2 cadence.
+func EvmBlockTimeSecs(chainID uint64) uint64 {
+	switch chainID {
+	case 31337:
+		// Anvil is typically run with --block-time 1 in tests.
+		return 1
+
+	case 8453, 84532:
+		// Base mainnet and Base Sepolia produce a block every ~2s.
+		return 2
+
+	default:
+		return 2
+	}
+}

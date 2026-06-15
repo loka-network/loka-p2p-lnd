@@ -256,3 +256,44 @@ func TestEvmLocalForceCloseCarrier(t *testing.T) {
 		t.Fatal("retained sig does not recover to the counterparty")
 	}
 }
+
+// TestEvmHtlcTimelockConversion checks that an LND CLTV-expiry block height is
+// translated into the unix-second block.timestamp deadline the ChannelManager
+// compares against — deterministically, so both peers commit the same value —
+// and that an unset block time is an identity passthrough.
+func TestEvmHtlcTimelockConversion(t *testing.T) {
+	// Not parallel: mutates the package-global timelock params.
+	defer SetEvmTimelockParams(0, 0)
+
+	const (
+		genesisTs = uint64(1_700_000_000)
+		blockTime = uint64(2)
+		cltvHt    = uint32(40_000)
+	)
+
+	// Passthrough when unset (the unit-test default).
+	SetEvmTimelockParams(0, 0)
+	if got := evmHtlcTimelock(cltvHt); got != cltvHt {
+		t.Fatalf("passthrough: got %d, want %d", got, cltvHt)
+	}
+
+	// Configured: genesisTs + height*blockTime.
+	SetEvmTimelockParams(genesisTs, blockTime)
+	want := uint32(genesisTs + uint64(cltvHt)*blockTime)
+	if got := evmHtlcTimelock(cltvHt); got != want {
+		t.Fatalf("converted: got %d, want %d", got, want)
+	}
+
+	// Deterministic: recomputing yields the same value (the property that
+	// keeps the htlcsHash identical across peers).
+	if again := evmHtlcTimelock(cltvHt); again != want {
+		t.Fatalf("not deterministic: %d != %d", again, want)
+	}
+
+	// The deadline must be a plausible future unix timestamp, not a raw
+	// block height (the bug this fixes: a height compared against
+	// block.timestamp reads as already-expired).
+	if want <= uint32(genesisTs) {
+		t.Fatalf("deadline %d not after genesis %d", want, genesisTs)
+	}
+}

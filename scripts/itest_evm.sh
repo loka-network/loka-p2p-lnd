@@ -377,6 +377,68 @@ fd_two() { [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" -ge 2 ];
 wait_until $WAIT_SETTLE "distributeFunds after HTLC resolution" fd_two
 ok "channel finalised after in-flight HTLC resolution"
 
+# Step 7 fast-forwards the chain with anvil_mine to cross the HTLC's CLTV
+# deadline quickly, so it only runs on the local Anvil devnet.
+if [ "$NETWORK" = "anvil" ]; then
+step "7. In-flight HTLC force close → on-chain timeoutHtlc (no preimage)"
+# Same setup as step 6 but the hold invoice is NEVER settled: node2 never
+# learns the preimage, so node1's settler must reclaim its outgoing HTLC via
+# timeoutHtlc once the CLTV deadline passes. This exercises the block-height
+# → block.timestamp timelock conversion: the contract gates timeoutHtlc on
+# block.timestamp >= htlc.timelock, and an unconverted height would let the
+# timeout fire immediately (or never), so getting an actual on-chain
+# HTLCTimeout proves the deadline is a real future timestamp.
+CHAN_OPEN=$(lncli_n 1 openchannel --node_key="$PK2" --local_amt=5000000000)
+FUNDING_TXID4=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_txid"])')
+wait_until $WAIT_CHAN "timeout test channel active on node1" chan_active 1 2
+wait_until $WAIT_CHAN "timeout test channel active on node2" chan_active 2 2
+
+TO_PRE=$(python3 -c "import os; print(os.urandom(32).hex())")
+TO_HASH=$(python3 -c "import hashlib,sys; print(hashlib.sha256(bytes.fromhex(sys.argv[1])).hexdigest())" "$TO_PRE")
+TO_PR=$(lncli_n 2 addholdinvoice "$TO_HASH" --amt 300000000 \
+    | json 'print(json.load(sys.stdin)["payment_request"])')
+[ -n "$TO_PR" ] || fail "addholdinvoice returned no payment_request"
+
+lncli_n 1 payinvoice --force --timeout 120s "$TO_PR" >/dev/null 2>&1 &
+TO_PAY_PID=$!
+wait_until $WAIT_CHAN "HTLC locked in-flight on node1 (timeout test)" htlc_pending_on_1
+ok "held HTLC is in-flight (timeout test)"
+
+# Capture the HTLC's CLTV expiry height so we know how far to fast-forward.
+TO_CLTV=$(lncli_n 1 listchannels \
+    | json 'd=json.load(sys.stdin); print(max((h["expiration_height"] for c in d["channels"] for h in c["pending_htlcs"]), default=0))')
+echo "    HTLC expiry height: $TO_CLTV"
+
+FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')
+lncli_n 1 closechannel --force "$FUNDING_TXID4" >/dev/null 2>&1 &
+TO_FORCE_PID=$!
+wait_until $WAIT_SETTLE "forceClose with pending HTLC (timeout test)" fc_incremented
+kill $TO_FORCE_PID 2>/dev/null || true
+ok "forceClose landed with the to-be-timed-out HTLC committed"
+
+# DO NOT settle the invoice. Fast-forward the chain past the CLTV expiry (and
+# the challenge window) at 1s/block so block.timestamp tracks height — the
+# same 1s cadence EvmBlockTimeSecs(31337) assumes — then the settler's
+# timeoutHtlc clears the contract's block.timestamp >= timelock check.
+NOW_H=$(cast block-number --rpc-url "$RPC")
+ADVANCE=$(( TO_CLTV - NOW_H + CHALLENGE_PERIOD + 20 ))
+[ "$ADVANCE" -lt 30 ] && ADVANCE=30
+echo "    mining $ADVANCE blocks (1s apart) to cross CLTV $TO_CLTV + challenge window"
+cast rpc anvil_mine "$(printf '0x%x' "$ADVANCE")" 0x1 --rpc-url "$RPC" >/dev/null 2>&1
+
+kill $TO_PAY_PID 2>/dev/null || true
+TO_BEFORE=$(log_count 'HTLCTimeout(bytes32,uint256)')
+htlc_timed_out() {
+    [ "$(log_count 'HTLCTimeout(bytes32,uint256)')" -gt "$TO_BEFORE" ]
+}
+wait_until $WAIT_SETTLE "settler broadcasts timeoutHtlc on-chain" htlc_timed_out
+ok "in-flight HTLC reclaimed on-chain via timeoutHtlc (timelock deadline honored)"
+
+fd_three() { [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" -ge 3 ]; }
+wait_until $WAIT_SETTLE "distributeFunds after HTLC timeout" fd_three
+ok "channel finalised after in-flight HTLC timeout"
+fi
+
 # ---------------------------------------------------------------------------
 # Suspended mode: keep both nodes (and Anvil) up for manual RPC/REST poking,
 # mirroring the Sui itest. The reverse channel is still active. Press Enter

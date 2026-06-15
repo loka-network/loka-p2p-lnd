@@ -40,6 +40,15 @@ const internalDecimals = 8
 var (
 	evmCommitmentDomain        input.EvmDomain
 	evmCommitmentTokenDecimals uint8
+
+	// evmGenesisTimestamp and evmBlockTimeSecs map an LND CLTV expiry (an
+	// absolute block height) to the unix-second deadline the contract's
+	// HTLC.timelock is compared against (block.timestamp). See
+	// evmHtlcTimelock. Set once at startup via SetEvmTimelockParams; when
+	// evmBlockTimeSecs is 0 (unset, e.g. in unit tests) the conversion is
+	// an identity passthrough.
+	evmGenesisTimestamp uint64
+	evmBlockTimeSecs    uint64
 )
 
 // SetEvmCommitmentParams records the EIP-712 domain (chainID + verifying
@@ -49,6 +58,38 @@ var (
 func SetEvmCommitmentParams(domain input.EvmDomain, tokenDecimals uint8) {
 	evmCommitmentDomain = domain
 	evmCommitmentTokenDecimals = tokenDecimals
+}
+
+// SetEvmTimelockParams records the chain's genesis-block timestamp and its
+// (roughly constant) block time, used to translate an LND CLTV-expiry block
+// height into the block.timestamp deadline the ChannelManager checks in
+// timeoutHtlc. Both must be identical on both channel peers — they are: the
+// genesis timestamp is immutable and chain-wide, and the block time is keyed
+// off the (shared) chainID — so the converted HTLC.timelock is byte-identical
+// on both sides and the htlcsHash agrees. Called once at startup.
+func SetEvmTimelockParams(genesisTimestamp, blockTimeSecs uint64) {
+	evmGenesisTimestamp = genesisTimestamp
+	evmBlockTimeSecs = blockTimeSecs
+}
+
+// evmHtlcTimelock converts an LND CLTV expiry (cltvExpiry, an absolute block
+// height) into the unix-second deadline the contract compares against
+// block.timestamp. The contract deliberately uses block.timestamp rather than
+// block height (L2 block intervals vary), so committing the raw height would
+// make the deadline a tiny number far below current unix time — letting the
+// HTLC offerer time out and reclaim immediately, before the receiver can
+// claim. We approximate the timestamp of block `cltvExpiry` as
+// genesisTimestamp + cltvExpiry*blockTimeSecs. This is deterministic across
+// peers (shared genesis + chainID-keyed block time) so the htlcsHash agrees.
+//
+// When blockTimeSecs is unset (0) the function is an identity passthrough,
+// preserving the raw-height behaviour used by unit tests.
+func evmHtlcTimelock(cltvExpiry uint32) uint32 {
+	if evmBlockTimeSecs == 0 {
+		return cltvExpiry
+	}
+
+	return uint32(evmGenesisTimestamp + uint64(cltvExpiry)*evmBlockTimeSecs)
 }
 
 // EvmCommitmentDomain returns the configured EIP-712 domain. Exposed for the
@@ -110,7 +151,7 @@ func buildEvmHTLCs(view *commitment, ourAddr,
 			Index:     pd.HtlcIndex,
 			Amount:    evmScaleToBase(pd.Amount.ToSatoshis()),
 			Hashlock:  hashlock,
-			Timelock:  pd.Timeout,
+			Timelock:  evmHtlcTimelock(pd.Timeout),
 			Recipient: recipient,
 		})
 	}
@@ -505,7 +546,7 @@ func evmHTLCsFromDiskCommit(chanState *channeldb.OpenChannel,
 			Index:     h.HtlcIndex,
 			Amount:    evmScaleToBase(h.Amt.ToSatoshis()),
 			Hashlock:  hashlock,
-			Timelock:  h.RefundTimeout,
+			Timelock:  evmHtlcTimelock(h.RefundTimeout),
 			Recipient: recipient,
 		})
 	}

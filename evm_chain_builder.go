@@ -3,6 +3,7 @@ package lnd
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -125,6 +126,21 @@ func buildEvmChainControl(
 		VerifyingContract: verifyingContract,
 	}, tokenDecimals)
 
+	// Record the genesis-block timestamp and the chain's block time so the
+	// commitment bridge can translate CLTV-expiry block heights into the
+	// block.timestamp deadlines the ChannelManager's HTLC.timelock is
+	// compared against. The genesis timestamp is immutable and chain-wide
+	// (both peers query the same value), keeping the committed timelock
+	// deterministic across peers.
+	genesisTs, err := queryEvmGenesisTimestamp(evmClient)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to query EVM genesis "+
+			"timestamp: %w", err)
+	}
+	lnwallet.SetEvmTimelockParams(
+		genesisTs, chainreg.EvmBlockTimeSecs(evmParams.ChainID),
+	)
+
 	evmWalletController := evmwallet.New(evmwallet.Config{
 		KeyRing:       keyRing,
 		Client:        evmClient,
@@ -188,4 +204,21 @@ func queryEvmTokenDecimals(client evmnotify.EvmClient, tokenAddr string) (
 	}
 
 	return evmnotify.UnpackDecimals(out)
+}
+
+// queryEvmGenesisTimestamp reads the timestamp of block 0 — an immutable,
+// chain-wide value both channel peers observe identically — used to anchor
+// the CLTV-height → block.timestamp conversion for HTLC timelocks.
+func queryEvmGenesisTimestamp(client evmnotify.EvmClient) (uint64, error) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(), evmDecimalsTimeout,
+	)
+	defer cancel()
+
+	hdr, err := client.HeaderByNumber(ctx, big.NewInt(0))
+	if err != nil {
+		return 0, err
+	}
+
+	return hdr.Time, nil
 }
