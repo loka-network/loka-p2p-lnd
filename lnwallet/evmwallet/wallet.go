@@ -344,6 +344,12 @@ func (w *Wallet) ListAccounts(name string, _ *waddrmgr.KeyScope) (
 }
 
 // ListAddresses is unsupported on EVM.
+// ListAddresses is unsupported on EVM. The walletkit marshaler requires a
+// BIP32 account extended public key (it derefs AccountPubKey.ChildIndex), and
+// the EVM keyring exposes no account-level xpub, so there is nothing valid to
+// return. The node's single account address is available via newaddress,
+// listunspent (which renders it) and walletbalance instead. (Sui leaves this
+// unsupported for the same reason.)
 func (w *Wallet) ListAddresses(string, bool) (lnwallet.AccountAddressMap,
 	error) {
 
@@ -428,10 +434,15 @@ func (w *Wallet) ListUnspentWitness(_, _ int32, _ string) ([]*lnwallet.Utxo,
 }
 
 // ListTransactionDetails is unsupported on EVM.
+// ListTransactionDetails returns an empty history. EVM has no wallet-local
+// transaction index; reconstructing the node account's on-chain tx history
+// requires an external indexer (eth_getLogs / a block explorer), which is out
+// of scope for the adapter. Returning empty (rather than an error) keeps
+// `listchaintxns` and wallet UIs that poll it working.
 func (w *Wallet) ListTransactionDetails(int32, int32, string, uint32,
 	uint32) ([]*lnwallet.TransactionDetail, uint64, uint64, error) {
 
-	return nil, 0, 0, ErrUnsupported
+	return nil, 0, 0, nil
 }
 
 // LeaseOutput is unsupported on EVM.
