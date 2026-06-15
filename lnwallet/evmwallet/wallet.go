@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -121,6 +122,40 @@ func (w *Wallet) ConfirmedBalance(_ int32, _ string) (btcutil.Amount, error) {
 	}
 
 	return ScaleToInternal(raw, w.cfg.TokenDecimals), nil
+}
+
+// SendTokens transfers `amount` raw token base-units (10^tokenDecimals per
+// token — e.g. 1_000_000 = 1 USDC at 6 decimals) of the sub-network's ERC20
+// asset from the node account to `recipient` (a 0x-prefixed EVM address),
+// returning the broadcast transaction hash. It is the on-chain transfer
+// primitive behind the SendCoins RPC, the EVM analogue of suiwallet.SendSui.
+func (w *Wallet) SendTokens(recipient string, amount uint64) (chainhash.Hash,
+	error) {
+
+	var zero chainhash.Hash
+
+	if !common.IsHexAddress(recipient) {
+		return zero, fmt.Errorf("evmwallet: %q is not a valid EVM "+
+			"address", recipient)
+	}
+
+	data, err := evmnotify.PackTransfer(
+		common.HexToAddress(recipient),
+		new(big.Int).SetUint64(amount),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	token := common.HexToAddress(w.cfg.Params.TokenAddress)
+
+	return w.broadcastCall(ctx, EvmCall{To: token, Data: data})
 }
 
 // EvmAddress is a btcutil.Address wrapper for a 20-byte EVM address so the

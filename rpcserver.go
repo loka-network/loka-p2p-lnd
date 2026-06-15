@@ -69,6 +69,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	"github.com/lightningnetwork/lnd/lnwallet/evmwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/suiwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1383,6 +1384,13 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		return r.sendCoinsSui(in)
 	}
 
+	// EVM short-circuit: route to the ERC20-transfer path. in.Amount is
+	// interpreted as raw token base-units; the bitcoin fee fields are
+	// ignored (gas is paid in the chain's native coin out of band).
+	if r.server.cc.Wallet.BackEnd() == "evm" {
+		return r.sendCoinsEvm(in)
+	}
+
 	// Keep the old behavior prior to 0.18.0 - when the user doesn't set
 	// fee rate or conf target, the default conf target of 6 is used.
 	targetConf := maybeUseDefaultConf(
@@ -1655,6 +1663,40 @@ func (r *rpcServer) sendCoinsSui(in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsRe
 	rpcsLog.Infof("[sendcoins-sui] tx digest: %v", digest.String())
 
 	return &lnrpc.SendCoinsResponse{Txid: digest.String()}, nil
+}
+
+// sendCoinsEvm handles a SendCoins RPC when the active wallet backend is evm.
+// in.Amount is interpreted as raw ERC20 base-units (10^tokenDecimals per
+// token — e.g. 1_000_000 = 1 USDC at 6 decimals), in.Addr must be a
+// 0x-prefixed EVM address, and the bitcoin-specific fee fields are ignored
+// (gas is paid in the chain's native coin). SendAll and Outpoints are not
+// supported.
+func (r *rpcServer) sendCoinsEvm(in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
+	if in.SendAll {
+		return nil, fmt.Errorf("send_all is not supported on the evm backend yet")
+	}
+	if len(in.Outpoints) != 0 {
+		return nil, fmt.Errorf("outpoint selection is not supported on the evm backend yet")
+	}
+	if in.Amount <= 0 {
+		return nil, fmt.Errorf("amount must be > 0 token base-units on the evm backend")
+	}
+
+	evmWallet, ok := r.server.cc.Wallet.WalletController.(*evmwallet.Wallet)
+	if !ok {
+		return nil, fmt.Errorf("wallet backend reports evm but underlying controller is not *evmwallet.Wallet")
+	}
+
+	rpcsLog.Infof("[sendcoins-evm] addr=%v, amt_base_units=%v", in.Addr, in.Amount)
+
+	txHash, err := evmWallet.SendTokens(in.Addr, uint64(in.Amount))
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendcoins-evm] tx hash: %v", txHash.String())
+
+	return &lnrpc.SendCoinsResponse{Txid: txHash.String()}, nil
 }
 
 // SendMany handles a request for a transaction create multiple specified
@@ -3445,7 +3487,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	}
 
 	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
-	
+
 	chainName := BitcoinChainName
 	if r.cfg.SuiMode != nil && r.cfg.SuiMode.Active {
 		chainName = SuiChainName
@@ -3463,6 +3505,13 @@ func (r *rpcServer) GetInfo(_ context.Context,
 				network = "localnet"
 			}
 		}
+	} else if r.cfg.EvmMode != nil && r.cfg.EvmMode.Active {
+		// An EVM sub-network is identified by its configured name
+		// (e.g. "anvil", "base", "base-sepolia") — the per-(chainID,
+		// token) tuple is already baked into the synthesized
+		// GenesisHash, so the name is the human-facing network label.
+		chainName = EvmChainName
+		network = lncfg.NormalizeNetwork(r.cfg.EvmMode.Chain)
 	}
 
 	activeChains := []*lnrpc.Chain{
@@ -3503,6 +3552,12 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
 	if chainName == SuiChainName {
 		isTestNet = network != "mainnet"
+	}
+	if chainName == EvmChainName {
+		// EVM mainnets use BIP-44 coin type 60; every test sub-network
+		// (anvil, base-sepolia, …) reuses the testnet coin type, which
+		// EvmNetParams copies into ActiveNetParams.
+		isTestNet = r.cfg.ActiveNetParams.CoinType != chainreg.CoinTypeEvm
 	}
 	nodeColor := graphdb.EncodeHexColor(nodeAnn.RGBColor)
 	version := build.Version() + " commit=" + build.Commit
@@ -9620,6 +9675,20 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 	if !isWalletSynced {
 		rpcsLog.Debugf("Wallet is not synced to height %v yet",
 			bestHeight)
+
+		return info, nil
+	}
+
+	// On the EVM backend the wallet's IsSynced (the RPC node reports a
+	// current tip) is the authoritative sync signal. The router/blockbeat
+	// checks below are Bitcoin-centric and don't apply: the chain tip
+	// advances on a fixed block time regardless of channel activity, and
+	// evmnotify polls rather than receiving pushed blocks, so the
+	// blockbeat dispatcher always trails a freshly-queried tip by up to
+	// one poll interval — requiring exact equality there would keep
+	// synced_to_chain permanently false on a healthy node.
+	if lnwallet.EvmChainActive() {
+		info.isSynced = true
 
 		return info, nil
 	}
