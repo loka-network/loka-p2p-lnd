@@ -124,6 +124,22 @@ func (w *Wallet) ConfirmedBalance(_ int32, _ string) (btcutil.Amount, error) {
 	return ScaleToInternal(raw, w.cfg.TokenDecimals), nil
 }
 
+// NativeGasBalance returns the node account's native-coin (ETH) balance in
+// wei. Channel operations (openChannel, settlement calls) pay gas from this
+// balance, separately from the ERC20 channel asset, so operators need it to
+// know the node can still act on-chain.
+func (w *Wallet) NativeGasBalance() (*big.Int, error) {
+	addr, err := w.nodeAddress()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	return w.cfg.Client.BalanceAt(ctx, addr, nil)
+}
+
 // SendTokens transfers `amount` raw token base-units (10^tokenDecimals per
 // token — e.g. 1_000_000 = 1 USDC at 6 decimals) of the sub-network's ERC20
 // asset from the node account to `recipient` (a 0x-prefixed EVM address),

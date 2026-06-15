@@ -149,6 +149,19 @@ func buildEvmChainControl(
 		GasLimit:      cfg.EvmMode.GasLimit,
 	})
 
+	// Surface the node's native-coin (gas) balance at startup. Channel
+	// operations pay gas from this balance separately from the ERC20
+	// channel asset; with zero gas the node cannot open or settle
+	// channels on-chain, so warn loudly rather than fail silently later.
+	if gasBal, err := evmWalletController.NativeGasBalance(); err != nil {
+		ltndLog.Warnf("EVM: unable to read node gas balance: %v", err)
+	} else if gasBal.Sign() == 0 {
+		ltndLog.Warnf("EVM: node account has ZERO gas (native coin); " +
+			"fund it before opening or settling channels")
+	} else {
+		ltndLog.Infof("EVM: node gas balance %s wei", gasBal)
+	}
+
 	signer := input.NewEvmSigner(keyRing)
 	chainIO := evmwallet.NewEvmBlockChainIO(evmClient)
 

@@ -33,6 +33,11 @@ type EvmClient interface {
 	PendingNonceAt(ctx context.Context, account common.Address) (uint64,
 		error)
 
+	// BalanceAt returns the native-coin (gas) balance of the account at
+	// the given block (nil = latest), in wei.
+	BalanceAt(ctx context.Context, account common.Address,
+		blockNumber *big.Int) (*big.Int, error)
+
 	// SuggestGasPrice returns the node's suggested legacy gas price.
 	SuggestGasPrice(ctx context.Context) (*big.Int, error)
 

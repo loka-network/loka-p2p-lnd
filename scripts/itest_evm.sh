@@ -240,6 +240,43 @@ pay_with_retry() {
 
 escrow_is() { [ "$(erc20_bal "$CM")" = "$1" ]; }
 
+# htlc_pending_on_1 is true once node1 has at least one in-flight HTLC across
+# its channels.
+htlc_pending_on_1() {
+    [ "$(lncli_n 1 listchannels \
+        | json 'd=json.load(sys.stdin); print(sum(len(c["pending_htlcs"]) for c in d["channels"]))')" -ge 1 ]
+}
+
+# pay_hold_until_inflight <invoice> <pid-var-name> — launch a (blocking)
+# hold-invoice payment from node1 in the background and wait until its HTLC is
+# locked in-flight. A freshly-opened channel's link bandwidth can lag its
+# "active" flag, so the first payinvoice may fail with insufficient_balance
+# before any HTLC is created; retry launching until one sticks. The surviving
+# background PID is stored in the named variable (so it can be killed later).
+pay_hold_until_inflight() {
+    local invoice=$1 pidvar=$2 i t pid
+    for i in 1 2 3 4 5 6; do
+        lncli_n 1 payinvoice --force --timeout 120s "$invoice" \
+            >/dev/null 2>&1 &
+        pid=$!
+        t=0
+        while [ "$t" -lt 12 ]; do
+            if htlc_pending_on_1; then
+                printf -v "$pidvar" '%s' "$pid"
+                return 0
+            fi
+            # If the payment process already exited, it failed without
+            # locking an HTLC — break out and relaunch.
+            kill -0 "$pid" 2>/dev/null || break
+            t=$((t + 1))
+            sleep 1
+        done
+        kill "$pid" 2>/dev/null || true
+        sleep 2
+    done
+    fail "hold-invoice HTLC never went in-flight after retries"
+}
+
 step "3. Payment (5 USDC invoice)"
 PAYREQ=$(lncli_n 2 addinvoice --amt 500000000 --memo e2e \
     | json 'print(json.load(sys.stdin)["payment_request"])')
@@ -342,15 +379,9 @@ HOLD_PR=$(lncli_n 2 addholdinvoice "$PAYHASH" --amt 300000000 \
 [ -n "$HOLD_PR" ] || fail "addholdinvoice returned no payment_request"
 
 # Pay in the background — a hold invoice never settles on its own, so this
-# call blocks with the HTLC locked in-flight until we cancel/settle.
-lncli_n 1 payinvoice --force --timeout 120s "$HOLD_PR" >/dev/null 2>&1 &
-HOLD_PAY_PID=$!
-
-htlc_pending_on_1() {
-    [ "$(lncli_n 1 listchannels \
-        | json 'd=json.load(sys.stdin); print(sum(len(c["pending_htlcs"]) for c in d["channels"]))')" -ge 1 ]
-}
-wait_until $WAIT_CHAN "HTLC locked in-flight on node1" htlc_pending_on_1
+# call blocks with the HTLC locked in-flight until we cancel/settle. Retry
+# the launch until the HTLC actually sticks (fresh-channel link lag).
+pay_hold_until_inflight "$HOLD_PR" HOLD_PAY_PID
 ok "held HTLC is in-flight (channel has a pending HTLC)"
 
 FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')
@@ -399,9 +430,7 @@ TO_PR=$(lncli_n 2 addholdinvoice "$TO_HASH" --amt 300000000 \
     | json 'print(json.load(sys.stdin)["payment_request"])')
 [ -n "$TO_PR" ] || fail "addholdinvoice returned no payment_request"
 
-lncli_n 1 payinvoice --force --timeout 120s "$TO_PR" >/dev/null 2>&1 &
-TO_PAY_PID=$!
-wait_until $WAIT_CHAN "HTLC locked in-flight on node1 (timeout test)" htlc_pending_on_1
+pay_hold_until_inflight "$TO_PR" TO_PAY_PID
 ok "held HTLC is in-flight (timeout test)"
 
 # Capture the HTLC's CLTV expiry height so we know how far to fast-forward.

@@ -69,6 +69,10 @@ func (m *mockClient) PendingNonceAt(context.Context, common.Address) (uint64,
 	error) {
 	return 0, nil
 }
+func (m *mockClient) BalanceAt(context.Context, common.Address, *big.Int) (
+	*big.Int, error) {
+	return big.NewInt(0), nil
+}
 func (m *mockClient) SuggestGasPrice(context.Context) (*big.Int, error) {
 	return big.NewInt(1), nil
 }

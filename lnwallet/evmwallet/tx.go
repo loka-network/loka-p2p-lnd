@@ -22,6 +22,14 @@ import (
 // node that MsgTx is just an envelope for an EVM contract call.
 var evmCallPrefix = []byte("EVM_CALL:")
 
+// gasPriceBufferPct bumps the node's suggested gas price by this percentage
+// before broadcasting. SuggestGasPrice reflects the current tip; under rising
+// demand a bare suggestion can leave a settlement tx (forceClose, claimHtlc,
+// distributeFunds) stuck in the mempool past a deadline, which on a payment
+// channel risks funds. A modest buffer trades a little gas for timely
+// inclusion; on L2s the absolute cost is negligible.
+const gasPriceBufferPct = 25
+
 // EvmCall is the serialized description of an EVM transaction the wallet should
 // build, sign (EIP-155) and broadcast. To is the contract/recipient address,
 // Data the ABI-encoded call (empty for a plain value transfer), Value the
@@ -131,6 +139,14 @@ func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
 	if err != nil {
 		return zero, fmt.Errorf("evmwallet: gas price: %w", err)
 	}
+
+	// Apply the buffer: gasPrice = gasPrice * (100 + buffer) / 100.
+	gasPrice = new(big.Int).Div(
+		new(big.Int).Mul(
+			gasPrice, big.NewInt(100+gasPriceBufferPct),
+		),
+		big.NewInt(100),
+	)
 
 	value := call.Value
 	if value == nil {

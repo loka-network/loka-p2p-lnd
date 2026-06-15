@@ -91,3 +91,52 @@ func TestEvmCallEnvelopeRoundTrip(t *testing.T) {
 		t.Fatal("plain tx misidentified as EVM call")
 	}
 }
+
+// TestScale18Decimals covers the ≥18-decimal path (DAI/WETH-style assets),
+// where base-units (1e18/token) are FINER than the internal scale (1e8), so
+// the dust floor lives in the base->internal (incoming/balance) direction.
+// USDC/USDT (6-dec) only exercise the opposite direction, so this is the
+// previously-untested case from the integration doc §5.
+func TestScale18Decimals(t *testing.T) {
+	t.Parallel()
+
+	oneToken := pow10(18) // 1e18 wei == 1 token at 18 decimals.
+
+	// 1 token <-> 1e8 internal, exact both ways.
+	if got := ScaleToInternal(oneToken, 18); got != 100_000_000 {
+		t.Fatalf("ScaleToInternal(1e18,18) = %d, want 1e8", got)
+	}
+	if got := ScaleToBase(100_000_000, 18); got.Cmp(oneToken) != 0 {
+		t.Fatalf("ScaleToBase(1e8,18) = %s, want 1e18", got)
+	}
+
+	// internal->base is EXACT for 18 decimals (1 internal == 1e10 wei,
+	// pure multiply), so no value is lost sending out.
+	if got := ScaleToBase(1, 18); got.Cmp(big.NewInt(1e10)) != 0 {
+		t.Fatalf("ScaleToBase(1,18) = %s, want 1e10 wei", got)
+	}
+
+	// base->internal rounds DOWN: a sub-1e10-wei tail is unrepresentable
+	// internally and must be dropped (left with the contract), never
+	// credited — the node can't create value it can't settle.
+	dusty := new(big.Int).Add(oneToken, big.NewInt(9_999_999_999)) // +<1e10
+	if got := ScaleToInternal(dusty, 18); got != 100_000_000 {
+		t.Fatalf("ScaleToInternal(1e18+dust,18) = %d, want 1e8 "+
+			"(dust dropped)", got)
+	}
+
+	// A raw balance smaller than one internal unit (1e10 wei) reads as 0
+	// internal — unspendable dust, not a rounding-up to 1.
+	if got := ScaleToInternal(big.NewInt(9_999_999_999), 18); got != 0 {
+		t.Fatalf("sub-internal-unit raw should be 0 internal, got %d",
+			got)
+	}
+
+	// Value-conservation round trip: scaling a dusty raw amount in then
+	// back out must never EXCEED the original (value is only ever dropped,
+	// never created).
+	back := ScaleToBase(ScaleToInternal(dusty, 18), 18)
+	if back.Cmp(dusty) > 0 {
+		t.Fatalf("round-trip created value: %s > %s", back, dusty)
+	}
+}

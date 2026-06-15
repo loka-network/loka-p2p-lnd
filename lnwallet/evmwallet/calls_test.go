@@ -52,6 +52,12 @@ func (c *capturingClient) PendingNonceAt(context.Context, common.Address) (
 	return uint64(len(c.sent)), nil
 }
 
+func (c *capturingClient) BalanceAt(context.Context, common.Address,
+	*big.Int) (*big.Int, error) {
+
+	return big.NewInt(1e18), nil
+}
+
 func (c *capturingClient) SuggestGasPrice(context.Context) (*big.Int, error) {
 	return big.NewInt(1_000_000_000), nil
 }
