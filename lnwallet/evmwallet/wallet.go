@@ -385,11 +385,46 @@ func (w *Wallet) GetTransactionDetails(*chainhash.Hash) (
 	return nil, ErrUnsupported
 }
 
-// ListUnspentWitness returns no UTXOs; EVM uses an account/balance model.
-func (w *Wallet) ListUnspentWitness(int32, int32, string) ([]*lnwallet.Utxo,
+// ListUnspentWitness reports the node's spendable ERC20 balance as a single
+// synthetic UTXO. EVM is an account model — there are no discrete unspent
+// outputs the way Bitcoin has (or the way Sui's coin objects map one-to-one
+// to UTXOs) — so rather than an empty set we surface the whole confirmed
+// balance as one entry, keeping `listunspent` informative and consistent with
+// the Sui adapter's object→UTXO mapping. This is purely informational: EVM
+// funding provisions via ERC20 transfer (chanfunding.EvmAssembler), never via
+// UTXO coin selection, so this set is not consumed for input selection.
+// minConfs/maxConfs are ignored — the on-chain balance is always confirmed.
+func (w *Wallet) ListUnspentWitness(_, _ int32, _ string) ([]*lnwallet.Utxo,
 	error) {
 
-	return nil, nil
+	balance, err := w.ConfirmedBalance(0, "")
+	if err != nil {
+		return nil, err
+	}
+	if balance == 0 {
+		return nil, nil
+	}
+
+	addr, err := w.nodeAddress()
+	if err != nil {
+		return nil, err
+	}
+
+	// Synthetic outpoint: the node's 20-byte account address in the low
+	// bytes of the hash, index 0 — stable and identifiable, not a real
+	// txid. The PkScript is a well-formed P2WPKH (version 0, 20-byte
+	// program = the account address) so lnrpc.MarshalUtxos /
+	// txscript.ExtractPkScriptAddrs don't drop it.
+	var hash chainhash.Hash
+	copy(hash[:20], addr.Bytes())
+
+	return []*lnwallet.Utxo{{
+		AddressType:   lnwallet.WitnessPubKey,
+		Value:         balance,
+		Confirmations: 1,
+		PkScript:      append([]byte{0x00, 0x14}, addr.Bytes()...),
+		OutPoint:      wire.OutPoint{Hash: hash, Index: 0},
+	}}, nil
 }
 
 // ListTransactionDetails is unsupported on EVM.
