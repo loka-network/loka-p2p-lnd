@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -15,6 +17,38 @@ import (
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/lightningnetwork/lnd/keychain"
 )
+
+// broadcastAttempts bounds how many times broadcastCallFrom re-fetches the
+// nonce and bumps the gas price when a public RPC's lagging pending-nonce view
+// rejects a back-to-back send ("nonce too low", "replacement transaction
+// underpriced"). Anvil never needs this; load-balanced public endpoints do.
+const broadcastAttempts = 6
+
+// isRetryableSendErr reports whether a SendTransaction error is transient and
+// safe to retry with a freshly-fetched nonce and a bumped gas price: a lagging
+// pending-nonce view (load-balanced public RPCs), or a pre-send connection
+// failure (a TLS-handshake error means the signed tx never reached the node,
+// so re-sending cannot double-broadcast).
+func isRetryableSendErr(err error) bool {
+	s := strings.ToLower(err.Error())
+
+	for _, pat := range []string{
+		"nonce too low",
+		"nonce too high",
+		"replacement transaction underpriced",
+		"already known",
+		"tls handshake",
+		"client error (connect",
+		"connection reset",
+		"connection refused",
+	} {
+		if strings.Contains(s, pat) {
+			return true
+		}
+	}
+
+	return false
+}
 
 // evmCallPrefix tags a wire.MsgTx whose first input's SignatureScript carries a
 // serialized EvmCall envelope. This mirrors the Sui adapter's "SUI_PAYLOAD:"
@@ -130,11 +164,6 @@ func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
 		return zero, fmt.Errorf("evmwallet: chainid: %w", err)
 	}
 
-	nonce, err := w.cfg.Client.PendingNonceAt(ctx, from)
-	if err != nil {
-		return zero, fmt.Errorf("evmwallet: nonce: %w", err)
-	}
-
 	gasPrice, err := w.cfg.Client.SuggestGasPrice(ctx)
 	if err != nil {
 		return zero, fmt.Errorf("evmwallet: gas price: %w", err)
@@ -153,24 +182,51 @@ func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
 		value = big.NewInt(0)
 	}
 
-	tx := types.NewTx(&types.LegacyTx{
-		Nonce:    nonce,
-		To:       &call.To,
-		Value:    value,
-		Gas:      w.cfg.GasLimit,
-		GasPrice: gasPrice,
-		Data:     call.Data,
-	})
-
 	signer := types.LatestSignerForChainID(chainID)
-	signedTx, err := types.SignTx(tx, signer, ecdsaKey)
-	if err != nil {
-		return zero, fmt.Errorf("evmwallet: sign tx: %w", err)
+
+	// Back-to-back sends against a load-balanced public RPC race its
+	// pending-nonce view, so re-fetch the nonce and bump the gas price on
+	// each transient rejection rather than failing the whole channel op.
+	var sendErr error
+	for attempt := 0; attempt < broadcastAttempts; attempt++ {
+		nonce, err := w.cfg.Client.PendingNonceAt(ctx, from)
+		if err != nil {
+			return zero, fmt.Errorf("evmwallet: nonce: %w", err)
+		}
+
+		tx := types.NewTx(&types.LegacyTx{
+			Nonce:    nonce,
+			To:       &call.To,
+			Value:    value,
+			Gas:      w.cfg.GasLimit,
+			GasPrice: gasPrice,
+			Data:     call.Data,
+		})
+
+		signedTx, err := types.SignTx(tx, signer, ecdsaKey)
+		if err != nil {
+			return zero, fmt.Errorf("evmwallet: sign tx: %w", err)
+		}
+
+		sendErr = w.cfg.Client.SendTransaction(ctx, signedTx)
+		if sendErr == nil {
+			return chainhash.Hash(signedTx.Hash()), nil
+		}
+		if !isRetryableSendErr(sendErr) {
+			return zero, fmt.Errorf("evmwallet: send tx: %w",
+				sendErr)
+		}
+
+		// Bump the gas price 15% so the retry can replace a same-nonce
+		// tx still sitting in the mempool, and give the RPC a moment to
+		// converge on the latest nonce.
+		gasPrice = new(big.Int).Div(
+			new(big.Int).Mul(gasPrice, big.NewInt(115)),
+			big.NewInt(100),
+		)
+		time.Sleep(2 * time.Second)
 	}
 
-	if err := w.cfg.Client.SendTransaction(ctx, signedTx); err != nil {
-		return zero, fmt.Errorf("evmwallet: send tx: %w", err)
-	}
-
-	return chainhash.Hash(signedTx.Hash()), nil
+	return zero, fmt.Errorf("evmwallet: send tx after %d attempts: %w",
+		broadcastAttempts, sendErr)
 }

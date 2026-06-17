@@ -196,9 +196,32 @@ func (n *EvmChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	}
 
 	n.wg.Add(1)
-	go n.waitForConfirmation(*txid, pkScript, numConfs, confEvent)
+	go n.waitForConfirmation(*txid, pkScript, numConfs, heightHint,
+		confEvent)
 
 	return confEvent, nil
+}
+
+// maxLogRange bounds the block span of an eth_getLogs query. Public RPC
+// endpoints reject wide ranges (e.g. publicnode caps at 50000), so every
+// FilterLogs the notifier issues must stay within this window.
+const maxLogRange = 45000
+
+// logFromBlock returns the FromBlock for a FilterLogs query that wants to start
+// at heightHint but never spans more than maxLogRange blocks back from the
+// current tip (the events the notifier hunts for — ChannelOpened receipts,
+// settlement spends — are always recent relative to the tip, so a capped
+// window finds them while satisfying the RPC's range limit).
+func (n *EvmChainNotifier) logFromBlock(heightHint uint32) *big.Int {
+	from := int64(heightHint)
+	if floor := atomic.LoadInt64(&n.bestHeight) - maxLogRange; from < floor {
+		from = floor
+	}
+	if from < 0 {
+		from = 0
+	}
+
+	return big.NewInt(from)
 }
 
 // waitForConfirmation polls until the registered hash is buried under
@@ -211,7 +234,7 @@ func (n *EvmChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 //     per the OutPoint.Hash ↔ channelId mapping): matched by the
 //     ChannelOpened log carrying that channelId as its indexed topic.
 func (n *EvmChainNotifier) waitForConfirmation(txHash chainhash.Hash,
-	pkScript []byte, numConfs uint32,
+	pkScript []byte, numConfs, heightHint uint32,
 	confEvent *chainntnfs.ConfirmationEvent) {
 
 	defer n.wg.Done()
@@ -232,7 +255,9 @@ func (n *EvmChainNotifier) waitForConfirmation(txHash chainhash.Hash,
 			ctx, cancel := context.WithTimeout(
 				context.Background(), n.pollInterval,
 			)
-			target, found := n.locateConfTarget(ctx, ethHash)
+			target, found := n.locateConfTarget(
+				ctx, ethHash, heightHint,
+			)
 			cancel()
 			if !found {
 				continue
@@ -255,10 +280,23 @@ func (n *EvmChainNotifier) waitForConfirmation(txHash chainhash.Hash,
 				Value:    target.value,
 				PkScript: pkScript,
 			})
+
+			// LND's ShortChannelID packs the confirmation height
+			// into 24 bits (max ~16.7M). EVM L2 block heights blow
+			// past that (Base Sepolia is already >40M), so the
+			// raw height overflows SCID/backup serialization
+			// ("block height should fit in 3 bytes"). Reduce it
+			// mod 2^24 — the documented escape hatch (integration
+			// doc §6.1.3, mirroring lnwire.NewEvmShortChanID).
+			// The confirmation DEPTH was already satisfied above
+			// from the real height, and both peers observe the
+			// same block, so their SCIDs still agree.
+			scidHeight := uint32(target.height % (1 << 24))
+
 			select {
 			case confEvent.Confirmed <- &chainntnfs.TxConfirmation{
 				BlockHash:   &bh,
-				BlockHeight: uint32(target.height),
+				BlockHeight: scidHeight,
 				TxIndex:     target.txIndex,
 				Tx:          fakeTx,
 			}:
@@ -286,7 +324,7 @@ type confTarget struct {
 // first as a transaction hash (receipt lookup), then as a channelId (a
 // ChannelOpened log with that indexed topic).
 func (n *EvmChainNotifier) locateConfTarget(ctx context.Context,
-	hash common.Hash) (confTarget, bool) {
+	hash common.Hash, heightHint uint32) (confTarget, bool) {
 
 	receipt, err := n.client.TransactionReceipt(ctx, hash)
 	if err == nil && receipt != nil {
@@ -298,6 +336,7 @@ func (n *EvmChainNotifier) locateConfTarget(ctx context.Context,
 	}
 
 	logs, err := n.client.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: n.logFromBlock(heightHint),
 		Addresses: []common.Address{n.contractAddr},
 		Topics: [][]common.Hash{
 			{TopicChannelOpened},
@@ -444,7 +483,6 @@ func (n *EvmChainNotifier) waitForSpend(outpoint wire.OutPoint,
 
 	// channelId is the indexed first event arg, i.e. topics[1].
 	channelTopic := common.Hash(outpoint.Hash)
-	fromBlock := big.NewInt(int64(heightHint))
 
 	ticker := time.NewTicker(n.pollInterval)
 	defer ticker.Stop()
@@ -455,8 +493,10 @@ func (n *EvmChainNotifier) waitForSpend(outpoint wire.OutPoint,
 			ctx, cancel := context.WithTimeout(
 				context.Background(), n.pollInterval,
 			)
+			// Re-evaluate the window each tick so it stays within the
+			// RPC's range cap as the tip advances.
 			logs, err := n.client.FilterLogs(ctx, ethereum.FilterQuery{
-				FromBlock: fromBlock,
+				FromBlock: n.logFromBlock(heightHint),
 				Addresses: []common.Address{n.contractAddr},
 				Topics: [][]common.Hash{
 					nil, {channelTopic},
