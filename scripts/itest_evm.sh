@@ -53,6 +53,9 @@ anvil)
     CHAIN_ID=31337
     # Generous-but-quick waits: 1s blocks.
     WAIT_CHAN=60 WAIT_SETTLE=90
+    # Anvil has infinite money — fund each node lavishly.
+    GAS_FUND=10ether
+    NODE_FUND_USDC=1000
     ;;
 base-sepolia)
     RPC="${EVM_RPC:-https://sepolia.base.org}"
@@ -61,6 +64,16 @@ base-sepolia)
     CHAIN_ID=84532
     # 2s blocks + public-RPC latency: double the waits.
     WAIT_CHAN=180 WAIT_SETTLE=240
+    # Real testnet ETH comes from a faucet (often a tiny 0.0001 ETH/claim),
+    # so fund each node frugally. Base Sepolia gas is ~0.006 gwei and the
+    # per-channel funding-account provisioning is ~0.00004 ETH; a node opens
+    # a handful of channels across the suite, so 0.0005 ETH/node is ~3x
+    # headroom. Raise via EVM_GAS_FUND if a run ever runs dry.
+    GAS_FUND="${EVM_GAS_FUND:-0.0005ether}"
+    # node1 opens channels totaling 200 USDC across the full suite (100+50+50)
+    # and closed-channel funds don't return to its spendable wallet, so each
+    # node needs ≥200; 250 gives margin. Tunable via EVM_NODE_FUND_USDC.
+    NODE_FUND_USDC="${EVM_NODE_FUND_USDC:-250}"
     ;;
 *)
     echo "Unknown network '$NETWORK'. Use 'anvil' or 'base-sepolia'." >&2
@@ -117,13 +130,59 @@ lncli_n() {
         "$@"
 }
 
-erc20_bal() { cast call "$TOKEN" "balanceOf(address)(uint256)" "$1" --rpc-url "$RPC" | awk '{print $1}'; }
+# rcall <cast-args…> — a read-only `cast` call that retries transient
+# public-RPC errors (TLS handshake EOF, rate-limit drops). Prints the raw
+# output on success.
+rcall() {
+    local i out
+    for i in 1 2 3 4 5 6; do
+        if out=$(cast "$@" --rpc-url "$RPC" 2>/dev/null) && [ -n "$out" ]; then
+            printf '%s' "$out"
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+erc20_bal() { rcall call "$TOKEN" "balanceOf(address)(uint256)" "$1" | awk '{print $1}'; }
+
+# dsend <cast-send-args…> — a deployer-key `cast send` that retries the
+# transient nonce races a load-balanced public RPC produces when txs are fired
+# back-to-back (its pending-nonce view lags across backends, yielding
+# "nonce too low/high"). cast waits for the receipt, so a rejected send did
+# not land and is safe to re-send with a freshly-fetched nonce.
+dsend() {
+    local i out
+    for i in 1 2 3 4 5 6; do
+        if out=$(cast send "$@" --rpc-url "$RPC" \
+            --private-key "$DEVKEY" 2>&1); then
+            return 0
+        fi
+        case "$out" in
+        *"nonce too low"*|*"nonce too high"*|\
+        *"replacement transaction underpriced"*|\
+        *"tls handshake"*|*"client error (Connect)"*|\
+        *"connection reset"*|*"connection refused"*|*"timed out"*)
+            # nonce races + pre-send connection failures (a TLS-handshake
+            # error means the signed tx never left, so re-sending is safe).
+            sleep 4
+            ;;
+        *)
+            echo "dsend failed: $out" >&2
+            return 1
+            ;;
+        esac
+    done
+    echo "dsend gave up after retries: $out" >&2
+    return 1
+}
 
 log_count() { # log_count <event-sig>
     # FROM_BLOCK comes from the deploy state: public RPCs reject unbounded
     # from-block-0 ranges, and pre-deployment blocks can't hold our events.
-    cast logs --from-block "${FROM_BLOCK:-0}" --address "$CM" "$1" \
-        --rpc-url "$RPC" --json | json 'print(len(json.load(sys.stdin)))'
+    rcall logs --from-block "${FROM_BLOCK:-0}" --address "$CM" "$1" --json \
+        | json 'print(len(json.load(sys.stdin)))'
 }
 
 # ---------------------------------------------------------------------------
@@ -154,9 +213,14 @@ step "Deploy (or reuse) MockERC20 / ChannelManager"
 # sui-contracts/lightning/deploy_state_*.json). On public networks an
 # existing state file is reused: CREATE2 with the same salt+initcode can't
 # be redeployed anyway, and indexers expect the address to stay put.
+# EVM_TOKEN lets a run escrow a PRE-EXISTING ERC20 (e.g. a USDC already
+# deployed on a public testnet) instead of deploying a fresh MockERC20 — the
+# token must be mintable by the deployer key (the funding step mints to the
+# nodes). deploy.sh deploys only the ChannelManager when given a token.
 if [ ! -s "$DEPLOY_STATE" ]; then
     PRIVATE_KEY=$DEVKEY CHALLENGE_PERIOD=$CHALLENGE_PERIOD \
         "$REPO/evm-contracts/channel-manager/deploy.sh" "$NETWORK" "$RPC" \
+        ${EVM_TOKEN:+"$EVM_TOKEN"} \
         >/dev/null || fail "contract deployment"
 fi
 TOKEN=$(json 'print(json.load(sys.stdin)["token"])' <"$DEPLOY_STATE")
@@ -164,7 +228,35 @@ CM=$(json 'print(json.load(sys.stdin)["channel_manager"])' <"$DEPLOY_STATE")
 CHALLENGE_PERIOD=$(json 'print(json.load(sys.stdin)["challenge_period"])' <"$DEPLOY_STATE")
 FROM_BLOCK=$(json 'print(json.load(sys.stdin)["deploy_block"])' <"$DEPLOY_STATE")
 [ -n "$TOKEN" ] && [ -n "$CM" ] || fail "bad deploy state file: $DEPLOY_STATE"
-ok "token=$TOKEN manager=$CM (challenge ${CHALLENGE_PERIOD}s, state: ${DEPLOY_STATE#$REPO/})"
+
+# Query the token's decimals so base-unit amounts (mint, on-chain escrow
+# assertions) are computed for whatever ERC20 is escrowed — 6 for USDC/USDT,
+# 18 for DAI/WETH-style tokens. Channel amounts and balances elsewhere are in
+# LND-internal units (1e8/token) and are decimal-independent.
+TOKEN_DEC=$(rcall call "$TOKEN" "decimals()(uint8)" | awk '{print $1}')
+[ -n "$TOKEN_DEC" ] || fail "unable to read token decimals"
+
+# usdc_base <whole-token-amount> -> that amount in raw base-units
+# (amount * 10^TOKEN_DEC), big-int safe.
+usdc_base() {
+    python3 -c "import sys; print(int(sys.argv[1]) * 10**$TOKEN_DEC)" "$1"
+}
+
+# Escrow baseline: the ChannelManager may be REUSED across runs (public-net
+# deploy_state is persistent), so its token balance can already hold deposits
+# from earlier runs' channels. Assert escrow CHANGES relative to this baseline
+# rather than against an absolute value. On a fresh deploy this is 0.
+ESCROW0=$(erc20_bal "$CM")
+[ -n "$ESCROW0" ] || fail "unable to read baseline escrow balance"
+
+# escrow_is <whole-usdc-delta> — true when the manager's escrow equals the
+# baseline plus `delta` whole tokens.
+escrow_is() {
+    [ "$(erc20_bal "$CM")" = \
+        "$(python3 -c "print($ESCROW0 + $(usdc_base "$1"))")" ]
+}
+
+ok "token=$TOKEN (${TOKEN_DEC} dec) manager=$CM (escrow baseline $ESCROW0, challenge ${CHALLENGE_PERIOD}s, state: ${DEPLOY_STATE#$REPO/})"
 
 step "Boot two lnd --evm.active nodes"
 # --allow-circular-route is required for the self-payment step: the HTLC
@@ -191,21 +283,47 @@ done
 ok "both nodes serving rpc"
 
 # --------------------------------------------------------------------------
-step "1. Wallet funding (mint 1000 USDC + gas to both nodes)"
+step "1. Wallet funding (1000 USDC + gas to both nodes)"
 ADDR1=$(lncli_n 1 newaddress p2wkh | grep -o '0x[0-9a-fA-F]*')
 ADDR2=$(lncli_n 2 newaddress p2wkh | grep -o '0x[0-9a-fA-F]*')
+NODE_FUND=$(usdc_base "$NODE_FUND_USDC")
+
+# A freshly-deployed MockERC20 (no EVM_TOKEN) is owner-mintable by our
+# deployer, so mint straight to the nodes. A pre-existing EVM_TOKEN may
+# restrict mint to its owner (e.g. OpenZeppelin Ownable), so instead
+# TRANSFER from the deployer, which must already hold the token (send it
+# there beforehand: the deployer address is printed at startup).
+if [ -n "${EVM_TOKEN:-}" ]; then
+    DEPLOYER_ADDR=$(cast wallet address --private-key "$DEVKEY")
+    have=$(erc20_bal "$DEPLOYER_ADDR")
+    need=$(python3 -c "print(2 * $NODE_FUND)")
+    if python3 -c "import sys; sys.exit(0 if int('$have') >= int('$need') else 1)"; then
+        FUND_METHOD=transfer
+    else
+        fail "deployer $DEPLOYER_ADDR holds $have of $TOKEN, needs $need; \
+mint is owner-only on this token — send it some USDC first"
+    fi
+else
+    FUND_METHOD=mint
+fi
+
 for A in "$ADDR1" "$ADDR2"; do
-    cast send "$TOKEN" "mint(address,uint256)" "$A" 1000000000 \
-        --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
-    cast send "$A" --value 10ether \
-        --rpc-url "$RPC" --private-key "$DEVKEY" >/dev/null
+    if [ "$FUND_METHOD" = "transfer" ]; then
+        dsend "$TOKEN" "transfer(address,uint256)" "$A" "$NODE_FUND" >/dev/null
+    else
+        dsend "$TOKEN" "mint(address,uint256)" "$A" "$NODE_FUND" >/dev/null
+    fi
+    dsend "$A" --value "$GAS_FUND" >/dev/null
 done
 
+# node1's balance, in LND-internal units (1e8/token), must equal what we
+# funded — independent of the token's on-chain decimals.
+WANT_INTERNAL=$(python3 -c "print($NODE_FUND_USDC * 100000000)")
 check_wallet_bal() {
-    [ "$(lncli_n 1 walletbalance | json 'print(json.load(sys.stdin)["confirmed_balance"])')" = "100000000000" ]
+    [ "$(lncli_n 1 walletbalance | json 'print(json.load(sys.stdin)["confirmed_balance"])')" = "$WANT_INTERNAL" ]
 }
 wait_until 15 "node1 wallet balance" check_wallet_bal
-ok "1000 USDC visible as 100000000000 internal units"
+ok "$NODE_FUND_USDC USDC visible as $WANT_INTERNAL internal units"
 
 step "2. Channel open (100 USDC)"
 PK2=$(lncli_n 2 getinfo | json 'print(json.load(sys.stdin)["identity_pubkey"])')
@@ -219,7 +337,7 @@ chan_active() { # chan_active <node> <count>
 }
 wait_until $WAIT_CHAN "channel active on node1" chan_active 1 1
 wait_until $WAIT_CHAN "channel active on node2" chan_active 2 1
-[ "$(erc20_bal "$CM")" = "100000000" ] || fail "escrow != 100 USDC raw"
+escrow_is 100 || fail "escrow delta != 100 USDC"
 ok "channel active on both peers; escrow holds 100000000 base-units"
 
 # pay_with_retry <payer-node> <payreq> [extra payinvoice flags…] — the
@@ -237,8 +355,6 @@ pay_with_retry() {
     done
     fail "payment status after retries: $status"
 }
-
-escrow_is() { [ "$(erc20_bal "$CM")" = "$1" ]; }
 
 # htlc_pending_on_1 is true once node1 has at least one in-flight HTLC across
 # its channels.
@@ -296,7 +412,7 @@ FUNDING_TXID_REV=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding
 [ -n "$FUNDING_TXID_REV" ] || fail "reverse openchannel returned no funding txid"
 wait_until $WAIT_CHAN "2 channels active on node1" chan_active 1 2
 wait_until $WAIT_CHAN "2 channels active on node2" chan_active 2 2
-wait_until 15 "escrow holds both deposits" escrow_is 150000000
+wait_until 15 "escrow holds both deposits" escrow_is 150
 ok "reverse channel active; escrow holds 150000000 base-units"
 
 # Self-payment: node1 pays its own invoice, the HTLC routes
@@ -315,7 +431,7 @@ for ROUND in $(seq 1 "$SELF_PAY_ROUNDS"); do
     echo "    ✓ round $ROUND settled"
 done
 # Circular payments are value-neutral, so both escrows must be untouched.
-escrow_is 150000000 || fail "escrow changed after self-payments"
+escrow_is 150 || fail "escrow changed after self-payments"
 ok "$SELF_PAY_ROUNDS self-payment rounds settled; channels and escrow intact"
 
 step "4. Cooperative close (channel 1)"
@@ -324,7 +440,7 @@ CLOSE_PID=$!
 
 # Only channel 1's 100-USDC deposit leaves the escrow; the reverse channel
 # stays open (and stays available in suspended mode).
-wait_until $WAIT_SETTLE "channel-1 escrow paid out" escrow_is 50000000
+wait_until $WAIT_SETTLE "channel-1 escrow paid out" escrow_is 50
 [ "$(log_count 'ChannelClosed(bytes32,uint256,uint256)')" = "1" ] \
     || fail "no ChannelClosed event"
 wait_until $WAIT_SETTLE "channel 1 gone from node1" chan_active 1 1
@@ -355,7 +471,7 @@ ok "forceClose landed; channel in challenge window"
 # its own once the challenge window elapses (no HTLCs are pending, the
 # payment settled before the force close). We just wait for the on-chain
 # effect. Only the reverse channel's deposit should remain escrowed.
-wait_until $WAIT_SETTLE "settler auto-broadcasts distributeFunds" escrow_is 50000000
+wait_until $WAIT_SETTLE "settler auto-broadcasts distributeFunds" escrow_is 50
 [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" = "1" ] \
     || fail "no FundsDistributed event"
 ok "EVM settler auto-distributed the force-closed escrow"
@@ -488,7 +604,17 @@ if [ "${ITEST_EVM_SUSPEND:-1}" = "1" ]; then
     echo "    lncli --rpcserver=127.0.0.1:11801 --lnddir=$WORKDIR/node1 \\"
     echo "          --macaroonpath=$WORKDIR/node1/data/chain/evm/$NETWORK/admin.macaroon getinfo"
     echo ""
-    echo "Once you are done testing, press [Enter] to terminate nodes and exit..."
     echo "=================================================================================="
-    read -r _ || true
+    if [ -t 0 ]; then
+        echo "Once you are done testing, press [Enter] to terminate nodes and exit..."
+        read -r _ || true
+    else
+        # Non-interactive (e.g. launched in the background): there's no
+        # terminal to read from, so block indefinitely instead — exiting
+        # here would trip the cleanup trap and kill the nodes. Stop the
+        # process (or `pkill -f lnddir=$WORKDIR`) to tear down.
+        echo "Non-interactive run: nodes will stay up until this process is"
+        echo "killed (pkill -f \"lnddir=$WORKDIR\")."
+        while true; do sleep 3600; done
+    fi
 fi
