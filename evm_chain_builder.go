@@ -235,3 +235,42 @@ func queryEvmGenesisTimestamp(client evmnotify.EvmClient) (uint64, error) {
 
 	return hdr.Time, nil
 }
+
+// evmChannelStatusFunc returns a callback the chain arbitrator's EVM settler
+// uses to read a channel's on-chain ChannelManager status (so it can stop
+// re-broadcasting distributeFunds once the channel is CLOSED). It returns nil
+// when the EVM backend isn't active, so the arbitrator stays chain-agnostic.
+func evmChannelStatusFunc(cc *chainreg.ChainControl) func([32]byte) (uint8,
+	error) {
+
+	if cc.Cfg.EvmMode == nil || !cc.Cfg.EvmMode.Active {
+		return nil
+	}
+	client, ok := cc.EvmClient.(evmnotify.EvmClient)
+	if !ok {
+		return nil
+	}
+	contract := common.HexToAddress(cc.Cfg.EvmMode.ContractAddress)
+
+	return func(channelID [32]byte) (uint8, error) {
+		data, err := evmnotify.PackChannel(channelID)
+		if err != nil {
+			return 0, err
+		}
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(), evmDecimalsTimeout,
+		)
+		defer cancel()
+
+		out, err := client.CallContract(ctx, ethereum.CallMsg{
+			To:   &contract,
+			Data: data,
+		}, nil)
+		if err != nil {
+			return 0, err
+		}
+
+		return evmnotify.UnpackChannelStatus(out)
+	}
+}

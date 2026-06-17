@@ -1299,8 +1299,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,
-		Notifier:     cc.ChainNotifier,
-		Mempool:      cc.MempoolNotifier,
+		// EVM-only: lets the post-close settler read on-chain channel
+		// status and stop re-broadcasting distributeFunds once CLOSED.
+		// nil on Bitcoin/Sui.
+		EvmChannelStatus: evmChannelStatusFunc(cc),
+		Notifier:         cc.ChainNotifier,
+		Mempool:          cc.MempoolNotifier,
 		Signer:       cc.Wallet.Cfg.Signer,
 		FeeEstimator: cc.FeeEstimator,
 		ChainIO:      cc.ChainIO,

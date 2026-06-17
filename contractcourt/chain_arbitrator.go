@@ -161,6 +161,12 @@ type ChainArbitratorConfig struct {
 	// preimages and settle invoices.
 	Registry Registry
 
+	// EvmChannelStatus returns the on-chain ChannelManager status of a
+	// channel by its 32-byte channelId. Set only on the EVM backend; the
+	// post-close settler uses it to stop re-broadcasting distributeFunds
+	// once the channel is CLOSED. Nil on Bitcoin/Sui.
+	EvmChannelStatus func([32]byte) (uint8, error)
+
 	// NotifyClosedChannel is a function closure that the ChainArbitrator
 	// will use to notify the ChannelNotifier about a newly closed channel.
 	NotifyClosedChannel func(wire.OutPoint)
@@ -1164,6 +1170,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			publishTx:           c.cfg.PublishTx,
 			preimageDB:          c.cfg.PreimageDB,
 			registry:            c.cfg.Registry,
+			evmChannelStatus:    c.cfg.EvmChannelStatus,
 			settlerQuit:         c.quit,
 		},
 	)
@@ -1348,6 +1355,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 				publishTx:           c.cfg.PublishTx,
 				preimageDB:          c.cfg.PreimageDB,
 				registry:            c.cfg.Registry,
+				evmChannelStatus:    c.cfg.EvmChannelStatus,
 				settlerQuit:         c.quit,
 			},
 		)

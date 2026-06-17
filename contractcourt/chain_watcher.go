@@ -298,6 +298,12 @@ type chainWatcherConfig struct {
 	// cache). May be nil.
 	registry Registry
 
+	// evmChannelStatus returns the on-chain ChannelManager status of a
+	// channel (by its 32-byte channelId), used by the EVM settler to stop
+	// re-broadcasting distributeFunds once the channel is already CLOSED.
+	// May be nil (non-EVM / tests).
+	evmChannelStatus func([32]byte) (uint8, error)
+
 	// settlerQuit is the lifecycle signal for the EVM post-close settler.
 	// It is the ChainArbitrator's quit (node lifetime), NOT the
 	// chainWatcher's: a force-closed EVM channel has no Bitcoin contract

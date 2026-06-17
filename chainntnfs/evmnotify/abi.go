@@ -188,6 +188,39 @@ func UnpackToken(data []byte) (common.Address, error) {
 	return addr, nil
 }
 
+// Channel status values, mirroring the contract's IChannelManager.Status
+// enum: NONEXISTENT, OPEN, CLOSING_COOP, CLOSING_UNILATERAL, CLOSED.
+const (
+	ChannelStatusNonexistent       uint8 = 0
+	ChannelStatusOpen              uint8 = 1
+	ChannelStatusClosingCoop       uint8 = 2
+	ChannelStatusClosingUnilateral uint8 = 3
+	ChannelStatusClosed            uint8 = 4
+)
+
+// PackChannel ABI-encodes the channels(bytes32) getter call.
+func PackChannel(channelID [32]byte) ([]byte, error) {
+	return ChannelManagerABI.Pack("channels", channelID)
+}
+
+// UnpackChannelStatus decodes the channels(bytes32) getter result and returns
+// the channel's Status field (index 3 of the returned struct).
+func UnpackChannelStatus(data []byte) (uint8, error) {
+	vals, err := ChannelManagerABI.Unpack("channels", data)
+	if err != nil {
+		return 0, err
+	}
+	if len(vals) < 4 {
+		return 0, fmt.Errorf("evmnotify: unexpected channels return")
+	}
+	st, ok := vals[3].(uint8)
+	if !ok {
+		return 0, fmt.Errorf("evmnotify: channel status not a uint8")
+	}
+
+	return st, nil
+}
+
 // UnpackChannelOpened decodes the non-indexed data of a ChannelOpened log,
 // returning the two raw base-unit deposits.
 func UnpackChannelOpened(data []byte) (balanceA, balanceB *big.Int,

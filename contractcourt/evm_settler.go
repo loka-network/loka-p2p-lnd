@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/lightningnetwork/lnd/chainntnfs/evmnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -61,6 +62,7 @@ func (c *chainWatcher) evmSettle(commit channeldb.ChannelCommitment,
 	challengeExpiry uint64) {
 
 	chanPoint := c.cfg.chanState.FundingOutpoint
+	channelID := [32]byte(chanPoint.Hash)
 
 	log.Infof("ChannelPoint(%v): EVM settler started: %d HTLCs to "+
 		"resolve, challenge expiry %d", chanPoint, len(commit.Htlcs),
@@ -105,6 +107,25 @@ func (c *chainWatcher) evmSettle(commit channeldb.ChannelCommitment,
 
 		case <-c.cfg.settlerQuit:
 			return
+		}
+
+		// If the channel is already CLOSED on-chain — our
+		// distributeFunds landed, or the counterparty's settler beat us
+		// to it — there's nothing left to do. Stop here rather than
+		// re-broadcasting distributeFunds, which would just revert with
+		// NotUnilateralClose and waste gas.
+		if c.cfg.evmChannelStatus != nil {
+			st, err := c.cfg.evmChannelStatus(channelID)
+			if err != nil {
+				log.Warnf("ChannelPoint(%v): EVM settler: "+
+					"status query: %v", chanPoint, err)
+			} else if st == evmnotify.ChannelStatusClosed {
+				log.Infof("ChannelPoint(%v): EVM settler: "+
+					"channel CLOSED on-chain, done",
+					chanPoint)
+
+				return
+			}
 		}
 
 		// Resolve what's resolvable this tick.
