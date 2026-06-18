@@ -1672,19 +1672,34 @@ func (r *rpcServer) sendCoinsSui(in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsRe
 // (gas is paid in the chain's native coin). SendAll and Outpoints are not
 // supported.
 func (r *rpcServer) sendCoinsEvm(in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
-	if in.SendAll {
-		return nil, fmt.Errorf("send_all is not supported on the evm backend yet")
-	}
 	if len(in.Outpoints) != 0 {
 		return nil, fmt.Errorf("outpoint selection is not supported on the evm backend yet")
-	}
-	if in.Amount <= 0 {
-		return nil, fmt.Errorf("amount must be > 0 token base-units on the evm backend")
 	}
 
 	evmWallet, ok := r.server.cc.Wallet.WalletController.(*evmwallet.Wallet)
 	if !ok {
 		return nil, fmt.Errorf("wallet backend reports evm but underlying controller is not *evmwallet.Wallet")
+	}
+
+	// On the EVM backend send_all sweeps the node's native-coin (gas)
+	// balance rather than the ERC20 channel asset: gas is what strands in a
+	// node account, so reclaiming it (e.g. on itest teardown) is the
+	// meaningful "send everything" operation. The amount field is ignored.
+	if in.SendAll {
+		rpcsLog.Infof("[sendcoins-evm] sweep native to addr=%v", in.Addr)
+
+		txHash, err := evmWallet.SweepNative(in.Addr)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcsLog.Infof("[sendcoins-evm] sweep tx hash: %v", txHash.String())
+
+		return &lnrpc.SendCoinsResponse{Txid: txHash.String()}, nil
+	}
+
+	if in.Amount <= 0 {
+		return nil, fmt.Errorf("amount must be > 0 token base-units on the evm backend")
 	}
 
 	rpcsLog.Infof("[sendcoins-evm] addr=%v, amt_base_units=%v", in.Addr, in.Amount)

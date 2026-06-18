@@ -24,6 +24,9 @@ import (
 // transaction.
 type capturingClient struct {
 	sent []*types.Transaction
+
+	// balance overrides the BalanceAt result; nil means a default 1 ETH.
+	balance *big.Int
 }
 
 func (c *capturingClient) ChainID(context.Context) (*big.Int, error) {
@@ -54,6 +57,10 @@ func (c *capturingClient) PendingNonceAt(context.Context, common.Address) (
 
 func (c *capturingClient) BalanceAt(context.Context, common.Address,
 	*big.Int) (*big.Int, error) {
+
+	if c.balance != nil {
+		return c.balance, nil
+	}
 
 	return big.NewInt(1e18), nil
 }
@@ -349,4 +356,42 @@ func TestExecuteCarrierClaimHtlc(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, expectedData, tx.Data())
+}
+
+// TestSweepNative checks the native-ETH sweep: it sends balance minus a gas
+// reserve to the recipient, with the intrinsic 21000 gas limit (not the
+// ChannelManager-sized cfg.GasLimit, which would over-reserve and could exceed
+// the balance being swept).
+func TestSweepNative(t *testing.T) {
+	w, client := newCarrierTestWallet(t)
+
+	const recipient = "0x62663b3804a535f55DDc85a0ebfC6427DbeD7883"
+
+	_, err := w.SweepNative(recipient)
+	require.NoError(t, err)
+	require.Len(t, client.sent, 1)
+
+	tx := client.sent[0]
+	require.Equal(t, uint64(nativeTransferGas), tx.Gas())
+	require.NotNil(t, tx.To())
+	require.Equal(t, common.HexToAddress(recipient), *tx.To())
+
+	// value == BalanceAt (1e18) - reserve (21000*4 * SuggestGasPrice 1e9).
+	reserve := new(big.Int).Mul(
+		big.NewInt(nativeTransferGas*4), big.NewInt(1_000_000_000),
+	)
+	wantValue := new(big.Int).Sub(big.NewInt(1e18), reserve)
+	require.Equal(t, wantValue, tx.Value())
+}
+
+// TestSweepNativeInsufficientBalance checks the sweep refuses when the balance
+// can't even cover the gas reserve, rather than broadcasting a negative-value
+// transfer.
+func TestSweepNativeInsufficientBalance(t *testing.T) {
+	w, client := newCarrierTestWallet(t)
+	client.balance = big.NewInt(1) // 1 wei, far below the gas reserve.
+
+	_, err := w.SweepNative("0x62663b3804a535f55DDc85a0ebfC6427DbeD7883")
+	require.Error(t, err)
+	require.Empty(t, client.sent)
 }

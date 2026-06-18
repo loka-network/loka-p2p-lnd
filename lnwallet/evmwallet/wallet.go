@@ -174,6 +174,64 @@ func (w *Wallet) SendTokens(recipient string, amount uint64) (chainhash.Hash,
 	return w.broadcastCall(ctx, EvmCall{To: token, Data: data})
 }
 
+// nativeTransferGas is the intrinsic gas of a plain value transfer (no calldata).
+const nativeTransferGas = 21000
+
+// SweepNative sends the node account's entire native-coin (ETH) balance, less a
+// gas reserve, to `recipient` (a 0x-prefixed EVM address), returning the
+// broadcast transaction hash. It is the native-coin counterpart to SendTokens
+// (which moves the ERC20 channel asset): operators use it to reclaim a node's
+// leftover gas balance — e.g. an itest sweeping throwaway nodes back to the
+// funder on teardown so each run doesn't permanently strand its gas.
+func (w *Wallet) SweepNative(recipient string) (chainhash.Hash, error) {
+	var zero chainhash.Hash
+
+	if !common.IsHexAddress(recipient) {
+		return zero, fmt.Errorf("evmwallet: %q is not a valid EVM "+
+			"address", recipient)
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	from, err := w.nodeAddress()
+	if err != nil {
+		return zero, err
+	}
+
+	balance, err := w.cfg.Client.BalanceAt(ctx, from, nil)
+	if err != nil {
+		return zero, fmt.Errorf("evmwallet: balance: %w", err)
+	}
+
+	gasPrice, err := w.cfg.Client.SuggestGasPrice(ctx)
+	if err != nil {
+		return zero, fmt.Errorf("evmwallet: gas price: %w", err)
+	}
+
+	// Reserve enough for the transfer's gas across broadcastCallFrom's worst
+	// case: the 25% buffer plus up to broadcastAttempts of 15% bumps. A 4x
+	// multiple over nativeTransferGas * gasPrice covers that comfortably and
+	// is still a negligible absolute amount at L2 gas prices.
+	reserve := new(big.Int).Mul(
+		big.NewInt(nativeTransferGas*4), gasPrice,
+	)
+	value := new(big.Int).Sub(balance, reserve)
+	if value.Sign() <= 0 {
+		return zero, fmt.Errorf("evmwallet: balance %s wei too low to "+
+			"sweep after gas reserve %s wei", balance, reserve)
+	}
+
+	return w.broadcastCall(ctx, EvmCall{
+		To:    common.HexToAddress(recipient),
+		Value: value,
+		Gas:   nativeTransferGas,
+	})
+}
+
 // EvmAddress is a btcutil.Address wrapper for a 20-byte EVM address so the
 // chain-agnostic LND plumbing can carry it.
 type EvmAddress struct {

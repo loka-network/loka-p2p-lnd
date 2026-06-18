@@ -73,6 +73,13 @@ type EvmCall struct {
 	To    common.Address `json:"to"`
 	Data  []byte         `json:"data"`
 	Value *big.Int       `json:"value"`
+
+	// Gas optionally overrides the gas limit for this call. Zero means
+	// fall back to the wallet's configured GasLimit (sized for
+	// ChannelManager calls); a plain native-coin transfer sets this to its
+	// intrinsic 21000 so the up-front balance reservation
+	// (gasLimit * gasPrice) doesn't dwarf the value being swept.
+	Gas uint64 `json:"gas,omitempty"`
 }
 
 // WrapEvmCall packs an EvmCall into a single-input wire.MsgTx envelope so it can
@@ -182,6 +189,11 @@ func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
 		value = big.NewInt(0)
 	}
 
+	gasLimit := call.Gas
+	if gasLimit == 0 {
+		gasLimit = w.cfg.GasLimit
+	}
+
 	signer := types.LatestSignerForChainID(chainID)
 
 	// Back-to-back sends against a load-balanced public RPC race its
@@ -198,7 +210,7 @@ func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
 			Nonce:    nonce,
 			To:       &call.To,
 			Value:    value,
-			Gas:      w.cfg.GasLimit,
+			Gas:      gasLimit,
 			GasPrice: gasPrice,
 			Data:     call.Data,
 		})
