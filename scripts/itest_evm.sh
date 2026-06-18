@@ -82,6 +82,9 @@ base-sepolia)
 esac
 DEPLOY_STATE="$REPO/evm-contracts/channel-manager/deploy_state_${NETWORK}.json"
 
+# The deployer/funder address — also where node gas is swept back on teardown.
+DEPLOYER_ADDR=$(cast wallet address --private-key "$DEVKEY" 2>/dev/null || true)
+
 LND_BIN=${LND_BIN:-$WORKDIR/lnd}
 LNCLI_BIN=${LNCLI_BIN:-$WORKDIR/lncli}
 
@@ -92,6 +95,21 @@ fail()   { printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; exit 1; }
 
 cleanup() {
     local code=$?
+
+    # Reclaim leftover gas from the throwaway node wallets before killing them
+    # (base-sepolia only — anvil has infinite money). On the EVM backend
+    # `sendcoins --sweepall` sweeps the node account's native ETH, so each run
+    # returns its unspent gas headroom to the funder instead of permanently
+    # stranding it in a discarded wallet. Best-effort: nodes must still be up.
+    if [ "$NETWORK" = "base-sepolia" ] && [ -n "${DEPLOYER_ADDR:-}" ]; then
+        for n in 1 2; do
+            if out=$(lncli_n "$n" sendcoins --sweepall --force \
+                --addr "$DEPLOYER_ADDR" 2>&1); then
+                echo "  swept node$n gas -> deployer"
+            fi
+        done
+    fi
+
     pkill -f "lnddir=$WORKDIR" 2>/dev/null || true
     [ -n "${ANVIL_PID:-}" ] && kill "$ANVIL_PID" 2>/dev/null || true
     if [ $code -eq 0 ]; then
