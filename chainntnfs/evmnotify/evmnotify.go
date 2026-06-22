@@ -207,6 +207,13 @@ func (n *EvmChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 // FilterLogs the notifier issues must stay within this window.
 const maxLogRange = 45000
 
+// evmReorgSafetyDepth is how many blocks a close/settlement log must be buried
+// by before the spend watcher acts on it, mirroring the confirmation path's
+// depth gate (lncfg.DefaultEvmNumConfs). It prevents dispatching a spend for a
+// close that an L2 sequencer reorg could still drop (audit M-5). Kept here as a
+// const rather than threaded from config to avoid an lncfg import cycle.
+const evmReorgSafetyDepth = 3
+
 // logFromBlock returns the FromBlock for a FilterLogs query that wants to start
 // at heightHint but never spans more than maxLogRange blocks back from the
 // current tip (the events the notifier hunts for — ChannelOpened receipts,
@@ -512,6 +519,16 @@ func (n *EvmChainNotifier) waitForSpend(outpoint wire.OutPoint,
 
 			match, ok := firstCloseLog(logs)
 			if !ok {
+				continue
+			}
+
+			// Reorg safety: wait until the close log is buried by
+			// evmReorgSafetyDepth blocks before acting on it, so an
+			// L2 sequencer reorg that drops the close before then is
+			// never dispatched as a spend (audit M-5). Re-poll until
+			// the depth is reached.
+			tip := atomic.LoadInt64(&n.bestHeight)
+			if tip-int64(match.BlockNumber)+1 < evmReorgSafetyDepth {
 				continue
 			}
 

@@ -586,6 +586,32 @@ func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
 	}
 }
 
+// evmAssertConservation verifies that a force-close state reconciles to the
+// escrowed total: balanceA + balanceB + Σhtlc must equal scale(capacity). The
+// split (evmBalanceSplit) builds A as the remainder, so this holds by
+// construction unless the defensive negative-clamp fired — i.e. a malformed
+// commitment whose HTLC amounts over-commit the capacity. Such a state, if
+// force-closed, sets an on-chain htlcPool the claimed/timed-out HTLCs can never
+// drive to zero, stranding the channel until the emergency hatch (audit M-4 /
+// H-2). Asserting here lets the broadcaster fail closed beforehand.
+func evmAssertConservation(chanState *channeldb.OpenChannel,
+	commit *channeldb.ChannelCommitment, su input.EvmStateUpdate) error {
+
+	sum := new(big.Int).Add(su.BalanceA, su.BalanceB)
+	for _, h := range evmHTLCsFromDiskCommit(chanState, commit) {
+		sum.Add(sum, h.Amount)
+	}
+	total := evmScaleToBase(chanState.Capacity)
+	if sum.Cmp(total) != 0 {
+		return fmt.Errorf("evm: state conservation violated "+
+			"(balanceA+balanceB+Σhtlc=%s != totalDeposited=%s); "+
+			"refusing to broadcast a force-close that would strand "+
+			"funds", sum, total)
+	}
+
+	return nil
+}
+
 // evmLocalForceCloseCarrier assembles the forceClose carrier for this node's
 // latest persisted local commitment: the canonical StateUpdate plus the
 // counterparty's retained commitment signature with its recovery byte
@@ -594,6 +620,17 @@ func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
 func (lc *LightningChannel) evmLocalForceCloseCarrier() (*wire.MsgTx, error) {
 	commit := lc.channelState.LocalCommitment
 	su := evmStateUpdateFromDiskCommit(lc.channelState, &commit)
+
+	// Fail closed before broadcasting if the state doesn't reconcile to the
+	// escrowed total (audit M-4). forceClose is the only call that commits
+	// the htlcsHash and the derived htlcPool on-chain, so a malformed set
+	// here — one whose committed HTLC amounts don't sum to
+	// totalDeposited - balanceA - balanceB — is exactly what would later
+	// strand the channel in distributeFunds (the H-2 trigger). Refusing to
+	// broadcast surfaces it before any funds are locked.
+	if err := evmAssertConservation(lc.channelState, &commit, su); err != nil {
+		return nil, err
+	}
 
 	// The persisted CommitSig is the remote's DER signature over our
 	// commitment state; restore the 65-byte (r ‖ s ‖ v) form.

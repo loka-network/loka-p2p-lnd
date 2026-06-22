@@ -18,7 +18,7 @@
 | -------- | ----- | ----- |
 | Critical | 0 | The Sui-audit criticals were pre-empted by design; see "Pre-empted Criticals" below |
 | High     | 0 | 2 were found and **both remediated 2026-06-22** — watchtower-delegable breach remedy (H-1) + emergency escape hatch for unresolvable HTLCs (H-2) |
-| Medium   | 5 | Trust-surface, replay, consent, and reconciliation concerns |
+| Medium   | 5 | 4 **remediated 2026-06-22** (M-2 coop-close nonce, M-3 dual-fund consent, M-4 conservation fail-closed, M-5 reorg-safety depth); **M-1** (single-RPC quorum) intentionally deferred to post-mainnet, doc-only |
 | Low / Info | 4 | Token assumptions and code hygiene |
 
 Both **High** findings are design-level (not introduced bugs) and are exploitable only under specific conditions documented per finding. **Both have since been fixed** in `ChannelManager.sol` and validated by new Foundry tests (`test_Penalize_WatchtowerCanSubmitForVictim`, `test_DistributeFunds_EmergencyResolvesStuckHtlc`) — the suite is now 24 tests, all passing. Neither enables outright theft from an honest, online participant: the EVM signature, nonce, and Merkle-inclusion checks are byte-for-byte equivalent to the off-chain artifacts (validated by golden vectors on both the Go and Solidity sides — see "Serialization Equivalence"). The risks are about **availability of the breach remedy when a participant is offline** and **liveness of fund recovery when a co-signed state is malformed**.
@@ -87,6 +87,7 @@ Both **High** findings are design-level (not introduced bugs) and are exploitabl
 - Observation: the cooperative-close digest binds only `(channelId, finalBalanceA, finalBalanceB)` — no `nonce` / `state_num`. `closeChannel` checks `status == OPEN` and the two signatures, but does not compare against `ch.nonce`. If the parties co-sign several distinct splits during an aborted close negotiation, a party holding an older, more-favourable-to-them co-signed pair can broadcast it first.
 - Risk: this is the EVM analogue of the Sui H-3 finding, and it is structurally *more* exposed here because there is no nonce field to compare at all. Severity is bounded: it requires both signatures, balances must equal `totalDeposited` (a redistribution between the two parties only, never an over-draw), and a well-behaved client never co-signs conflicting final splits. But "the contract layer should not assume correct client behaviour."
 - Recommendation: add a `nonce` to `CooperativeClose` and enforce `nonce >= ch.nonce`, **or** document and enforce on the Go side that a client co-signs exactly one final split per channel.
+- **Fix (shipped):** the `CooperativeClose` EIP-712 type now carries a `nonce`; `closeChannel` enforces `nonce >= ch.nonce` and records it, and both signatures cover it. The Go coop-close artifact sets the nonce to the channel's settled `LocalCommitment` state number, binding a close to one off-chain state. Residual (documented): because the contract holds no per-state record while a channel is `OPEN`, the strongest replay protection still relies on the off-chain layer co-signing only the latest split — which LND's coop-close protocol does by construction; the on-chain `nonce` makes the artifact unambiguous and auditable. Golden vectors recomputed on both sides.
 
 ### M-3. `openChannel` pulls the counterparty's deposit with no per-channel consent
 
@@ -94,18 +95,21 @@ Both **High** findings are design-level (not introduced bugs) and are exploitabl
 - Observation: `participantA` (the caller) names `counterparty` and `remoteFundingAmount`, and the contract pulls the counterparty's deposit via `safeTransferFrom` against a standing allowance. The counterparty signs nothing at open. For single-funded channels (`remoteFundingAmount == 0`) this is harmless. For dual-funded channels, anyone the counterparty has approved the contract for can lock those approved tokens into a channel whose `channelId`, salt, and split the initiator chose unilaterally.
 - Risk: not theft — the counterparty's funds are escrowed at their nominal value and recoverable via cooperative close (their own signature) or by waiting out a force-close — but it is a consent / griefing gap: an initiator can strand a counterparty's approved balance in a channel the counterparty never agreed to.
 - Recommendation: for dual-funded opens, require a counterparty EIP-712 `OpenChannel` signature, or document single-funded-only operation with just-in-time (exact-amount) approvals on the Go side.
+- **Fix (shipped):** `openChannel` takes a `counterpartySig`; when `remoteFundingAmount > 0` it must be the counterparty's EIP-712 `OpenChannel` consent signature (over salt, both participants, both amounts), else the open reverts. Single-funded opens (`remoteFundingAmount == 0`, nothing of the counterparty's at stake) require none, so the common LND funding path is unchanged. `test_OpenChannel_DualFundedRequiresCounterpartyConsent` covers it. Follow-up (not blocking): dual-funded EVM opens now fail closed at the contract until the Go funding flow exchanges the consent signature during negotiation — wiring that producer is future work; single-funded opens are unaffected.
 
 ### M-4. HTLC-pool ↔ balance reconciliation is trusted entirely off-chain
 
 - Location: `ChannelManager.sol:251` (`htlcPool = totalDeposited - balanceA - balanceB`), `349`/`379` (`htlcPool -= htlc.amount`).
 - Observation: `htlcPool` is derived from the signed balances, but the contract never verifies that the committed HTLC leaves actually sum to it. A claim/timeout whose `htlc.amount` exceeds the running `htlcPool` underflows and reverts (Solidity 0.8 checked arithmetic), and a set that sums to less than `htlcPool` can never drive it to zero. Both outcomes feed directly into **H-2** (permanent lock).
 - Recommendation: as in H-2, assert the sum invariant in the Go `htlcsHash` builder before signing; consider committing the HTLC count/total in the signed `StateUpdate` so the contract can sanity-check it.
+- **Fix (shipped, Go-side):** `evmBalanceSplit` builds `balanceA` as the remainder (`scale(capacity) − balanceB − Σhtlc`), so the invariant `balanceA + balanceB + Σhtlc == totalDeposited` holds by construction unless its defensive negative-clamp fires (an over-committed, malformed commitment). `evmAssertConservation` now re-checks the equality in `evmLocalForceCloseCarrier` — the only path that commits `htlcsHash`/`htlcPool` on-chain — and refuses to broadcast a force-close that would strand funds, failing closed before the on-chain action rather than relying on H-2's 30-day backstop. The check is deliberately on the one-sided broadcast path, not the symmetric digest path, so it can't desync peers.
 
 ### M-5. `evmnotify` lacks explicit reorg buffer and event dedup
 
 - Location: `chainntnfs/evmnotify/evmnotify.go` (poll → `FilterLogs` over `[logFromBlock, tip]`; confirmation by receipt depth).
 - Observation: confirmation uses receipt depth but applies no extra buffer for L2 reorg / sequencer-reorg risk, and each poll re-scans its window with no persisted idempotency key, so a reconnect can re-dispatch an event. LND's higher layers absorb most duplicates, but the EVM path has not been stress-tested under forced reconnects, and `evm_close.go` takes the first matching log without de-duplicating.
 - Recommendation: persist `(blockHash, txHash, logIndex)` as the idempotency key in kvdb; add a small reorg-depth buffer (configurable) before treating a close as final.
+- **Fix (shipped, Go-side):** the spend watcher now waits until a close/settlement log is buried by `evmReorgSafetyDepth` (3) blocks before dispatching it as a spend (`tip − log.block + 1 >= depth`), mirroring the confirmation path so an L2 sequencer reorg that drops the close before then is never acted on. In-session re-dispatch is moot — the spend watcher is single-shot (it returns after the first qualifying log). Cross-restart re-processing is absorbed by on-chain idempotency: `htlcResolved` guards claim/timeout, and the settler's status gate (it reads on-chain `CLOSED` before re-broadcasting `distributeFunds`) makes a replayed close harmless. Persisted kvdb idempotency keys remain a possible future hardening but are no longer load-bearing for safety.
 
 ---
 
@@ -133,7 +137,7 @@ The Go signer and the Solidity verifier are locked to each other by **golden tes
 | -------- | -------- | -- | ----------- |
 | EIP-712 domain | `EIP712("LokaChannelManager","1")` + chainId + verifyingContract | `input/evm_channel.go` `EvmDomain.Separator()` — same name/version, `encodeUint256(chainId)`, `encodeAddress(verifyingContract)` | ✓ golden digest |
 | `StateUpdate` digest | `_stateUpdateDigest` over `(channelId,nonce,balanceA,balanceB,htlcsHash)` | `EvmStateUpdate.Digest(domain)` | ✓ `evm_signer_test.go` golden `261e1413…` |
-| `CooperativeClose` digest | `COOP_CLOSE_TYPEHASH` over `(channelId,finalBalanceA,finalBalanceB)` | `EvmCooperativeClose.Digest` | ✓ golden `6d537a6d…` |
+| `CooperativeClose` digest | `COOP_CLOSE_TYPEHASH` over `(channelId,nonce,finalBalanceA,finalBalanceB)` (nonce added by M-2) | `EvmCooperativeClose.Digest` | ✓ golden `d671c8ec…` |
 | HTLC Merkle leaf | `keccak256(abi.encode(htlc))` over `{index,amount,hashlock,timelock,recipient}` | `EvmHTLC.Leaf()` — same 5 fields as 32-byte ABI words, timelock widened to uint256 | ✓ golden leaf vectors |
 | HTLC Merkle root/proof | OZ `MerkleProof.verify`, commutative pair hashing | `input/evm_merkle.go` — leaves sorted by `index`, `commutativeHash` (lexicographic `keccak`), odd-node promotion | ✓ golden `13b0b913…` + `HtlcMerkleVectors.t.sol` |
 | Signature recovery | OZ `ECDSA.recover` (rejects high-s, `v ∈ {27,28}`) | `RecoverEvmSigV` tries `v ∈ {27,28}`, returns the one recovering the expected address | ✓ `SigRecoveryVectors.t.sol` |
@@ -147,9 +151,9 @@ Hashlock is **SHA-256** (`sha256(abi.encodePacked(preimage))`, the BOLT payment 
 | # | Priority | Action |
 | - | -------- | ------ |
 | 1 | Must-fix before mainnet (if watchtowers in scope) | **H-1** — pay the broadcaster-derived victim regardless of caller — **shipped**; EVM watchtower client/server hand-off remains a follow-up feature |
-| 2 | Must-fix before mainnet | **H-2** — emergency escape hatch for unresolvable HTLCs — **shipped**; off-chain sum-invariant assertion (M-4) still recommended |
-| 3 | Before mainnet | **M-2** (coop-close nonce), **M-4** (pool reconciliation) |
-| 4 | Post-release hardening | **M-1** (RPC quorum), **M-5** (reorg/dedup), **M-3** (dual-fund consent) |
+| 2 | Must-fix before mainnet | **H-2** — emergency escape hatch for unresolvable HTLCs — **shipped** |
+| 3 | Before mainnet | **M-2** (coop-close nonce) — **shipped**; **M-4** (conservation fail-closed) — **shipped** |
+| 4 | Post-release hardening | **M-3** (dual-fund consent) — **shipped** (contract; Go dual-fund producer is follow-up); **M-5** (reorg-safety depth) — **shipped**; **M-1** (RPC quorum) — deferred, doc-only |
 | 5 | Hygiene | **L-1**…**L-4** |
 
 ---
