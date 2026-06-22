@@ -351,6 +351,38 @@ contract ChannelManagerTest is Test {
         assertEq(uint8(status), uint8(IChannelManager.Status.CLOSED));
     }
 
+    /// H-1: penalize pays the proof-derived victim, not the caller, so a
+    /// watchtower (a non-participant) can submit the breach proof for an
+    /// offline victim and the victim still receives the full deposit.
+    function test_Penalize_WatchtowerCanSubmitForVictim() public {
+        bytes32 channelId = _openChannel();
+
+        // Alice cheats with a revoked state (nonce 3).
+        bytes memory bobSigStale =
+            _sign(bobPk, _stateDigest(channelId, 3, 900e6, 100e6, bytes32(0)));
+        vm.prank(alice);
+        mgr.forceClose(channelId, 3, 900e6, 100e6, bytes32(0), bobSigStale);
+
+        // A later state Alice signed — the breach proof. Bob (the victim) is
+        // offline; a watchtower holds the proof and submits it on his behalf.
+        bytes memory aliceSigGood =
+            _sign(alicePk, _stateDigest(channelId, 7, 500e6, 500e6, bytes32(0)));
+        address watchtower = address(0xBEEF); // not a channel participant
+
+        uint256 bobBefore = token.balanceOf(bob);
+
+        vm.expectEmit(true, true, true, true);
+        emit IChannelManager.ChannelPunished(channelId, bob, FUND_A + FUND_B);
+
+        vm.prank(watchtower);
+        mgr.penalize(channelId, 7, 500e6, 500e6, bytes32(0), aliceSigGood);
+
+        // The victim (Bob) is paid the whole deposit; the watchtower gets none.
+        assertEq(token.balanceOf(bob), bobBefore + FUND_A + FUND_B);
+        assertEq(token.balanceOf(watchtower), 0);
+        assertEq(token.balanceOf(address(mgr)), 0);
+    }
+
     function test_Penalize_RevertsOnStaleNonce() public {
         bytes32 channelId = _openChannel();
         uint256 nonce = 5;
@@ -510,5 +542,50 @@ contract ChannelManagerTest is Test {
         vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
         vm.expectRevert(ChannelManager.HtlcsUnresolved.selector);
         mgr.distributeFunds(channelId);
+    }
+
+    /// H-2: a malformed-but-co-signed HTLC whose recipient is neither
+    /// participant can never be claimed or timed out, so htlcPool never reaches
+    /// zero and distributeFunds reverts indefinitely. After
+    /// EMERGENCY_RESOLUTION_DELAY beyond the challenge window the escape hatch
+    /// finalizes the channel, splitting the unattributable residual evenly,
+    /// rather than locking the whole deposit forever.
+    function test_DistributeFunds_EmergencyResolvesStuckHtlc() public {
+        bytes32 channelId = _openChannel();
+
+        uint256 htlcAmt = 50e6;
+        address stranger = address(0xBEEF); // recipient is neither participant
+        (, bytes32 root) = _singleHtlc(
+            htlcAmt, keccak256("x"), uint32(block.timestamp + 100), stranger
+        );
+        uint256 balA = 550e6;
+        uint256 balB = FUND_A + FUND_B - htlcAmt - balA; // 400e6
+        bytes memory bobSig =
+            _sign(bobPk, _stateDigest(channelId, 5, balA, balB, root));
+        vm.prank(alice);
+        mgr.forceClose(channelId, 5, balA, balB, root, bobSig);
+
+        // Past the challenge window but before the emergency grace: still locked
+        // (the stuck HTLC keeps htlcPool != 0 with no resolution path).
+        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        vm.expectRevert(ChannelManager.HtlcsUnresolved.selector);
+        mgr.distributeFunds(channelId);
+
+        // After the emergency grace: finalizes, splitting the 50e6 residual.
+        vm.warp(block.timestamp + mgr.EMERGENCY_RESOLUTION_DELAY());
+        uint256 half = htlcAmt / 2;
+
+        vm.expectEmit(true, true, true, true);
+        emit IChannelManager.FundsDistributed(
+            channelId, balA + half, balB + (htlcAmt - half)
+        );
+        mgr.distributeFunds(channelId);
+
+        // Full deposit paid out (balA + balB + htlcAmt == totalDeposited).
+        assertEq(token.balanceOf(alice), 1_000e6 - FUND_A + balA + half);
+        assertEq(
+            token.balanceOf(bob), 1_000e6 - FUND_B + balB + (htlcAmt - half)
+        );
+        assertEq(token.balanceOf(address(mgr)), 0);
     }
 }

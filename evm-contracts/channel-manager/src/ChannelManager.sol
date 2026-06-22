@@ -71,6 +71,20 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
     /// `block.timestamp`, not block height, because L2 block intervals vary.
     uint256 public immutable challengePeriod;
 
+    /// @notice Emergency grace beyond the challenge window after which a
+    /// channel carrying an HTLC that can never be resolved — a malformed but
+    /// mutually co-signed set: a `recipient` that is neither participant, or
+    /// amounts that don't reconcile to `htlcPool` — can still be finalized,
+    /// splitting the unattributable residual evenly between the participants
+    /// instead of locking the whole deposit forever (see security-audit.md
+    /// H-2). Fixed far longer than any realistic HTLC timelock (BOLT
+    /// `max_cltv_expiry` is ~2 weeks) so a legitimate HTLC is always resolved
+    /// correctly — claim/timeout pays its rightful owner 100% — long before
+    /// this backstop can fire. Because the split is always weakly worse for an
+    /// HTLC's rightful owner than resolving it, it adds no griefing incentive;
+    /// it is purely a liveness backstop for malformed state.
+    uint256 public constant EMERGENCY_RESOLUTION_DELAY = 30 days;
+
     /// @notice channelId => channel record.
     mapping(bytes32 => Channel) public channels;
 
@@ -289,16 +303,19 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
             revert InvalidSignature();
         }
 
-        // Justice: the honest counterparty (the caller) sweeps the entire
-        // deposit. The victim is whoever submits the proof — it must be a
-        // participant and must not be the cheating broadcaster. No HTLC funds
-        // were pushed out yet (claim/timeout only accrue into the payout
-        // tallies), so totalDeposited is fully intact.
-        if (msg.sender != ch.participantA && msg.sender != ch.participantB) {
-            revert NotAParticipant();
-        }
-        if (msg.sender == ch.broadcaster) revert NotAParticipant();
-        address victim = msg.sender;
+        // Justice: the entire deposit goes to the VICTIM — the non-broadcasting
+        // party, derived from the recorded `broadcaster` — NOT to msg.sender.
+        // Paying a fixed, proof-derived address (rather than the caller) lets a
+        // watchtower or any altruistic relayer holding the higher-nonce
+        // co-signed state submit the proof on the victim's behalf while the
+        // victim is offline. A leaked higher-nonce state can then at worst
+        // return the victim their own funds; it can never enable theft, so the
+        // caller is intentionally unconstrained. No HTLC funds were pushed out
+        // yet (claim/timeout only accrue into the payout tallies), so
+        // totalDeposited is fully intact.
+        address victim = ch.broadcaster == ch.participantA
+            ? ch.participantB
+            : ch.participantA;
 
         uint256 reward = ch.totalDeposited;
         ch.status = Status.CLOSED;
@@ -394,15 +411,33 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
         if (block.timestamp < ch.challengeExpiry) {
             revert ChallengeWindowOpen();
         }
-        // Every HTLC must be claimed or timed out first; otherwise its value
-        // has no determined owner. Both parties are incentivized to resolve
-        // theirs (receiver claims, offerer times out after the timelock).
-        if (ch.htlcPool != 0) revert HtlcsUnresolved();
-
-        ch.status = Status.CLOSED;
 
         uint256 finalA = ch.payoutA;
         uint256 finalB = ch.payoutB;
+
+        // Every HTLC must be claimed or timed out first; otherwise its value
+        // has no determined owner. Both parties are incentivized to resolve
+        // theirs (receiver claims, offerer times out after the timelock).
+        if (ch.htlcPool != 0) {
+            // Escape hatch: an HTLC that can never be resolved (malformed but
+            // co-signed — see EMERGENCY_RESOLUTION_DELAY) would otherwise lock
+            // the entire deposit forever. Once the emergency grace has elapsed,
+            // finalize anyway, splitting the unattributable residual evenly.
+            // payoutA + payoutB + htlcPool is invariant == totalDeposited, so
+            // the full deposit is still paid out and nothing is stranded.
+            if (block.timestamp < ch.challengeExpiry + EMERGENCY_RESOLUTION_DELAY)
+            {
+                revert HtlcsUnresolved();
+            }
+            uint256 residual = ch.htlcPool;
+            uint256 half = residual / 2;
+            finalA += half;
+            finalB += residual - half;
+            ch.htlcPool = 0;
+        }
+
+        ch.status = Status.CLOSED;
+
         address a = ch.participantA;
         address b = ch.participantB;
         if (finalA > 0) token.safeTransfer(a, finalA);
