@@ -85,6 +85,10 @@ DEPLOY_STATE="$REPO/evm-contracts/channel-manager/deploy_state_${NETWORK}.json"
 # The deployer/funder address — also where node gas is swept back on teardown.
 DEPLOYER_ADDR=$(cast wallet address --private-key "$DEVKEY" 2>/dev/null || true)
 
+# eth_getLogs window size for log_count. sepolia.base.org caps a single query
+# at 2000 blocks; 1900 leaves margin. Tunable for RPCs with other limits.
+LOG_RANGE="${EVM_LOG_RANGE:-1900}"
+
 LND_BIN=${LND_BIN:-$WORKDIR/lnd}
 LNCLI_BIN=${LNCLI_BIN:-$WORKDIR/lncli}
 
@@ -130,10 +134,13 @@ trap cleanup EXIT
 # succeeds (exit 0) or the timeout elapses.
 wait_until() {
     local timeout=$1 desc=$2; shift 2
-    local t=0
+    # Track wall-clock, not iteration count: a predicate that calls rcall can
+    # itself burn 12s on retries against a flaky public RPC, so counting "one
+    # second per loop" would stretch a 240s budget into ~50 minutes. SECONDS
+    # is a bash builtin counting real seconds since the shell started.
+    local deadline=$((SECONDS + timeout))
     until "$@" >/dev/null 2>&1; do
-        t=$((t+1))
-        [ "$t" -ge "$timeout" ] && fail "timeout waiting for: $desc"
+        [ "$SECONDS" -ge "$deadline" ] && fail "timeout waiting for: $desc"
         sleep 1
     done
 }
@@ -196,11 +203,44 @@ dsend() {
     return 1
 }
 
-log_count() { # log_count <event-sig>
-    # FROM_BLOCK comes from the deploy state: public RPCs reject unbounded
-    # from-block-0 ranges, and pre-deployment blocks can't hold our events.
-    rcall logs --from-block "${FROM_BLOCK:-0}" --address "$CM" "$1" --json \
-        | json 'print(len(json.load(sys.stdin)))'
+log_count() { # log_count <event-sig> — prints the event count, or fails
+    # (return 1, no stdout) on a transient RPC error.
+    #
+    # The from-block is a recent sliding window, NOT deploy_block: public RPCs
+    # cap eth_getLogs spans (sepolia.base.org rejects anything over 2000 blocks
+    # with "query exceeds max block range"), and from deploy_block the gap is
+    # tens of thousands of blocks. Every event this suite asserts on was just
+    # emitted, so a recent window finds it — and the assertions are all
+    # baseline-relative (log_gt), comparing counts seconds apart within the
+    # same window, so the slide is immaterial. Clamp to FROM_BLOCK (deploy) for
+    # short-lived chains (anvil) whose tip is below the window size.
+    local out latest from
+    latest=$(rcall block-number) || return 1
+    from=$((latest - LOG_RANGE))
+    [ "$from" -lt "${FROM_BLOCK:-0}" ] && from=${FROM_BLOCK:-0}
+    out=$(rcall logs --from-block "$from" --address "$CM" "$1" --json) \
+        || return 1
+    # rcall already retries until non-empty, but guard anyway so a flaky
+    # public RPC never feeds empty input to json.load (which would crash
+    # with a traceback instead of cleanly failing the poll).
+    [ -n "$out" ] || return 1
+    printf '%s' "$out" | json 'print(len(json.load(sys.stdin)))' 2>/dev/null \
+        || return 1
+}
+
+# log_is <event-sig> <count> — predicate form for wait_until; tolerates the
+# transient RPC failures log_count surfaces (a failed query just retries).
+log_is() { [ "$(log_count "$1")" = "$2" ]; }
+
+# log_gt <event-sig> <baseline> — true once the event count strictly exceeds
+# <baseline>. This is the reuse-safe form: the ChannelManager is shared across
+# runs, so its event log accumulates; assertions must check that THIS run's
+# action added an event (count > baseline captured just before it), never an
+# absolute total. Tolerates the transient empty result log_count can surface.
+log_gt() {
+    local n
+    n=$(log_count "$1") || return 1
+    [ -n "$n" ] && [ "$n" -gt "$2" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -209,8 +249,14 @@ log_count() { # log_count <event-sig>
 # the standard dev RPC set.
 BUILD_TAGS="invoicesrpc routerrpc chainrpc signrpc walletrpc"
 step "Build lnd / lncli"
-( cd "$REPO" && GOWORK=off go build -tags="$BUILD_TAGS" -o "$LND_BIN" ./cmd/lnd \
-             && GOWORK=off go build -tags="$BUILD_TAGS" -o "$LNCLI_BIN" ./cmd/lncli )
+# Pin GOTOOLCHAIN=auto so the build uses the version go.mod requires (1.25.5)
+# regardless of the caller's active Go: lnd's deps pull crypto/sha3 from the
+# standard library, which only exists in Go ≥1.24, so building with an older
+# gvm-selected toolchain (e.g. 1.23.x) fails with "crypto/sha3 is not in std".
+( cd "$REPO" && GOWORK=off GOTOOLCHAIN=auto \
+        go build -tags="$BUILD_TAGS" -o "$LND_BIN" ./cmd/lnd \
+    && GOWORK=off GOTOOLCHAIN=auto \
+        go build -tags="$BUILD_TAGS" -o "$LNCLI_BIN" ./cmd/lncli )
 ok "binaries built"
 
 if [ "$NETWORK" = "anvil" ]; then
@@ -453,13 +499,16 @@ escrow_is 150 || fail "escrow changed after self-payments"
 ok "$SELF_PAY_ROUNDS self-payment rounds settled; channels and escrow intact"
 
 step "4. Cooperative close (channel 1)"
+CC_BEFORE=$(log_count 'ChannelClosed(bytes32,uint256,uint256)' || echo 0)
+CC_BEFORE=${CC_BEFORE:-0}
 lncli_n 1 closechannel "$FUNDING_TXID" >/dev/null 2>&1 &
 CLOSE_PID=$!
 
 # Only channel 1's 100-USDC deposit leaves the escrow; the reverse channel
 # stays open (and stays available in suspended mode).
 wait_until $WAIT_SETTLE "channel-1 escrow paid out" escrow_is 50
-[ "$(log_count 'ChannelClosed(bytes32,uint256,uint256)')" = "1" ] \
+wait_until $WAIT_SETTLE "ChannelClosed event emitted" \
+    log_gt 'ChannelClosed(bytes32,uint256,uint256)' "$CC_BEFORE" \
     || fail "no ChannelClosed event"
 wait_until $WAIT_SETTLE "channel 1 gone from node1" chan_active 1 1
 kill $CLOSE_PID 2>/dev/null || true
@@ -475,13 +524,15 @@ PAYREQ=$(lncli_n 2 addinvoice --amt 700000000 --memo e2e-fc \
     | json 'print(json.load(sys.stdin)["payment_request"])')
 pay_with_retry 1 "$PAYREQ"
 
+UC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' || echo 0)
+UC_BEFORE=${UC_BEFORE:-0}
+FD_BEFORE=$(log_count 'FundsDistributed(bytes32,uint256,uint256)' || echo 0)
+FD_BEFORE=${FD_BEFORE:-0}
 lncli_n 1 closechannel --force "$FUNDING_TXID2" >/dev/null 2>&1 &
 FORCE_PID=$!
 
-unilateral_seen() {
-    [ "$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')" = "1" ]
-}
-wait_until $WAIT_SETTLE "forceClose on-chain" unilateral_seen
+wait_until $WAIT_SETTLE "forceClose on-chain" \
+    log_gt 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' "$UC_BEFORE"
 kill $FORCE_PID 2>/dev/null || true
 ok "forceClose landed; channel in challenge window"
 
@@ -490,7 +541,8 @@ ok "forceClose landed; channel in challenge window"
 # payment settled before the force close). We just wait for the on-chain
 # effect. Only the reverse channel's deposit should remain escrowed.
 wait_until $WAIT_SETTLE "settler auto-broadcasts distributeFunds" escrow_is 50
-[ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" = "1" ] \
+wait_until $WAIT_SETTLE "FundsDistributed event emitted" \
+    log_gt 'FundsDistributed(bytes32,uint256,uint256)' "$FD_BEFORE" \
     || fail "no FundsDistributed event"
 ok "EVM settler auto-distributed the force-closed escrow"
 
@@ -518,11 +570,16 @@ HOLD_PR=$(lncli_n 2 addholdinvoice "$PAYHASH" --amt 300000000 \
 pay_hold_until_inflight "$HOLD_PR" HOLD_PAY_PID
 ok "held HTLC is in-flight (channel has a pending HTLC)"
 
-FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')
+FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' || echo 0)
+FC_BEFORE=${FC_BEFORE:-0}
+HC_BEFORE=$(log_count 'HTLCClaimed(bytes32,uint256,bytes32)' || echo 0)
+HC_BEFORE=${HC_BEFORE:-0}
+FD_BEFORE=$(log_count 'FundsDistributed(bytes32,uint256,uint256)' || echo 0)
+FD_BEFORE=${FD_BEFORE:-0}
 lncli_n 1 closechannel --force "$FUNDING_TXID3" >/dev/null 2>&1 &
 FORCE_PID2=$!
 fc_incremented() {
-    [ "$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')" -gt "$FC_BEFORE" ]
+    log_gt 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' "$FC_BEFORE"
 }
 wait_until $WAIT_SETTLE "forceClose with pending HTLC on-chain" fc_incremented
 kill $FORCE_PID2 2>/dev/null || true
@@ -532,14 +589,14 @@ ok "forceClose landed with an in-flight HTLC committed"
 lncli_n 2 settleinvoice "$PREIMAGE" >/dev/null 2>&1 || true
 kill $HOLD_PAY_PID 2>/dev/null || true
 htlc_claimed() {
-    [ "$(log_count 'HTLCClaimed(bytes32,uint256,bytes32)')" -ge 1 ]
+    log_gt 'HTLCClaimed(bytes32,uint256,bytes32)' "$HC_BEFORE"
 }
 wait_until $WAIT_SETTLE "settler broadcasts claimHtlc on-chain" htlc_claimed
 ok "in-flight HTLC resolved on-chain via claimHtlc (Merkle proof verified)"
 
 # With the only HTLC resolved, a settler finalises the channel.
-fd_two() { [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" -ge 2 ]; }
-wait_until $WAIT_SETTLE "distributeFunds after HTLC resolution" fd_two
+fd_incremented() { log_gt 'FundsDistributed(bytes32,uint256,uint256)' "$FD_BEFORE"; }
+wait_until $WAIT_SETTLE "distributeFunds after HTLC resolution" fd_incremented
 ok "channel finalised after in-flight HTLC resolution"
 
 # Step 7 fast-forwards the chain with anvil_mine to cross the HTLC's CLTV
@@ -572,7 +629,10 @@ TO_CLTV=$(lncli_n 1 listchannels \
     | json 'd=json.load(sys.stdin); print(max((h["expiration_height"] for c in d["channels"] for h in c["pending_htlcs"]), default=0))')
 echo "    HTLC expiry height: $TO_CLTV"
 
-FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)')
+FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' || echo 0)
+FC_BEFORE=${FC_BEFORE:-0}
+FD_BEFORE=$(log_count 'FundsDistributed(bytes32,uint256,uint256)' || echo 0)
+FD_BEFORE=${FD_BEFORE:-0}
 lncli_n 1 closechannel --force "$FUNDING_TXID4" >/dev/null 2>&1 &
 TO_FORCE_PID=$!
 wait_until $WAIT_SETTLE "forceClose with pending HTLC (timeout test)" fc_incremented
@@ -590,15 +650,15 @@ echo "    mining $ADVANCE blocks (1s apart) to cross CLTV $TO_CLTV + challenge w
 cast rpc anvil_mine "$(printf '0x%x' "$ADVANCE")" 0x1 --rpc-url "$RPC" >/dev/null 2>&1
 
 kill $TO_PAY_PID 2>/dev/null || true
-TO_BEFORE=$(log_count 'HTLCTimeout(bytes32,uint256)')
+TO_BEFORE=$(log_count 'HTLCTimeout(bytes32,uint256)' || echo 0)
+TO_BEFORE=${TO_BEFORE:-0}
 htlc_timed_out() {
     [ "$(log_count 'HTLCTimeout(bytes32,uint256)')" -gt "$TO_BEFORE" ]
 }
 wait_until $WAIT_SETTLE "settler broadcasts timeoutHtlc on-chain" htlc_timed_out
 ok "in-flight HTLC reclaimed on-chain via timeoutHtlc (timelock deadline honored)"
 
-fd_three() { [ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" -ge 3 ]; }
-wait_until $WAIT_SETTLE "distributeFunds after HTLC timeout" fd_three
+wait_until $WAIT_SETTLE "distributeFunds after HTLC timeout" fd_incremented
 ok "channel finalised after in-flight HTLC timeout"
 fi
 
