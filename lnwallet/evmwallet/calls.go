@@ -80,7 +80,8 @@ func (w *Wallet) executeCarrier(ctx context.Context, tx *wire.MsgTx) (
 		}
 
 		data, err = evmnotify.PackCloseChannel(
-			cid, finalA, finalB, sigA, sigB,
+			cid, new(big.Int).SetUint64(p.Nonce), finalA, finalB,
+			sigA, sigB,
 		)
 		if err != nil {
 			return zero, err
@@ -306,8 +307,15 @@ func (w *Wallet) executeOpenChannel(ctx context.Context,
 		}
 	}
 
+	// counterpartySig is empty: the LND funding flow currently opens
+	// single-funded channels (remoteRaw == 0), for which the contract
+	// requires no counterparty consent signature. Dual-funded opens
+	// (remoteRaw > 0) would need the counterparty's EIP-712 OpenChannel
+	// signature exchanged during funding negotiation (audit M-3) — not yet
+	// wired, so a dual-funded open fails closed at the contract rather than
+	// silently pulling the counterparty's deposit without consent.
 	openData, err := evmnotify.PackOpenChannel(
-		saltBytes, counterparty, localRaw, remoteRaw,
+		saltBytes, counterparty, localRaw, remoteRaw, nil,
 	)
 	if err != nil {
 		return zero, err

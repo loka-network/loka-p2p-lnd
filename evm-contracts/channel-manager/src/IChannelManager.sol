@@ -95,17 +95,24 @@ interface IChannelManager {
 
     /// @notice Open a channel by escrowing ERC20 tokens from both participants.
     /// The caller funds `localFundingAmount`; the counterparty must have
-    /// approved `remoteFundingAmount` (zero for single-funded channels).
+    /// approved `remoteFundingAmount` (zero for single-funded channels). When
+    /// `remoteFundingAmount > 0`, `counterpartySig` must be the counterparty's
+    /// EIP-712 OpenChannel signature consenting to the dual-funded open (audit
+    /// M-3); it is ignored for single-funded opens.
     function openChannel(
         bytes32 salt,
         address counterparty,
         uint256 localFundingAmount,
-        uint256 remoteFundingAmount
+        uint256 remoteFundingAmount,
+        bytes calldata counterpartySig
     ) external returns (bytes32 channelId);
 
     /// @notice Cooperatively close a channel; both EIP-712 signatures required.
+    /// `nonce` is the channel state number the split is agreed at; it must not
+    /// be below any previously recorded nonce (audit M-2 replay guard).
     function closeChannel(
         bytes32 channelId,
+        uint256 nonce,
         uint256 finalBalanceA,
         uint256 finalBalanceB,
         bytes calldata sigA,

@@ -16,7 +16,10 @@ contract ChannelManagerTest is Test {
         "StateUpdate(bytes32 channelId,uint256 nonce,uint256 balanceA,uint256 balanceB,bytes32 htlcsHash)"
     );
     bytes32 private constant COOP_CLOSE_TYPEHASH = keccak256(
-        "CooperativeClose(bytes32 channelId,uint256 finalBalanceA,uint256 finalBalanceB)"
+        "CooperativeClose(bytes32 channelId,uint256 nonce,uint256 finalBalanceA,uint256 finalBalanceB)"
+    );
+    bytes32 private constant OPEN_CHANNEL_TYPEHASH = keccak256(
+        "OpenChannel(bytes32 salt,address participantA,address participantB,uint256 localFundingAmount,uint256 remoteFundingAmount)"
     );
 
     uint256 private constant CHALLENGE_PERIOD = 1 days;
@@ -55,8 +58,34 @@ contract ChannelManagerTest is Test {
         vm.prank(bob);
         token.approve(address(mgr), FUND_B);
 
+        // Dual-funded: Bob (the counterparty) consents via an OpenChannel
+        // signature so Alice can pull his FUND_B deposit (audit M-3).
+        bytes memory bobConsent =
+            _sign(bobPk, _openDigest(salt, alice, bob, FUND_A, FUND_B));
+
         vm.prank(alice);
-        channelId = mgr.openChannel(salt, bob, FUND_A, FUND_B);
+        channelId = mgr.openChannel(salt, bob, FUND_A, FUND_B, bobConsent);
+    }
+
+    function _openDigest(
+        bytes32 salt_,
+        address participantA,
+        address participantB,
+        uint256 localAmt,
+        uint256 remoteAmt
+    ) internal view returns (bytes32) {
+        return _typed(
+            keccak256(
+                abi.encode(
+                    OPEN_CHANNEL_TYPEHASH,
+                    salt_,
+                    participantA,
+                    participantB,
+                    localAmt,
+                    remoteAmt
+                )
+            )
+        );
     }
 
     function _stateDigest(
@@ -81,12 +110,17 @@ contract ChannelManagerTest is Test {
 
     function _coopDigest(
         bytes32 channelId,
+        uint256 nonce,
         uint256 finalBalanceA,
         uint256 finalBalanceB
     ) internal view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(
-                COOP_CLOSE_TYPEHASH, channelId, finalBalanceA, finalBalanceB
+                COOP_CLOSE_TYPEHASH,
+                channelId,
+                nonce,
+                finalBalanceA,
+                finalBalanceB
             )
         );
         return _typed(structHash);
@@ -124,8 +158,11 @@ contract ChannelManagerTest is Test {
             expectedId, alice, bob, FUND_A, FUND_B
         );
 
+        bytes memory bobConsent =
+            _sign(bobPk, _openDigest(salt, alice, bob, FUND_A, FUND_B));
         vm.prank(alice);
-        bytes32 channelId = mgr.openChannel(salt, bob, FUND_A, FUND_B);
+        bytes32 channelId =
+            mgr.openChannel(salt, bob, FUND_A, FUND_B, bobConsent);
 
         assertEq(channelId, expectedId);
         assertEq(token.balanceOf(address(mgr)), FUND_A + FUND_B);
@@ -146,23 +183,59 @@ contract ChannelManagerTest is Test {
         token.approve(address(mgr), FUND_B);
         vm.prank(alice);
         vm.expectRevert(ChannelManager.ChannelAlreadyExists.selector);
-        mgr.openChannel(salt, bob, FUND_A, FUND_B);
+        // Duplicate is rejected before the consent check, so no sig is needed.
+        mgr.openChannel(salt, bob, FUND_A, FUND_B, "");
     }
 
     function test_OpenChannel_RevertsOnSelfCounterparty() public {
         vm.prank(alice);
         vm.expectRevert(ChannelManager.InvalidParticipants.selector);
-        mgr.openChannel(salt, alice, FUND_A, 0);
+        mgr.openChannel(salt, alice, FUND_A, 0, "");
     }
 
     function test_OpenChannel_SingleFunded() public {
         vm.prank(alice);
         token.approve(address(mgr), FUND_A);
+        // Single-funded: remoteFundingAmount == 0, so no counterparty consent
+        // signature is required.
         vm.prank(alice);
-        bytes32 channelId = mgr.openChannel(salt, bob, FUND_A, 0);
+        bytes32 channelId = mgr.openChannel(salt, bob, FUND_A, 0, "");
         assertEq(token.balanceOf(address(mgr)), FUND_A);
         (,, uint256 totalDeposited,,,,,,,,) = mgr.channels(channelId);
         assertEq(totalDeposited, FUND_A);
+    }
+
+    /// M-3: a dual-funded open (remoteFundingAmount > 0) requires the
+    /// counterparty's EIP-712 OpenChannel consent signature, so a stale
+    /// allowance can't be swept into a channel they never agreed to.
+    function test_OpenChannel_DualFundedRequiresCounterpartyConsent() public {
+        vm.prank(alice);
+        token.approve(address(mgr), FUND_A);
+        vm.prank(bob);
+        token.approve(address(mgr), FUND_B);
+
+        // Missing consent: reverts (empty bytes fail OZ's length check).
+        vm.prank(alice);
+        vm.expectRevert();
+        mgr.openChannel(salt, bob, FUND_A, FUND_B, "");
+
+        // Someone else's (well-formed) signature is not Bob's consent: reverts
+        // with InvalidSignature.
+        bytes memory notBob =
+            _sign(0xDEAD, _openDigest(salt, alice, bob, FUND_A, FUND_B));
+        vm.prank(alice);
+        vm.expectRevert(ChannelManager.InvalidSignature.selector);
+        mgr.openChannel(salt, bob, FUND_A, FUND_B, notBob);
+
+        // Bob's genuine consent: succeeds and escrows both deposits.
+        bytes memory bobConsent =
+            _sign(bobPk, _openDigest(salt, alice, bob, FUND_A, FUND_B));
+        vm.prank(alice);
+        bytes32 channelId =
+            mgr.openChannel(salt, bob, FUND_A, FUND_B, bobConsent);
+        assertEq(token.balanceOf(address(mgr)), FUND_A + FUND_B);
+        (,, uint256 totalDeposited,,,,,,,,) = mgr.channels(channelId);
+        assertEq(totalDeposited, FUND_A + FUND_B);
     }
 
     // ---------------------------------------------------------------------
@@ -174,13 +247,14 @@ contract ChannelManagerTest is Test {
 
         uint256 finalA = 700e6; // Alice gained 100 off-chain
         uint256 finalB = 300e6;
-        bytes32 digest = _coopDigest(channelId, finalA, finalB);
+        bytes32 digest = _coopDigest(channelId, 0, finalA, finalB);
 
         vm.expectEmit(true, true, true, true);
         emit IChannelManager.ChannelClosed(channelId, finalA, finalB);
 
         mgr.closeChannel(
             channelId,
+            0,
             finalA,
             finalB,
             _sign(alicePk, digest),
@@ -198,13 +272,13 @@ contract ChannelManagerTest is Test {
         bytes32 channelId = _openChannel();
         uint256 finalA = 700e6;
         uint256 finalB = 300e6;
-        bytes32 digest = _coopDigest(channelId, finalA, finalB);
+        bytes32 digest = _coopDigest(channelId, 0, finalA, finalB);
 
         // Bob's slot signed by a stranger.
         bytes memory badSig = _sign(0xDEAD, digest);
         vm.expectRevert(ChannelManager.InvalidSignature.selector);
         mgr.closeChannel(
-            channelId, finalA, finalB, _sign(alicePk, digest), badSig
+            channelId, 0, finalA, finalB, _sign(alicePk, digest), badSig
         );
     }
 
@@ -212,10 +286,11 @@ contract ChannelManagerTest is Test {
         bytes32 channelId = _openChannel();
         uint256 finalA = 700e6;
         uint256 finalB = 301e6; // sums to more than the deposit
-        bytes32 digest = _coopDigest(channelId, finalA, finalB);
+        bytes32 digest = _coopDigest(channelId, 0, finalA, finalB);
         vm.expectRevert(ChannelManager.BalanceConservationViolated.selector);
         mgr.closeChannel(
             channelId,
+            0,
             finalA,
             finalB,
             _sign(alicePk, digest),

@@ -38,7 +38,7 @@ const (
 	stateUpdateType = "StateUpdate(bytes32 channelId,uint256 nonce," +
 		"uint256 balanceA,uint256 balanceB,bytes32 htlcsHash)"
 
-	coopCloseType = "CooperativeClose(bytes32 channelId," +
+	coopCloseType = "CooperativeClose(bytes32 channelId,uint256 nonce," +
 		"uint256 finalBalanceA,uint256 finalBalanceB)"
 
 	// EvmDomainName / EvmDomainVersion are the EIP-712 domain identifiers
@@ -124,10 +124,12 @@ func (s EvmStateUpdate) Digest(domain EvmDomain) [32]byte {
 }
 
 // EvmCooperativeClose is the artifact both peers sign for a cooperative close;
-// it commits only to the agreed final split (no nonce / HTLC commitment is
-// needed because mutual agreement is final).
+// it commits to the agreed final split and the channel state number (Nonce),
+// the latter binding the close to one off-chain state so an older co-signed
+// split cannot be replayed in its place (audit M-2).
 type EvmCooperativeClose struct {
 	ChannelID     [32]byte
+	Nonce         uint64
 	FinalBalanceA *big.Int
 	FinalBalanceB *big.Int
 }
@@ -136,6 +138,7 @@ func (c EvmCooperativeClose) hashStruct() [32]byte {
 	var buf []byte
 	buf = append(buf, coopCloseTypeHash[:]...)
 	buf = append(buf, c.ChannelID[:]...)
+	buf = append(buf, encodeUint256(new(big.Int).SetUint64(c.Nonce))...)
 	buf = append(buf, encodeUint256(c.FinalBalanceA)...)
 	buf = append(buf, encodeUint256(c.FinalBalanceB)...)
 

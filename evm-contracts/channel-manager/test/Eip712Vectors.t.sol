@@ -18,7 +18,7 @@ contract Eip712VectorsTest is Test {
         "StateUpdate(bytes32 channelId,uint256 nonce,uint256 balanceA,uint256 balanceB,bytes32 htlcsHash)"
     );
     bytes32 private constant COOP_CLOSE_TYPEHASH = keccak256(
-        "CooperativeClose(bytes32 channelId,uint256 finalBalanceA,uint256 finalBalanceB)"
+        "CooperativeClose(bytes32 channelId,uint256 nonce,uint256 finalBalanceA,uint256 finalBalanceB)"
     );
 
     function test_EmitVectors() public {
@@ -49,7 +49,9 @@ contract Eip712VectorsTest is Test {
         );
 
         bytes32 ccStructHash = keccak256(
-            abi.encode(COOP_CLOSE_TYPEHASH, channelId, balanceA, balanceB)
+            abi.encode(
+                COOP_CLOSE_TYPEHASH, channelId, nonce, balanceA, balanceB
+            )
         );
         bytes32 ccDigest = keccak256(
             abi.encodePacked("\x19\x01", domSep, ccStructHash)
@@ -64,6 +66,6 @@ contract Eip712VectorsTest is Test {
         console.logBytes32(suDigest);
         console.log("^ StateUpdate digest (nonce=5, 600e6/400e6, htlcs=0)");
         console.logBytes32(ccDigest);
-        console.log("^ CooperativeClose digest (600e6/400e6)");
+        console.log("^ CooperativeClose digest (nonce=5, 600e6/400e6)");
     }
 }

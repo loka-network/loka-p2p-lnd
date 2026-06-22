@@ -82,21 +82,24 @@ func mustParseABI(s string) abi.ABI {
 }
 
 // PackOpenChannel ABI-encodes an openChannel(salt, counterparty,
-// localFundingAmount, remoteFundingAmount) call.
+// localFundingAmount, remoteFundingAmount, counterpartySig) call.
+// counterpartySig may be empty for single-funded opens (remoteAmt == 0); it is
+// the counterparty's EIP-712 OpenChannel consent signature otherwise.
 func PackOpenChannel(salt [32]byte, counterparty common.Address,
-	localAmt, remoteAmt *big.Int) ([]byte, error) {
+	localAmt, remoteAmt *big.Int, counterpartySig []byte) ([]byte, error) {
 
 	return ChannelManagerABI.Pack(
 		"openChannel", salt, counterparty, localAmt, remoteAmt,
+		counterpartySig,
 	)
 }
 
 // PackCloseChannel ABI-encodes a closeChannel call for a cooperative close.
-func PackCloseChannel(channelID [32]byte, finalA, finalB *big.Int,
+func PackCloseChannel(channelID [32]byte, nonce, finalA, finalB *big.Int,
 	sigA, sigB []byte) ([]byte, error) {
 
 	return ChannelManagerABI.Pack(
-		"closeChannel", channelID, finalA, finalB, sigA, sigB,
+		"closeChannel", channelID, nonce, finalA, finalB, sigA, sigB,
 	)
 }
 

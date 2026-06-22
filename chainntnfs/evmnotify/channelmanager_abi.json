@@ -17,6 +17,19 @@
   },
   {
     "type": "function",
+    "name": "EMERGENCY_RESOLUTION_DELAY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "challengePeriod",
     "inputs": [],
     "outputs": [
@@ -160,6 +173,11 @@
         "name": "channelId",
         "type": "bytes32",
         "internalType": "bytes32"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
         "name": "finalBalanceA",
@@ -368,6 +386,11 @@
         "name": "remoteFundingAmount",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "counterpartySig",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [

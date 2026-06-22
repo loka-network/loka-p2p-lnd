@@ -161,6 +161,10 @@ type EvmStateClosePayload struct {
 // parties' 65-byte EIP-712 CooperativeClose signatures. The contract pays out
 // directly, so anyone may broadcast — no LocalKey is needed.
 type EvmChannelClosePayload struct {
+	// Nonce is the channel state number the split is agreed at, bound into
+	// the CooperativeClose digest and checked monotonic on-chain (audit M-2).
+	Nonce uint64 `json:"nonce"`
+
 	// FinalBalanceA / FinalBalanceB are raw token base-units (decimal
 	// strings); their sum must equal the channel's totalDeposited.
 	FinalBalanceA string `json:"final_balance_a"`
@@ -174,11 +178,12 @@ type EvmChannelClosePayload struct {
 
 // BuildEvmChannelCloseTx creates the carrier tx for a cooperative
 // closeChannel call.
-func BuildEvmChannelCloseTx(channelID chainhash.Hash, finalA, finalB *big.Int,
-	sigA, sigB []byte) (*wire.MsgTx, error) {
+func BuildEvmChannelCloseTx(channelID chainhash.Hash, nonce uint64,
+	finalA, finalB *big.Int, sigA, sigB []byte) (*wire.MsgTx, error) {
 
 	return BuildEvmCallTx(
 		channelID, EvmCallChannelClose, EvmChannelClosePayload{
+			Nonce:         nonce,
 			FinalBalanceA: bigOrZero(finalA).String(),
 			FinalBalanceB: bigOrZero(finalB).String(),
 			SigA:          hex.EncodeToString(sigA),

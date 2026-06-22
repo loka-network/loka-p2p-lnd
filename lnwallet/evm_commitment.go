@@ -449,7 +449,11 @@ func (lc *LightningChannel) evmCoopClose() input.EvmCooperativeClose {
 	finalA, finalB := evmCoopCloseFinalBalances(lc.channelState)
 
 	return input.EvmCooperativeClose{
-		ChannelID:     evmChannelID(lc.channelState),
+		ChannelID: evmChannelID(lc.channelState),
+		// Bind the close to the current settled state number so an older
+		// co-signed split can't be replayed in its place (audit M-2). Both
+		// peers are at the same LocalCommitment height at a clean coop close.
+		Nonce:         lc.channelState.LocalCommitment.CommitHeight,
 		FinalBalanceA: finalA,
 		FinalBalanceB: finalB,
 	}
@@ -519,7 +523,7 @@ func (lc *LightningChannel) evmCoopCloseCarrier(localSig,
 	}
 
 	return input.BuildEvmChannelCloseTx(
-		chainhash.Hash(cc.ChannelID), cc.FinalBalanceA,
+		chainhash.Hash(cc.ChannelID), cc.Nonce, cc.FinalBalanceA,
 		cc.FinalBalanceB, sigA, sigB,
 	)
 }

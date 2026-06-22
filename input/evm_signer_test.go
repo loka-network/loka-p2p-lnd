@@ -35,7 +35,7 @@ const (
 	goldenDomainSep  = "f9539b7625e92735545c67c4e960feba8c96f55f2eadb421aa810332e49afed3"
 	goldenChannelID  = "cf71ef495a3b75cecb486559f73ef932fad04e7ddcc3ddadd2c144e4c5ecce25"
 	goldenStateDig   = "261e14131a6d9c28cc84579fe345605ff2f942b95fdcbae3bfb793f30e7513c9"
-	goldenCoopDigest = "6d537a6da1f4f4e43d74d11cd20b1f34d26e5007f158dde614666eaa20b3d9ec"
+	goldenCoopDigest = "d671c8ec9682eb8e1d097009119d0b2418bd15e9e3a857fd3e51c1b34140994e"
 )
 
 func goldenDomain(t *testing.T) EvmDomain {
@@ -80,6 +80,7 @@ func TestEvmCooperativeCloseDigest(t *testing.T) {
 	t.Parallel()
 	cc := EvmCooperativeClose{
 		ChannelID:     hexToBytes32(t, goldenChannelID),
+		Nonce:         5,
 		FinalBalanceA: big.NewInt(600_000_000),
 		FinalBalanceB: big.NewInt(400_000_000),
 	}

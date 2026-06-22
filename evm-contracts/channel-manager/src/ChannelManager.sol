@@ -36,12 +36,22 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
         "StateUpdate(bytes32 channelId,uint256 nonce,uint256 balanceA,uint256 balanceB,bytes32 htlcsHash)"
     );
 
-    /// @dev Cooperative close commits only to the agreed final split. Mutual
-    /// agreement (both signatures) makes a nonce/HTLC commitment unnecessary;
-    /// `channelId` + the EIP-712 domain still bind it to one channel on one
-    /// sub-network, so it cannot be replayed (spec §2.1 replay safety).
+    /// @dev Cooperative close commits to the agreed final split AND the channel
+    /// state number (`nonce`). `channelId` + the EIP-712 domain bind it to one
+    /// channel on one sub-network; the `nonce` binds it to one off-chain state,
+    /// so an older co-signed split from an aborted negotiation cannot be
+    /// replayed in place of the latest agreed one (audit M-2).
     bytes32 private constant COOP_CLOSE_TYPEHASH = keccak256(
-        "CooperativeClose(bytes32 channelId,uint256 finalBalanceA,uint256 finalBalanceB)"
+        "CooperativeClose(bytes32 channelId,uint256 nonce,uint256 finalBalanceA,uint256 finalBalanceB)"
+    );
+
+    /// @dev Authorizes a dual-funded open: the counterparty signs this to
+    /// consent to its `remoteFundingAmount` being pulled into a channel the
+    /// initiator parameterizes. Required only when remoteFundingAmount > 0, so
+    /// single-funded opens (the counterparty has nothing at stake) need no
+    /// signature (audit M-3).
+    bytes32 private constant OPEN_CHANNEL_TYPEHASH = keccak256(
+        "OpenChannel(bytes32 salt,address participantA,address participantB,uint256 localFundingAmount,uint256 remoteFundingAmount)"
     );
 
     // ---------------------------------------------------------------------
@@ -132,7 +142,8 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
         bytes32 salt,
         address counterparty,
         uint256 localFundingAmount,
-        uint256 remoteFundingAmount
+        uint256 remoteFundingAmount,
+        bytes calldata counterpartySig
     ) external nonReentrant returns (bytes32 channelId) {
         if (counterparty == address(0) || counterparty == msg.sender) {
             revert InvalidParticipants();
@@ -148,6 +159,29 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
 
         Channel storage ch = channels[channelId];
         if (ch.status != Status.NONEXISTENT) revert ChannelAlreadyExists();
+
+        // Dual-funded: the counterparty must explicitly consent to its deposit
+        // being pulled, so a stale ERC20 allowance can't be swept into a
+        // channel it never agreed to (audit M-3). Single-funded opens
+        // (remoteFundingAmount == 0) put nothing of the counterparty's at
+        // stake, so no signature is required.
+        if (remoteFundingAmount > 0) {
+            bytes32 openDigest = _hashTypedDataV4(
+                keccak256(
+                    abi.encode(
+                        OPEN_CHANNEL_TYPEHASH,
+                        salt,
+                        msg.sender,
+                        counterparty,
+                        localFundingAmount,
+                        remoteFundingAmount
+                    )
+                )
+            );
+            if (ECDSA.recover(openDigest, counterpartySig) != counterparty) {
+                revert InvalidSignature();
+            }
+        }
 
         ch.participantA = msg.sender;
         ch.participantB = counterparty;
@@ -183,6 +217,7 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
     /// @inheritdoc IChannelManager
     function closeChannel(
         bytes32 channelId,
+        uint256 nonce,
         uint256 finalBalanceA,
         uint256 finalBalanceB,
         bytes calldata sigA,
@@ -193,12 +228,17 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
         if (finalBalanceA + finalBalanceB != ch.totalDeposited) {
             revert BalanceConservationViolated();
         }
+        // The close is bound to a state number: a stale-state co-signed split
+        // (nonce below the latest the parties advanced to) is rejected. Both
+        // signatures cover the nonce, so neither party can downgrade it.
+        if (nonce < ch.nonce) revert StaleNonce();
 
         bytes32 digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
                     COOP_CLOSE_TYPEHASH,
                     channelId,
+                    nonce,
                     finalBalanceA,
                     finalBalanceB
                 )
@@ -211,6 +251,7 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
             revert InvalidSignature();
         }
 
+        ch.nonce = nonce;
         ch.status = Status.CLOSED;
 
         address a = ch.participantA;
