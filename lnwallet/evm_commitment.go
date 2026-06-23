@@ -744,6 +744,29 @@ func EvmPenalizeTx(chanState *channeldb.OpenChannel) (*wire.MsgTx, error) {
 	)
 }
 
+// EvmJusticeBackupFields extracts the data a watchtower needs to penalize on
+// this node's behalf: the latest co-signed state (channelId, nonce, balances,
+// htlcsHash) plus the counterparty's retained signature over it. It is the
+// watchtower analogue of EvmPenalizeTx, returning raw fields so the higher
+// layer (watchtower/evmtower) can assemble its JusticeBackup without lnwallet
+// importing it. Both share evmStateUpdateFromDiskCommit + evmRetainedSig65, so
+// a tower-submitted penalize is byte-identical to the node's own.
+func EvmJusticeBackupFields(chanState *channeldb.OpenChannel) (
+	channelID [32]byte, nonce uint64, balanceA, balanceB *big.Int,
+	htlcsHash [32]byte, counterpartySig []byte, err error) {
+
+	commit := chanState.LocalCommitment
+	su := evmStateUpdateFromDiskCommit(chanState, &commit)
+
+	sig65, err := evmRetainedSig65(chanState, &commit)
+	if err != nil {
+		return [32]byte{}, 0, nil, nil, [32]byte{}, nil, err
+	}
+
+	return su.ChannelID, su.Nonce, su.BalanceA, su.BalanceB, su.HtlcsHash,
+		sig65, nil
+}
+
 // verifyEvmCommitment checks a remote commitment signature against the EIP-712
 // StateUpdate for the given view, using the remote funding multisig pubkey. It
 // is the EVM replacement for SegWit sighash verification, gated by

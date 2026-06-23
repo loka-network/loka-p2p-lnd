@@ -224,6 +224,34 @@ func UnpackChannelStatus(data []byte) (uint8, error) {
 	return st, nil
 }
 
+// UnpackUnilateralClose decodes the non-indexed data of a
+// UnilateralCloseInitiated log into the fields a watchtower needs to judge a
+// breach: the broadcaster, the nonce of the broadcast state, and the challenge
+// deadline (unix seconds). channelId is the indexed topic, not part of data.
+func UnpackUnilateralClose(data []byte) (broadcaster common.Address,
+	nonce, challengeExpiry uint64, err error) {
+
+	vals, err := ChannelManagerABI.Events["UnilateralCloseInitiated"].
+		Inputs.NonIndexed().Unpack(data)
+	if err != nil {
+		return common.Address{}, 0, 0, err
+	}
+	// broadcaster, nonce, balanceA, balanceB, challengeExpiry.
+	if len(vals) != 5 {
+		return common.Address{}, 0, 0, fmt.Errorf("evmnotify: " +
+			"unexpected UnilateralCloseInitiated data")
+	}
+	bc, okBC := vals[0].(common.Address)
+	n, okN := vals[1].(*big.Int)
+	ce, okCE := vals[4].(*big.Int)
+	if !okBC || !okN || !okCE {
+		return common.Address{}, 0, 0, fmt.Errorf("evmnotify: " +
+			"UnilateralCloseInitiated field types")
+	}
+
+	return bc, n.Uint64(), ce.Uint64(), nil
+}
+
 // UnpackChannelOpened decodes the non-indexed data of a ChannelOpened log,
 // returning the two raw base-unit deposits.
 func UnpackChannelOpened(data []byte) (balanceA, balanceB *big.Int,
