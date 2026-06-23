@@ -21,6 +21,11 @@ type EvmWatchtower struct {
 	// PollInterval is how often the tower scans for close events, e.g.
 	// "5s". Empty uses the package default.
 	PollInterval string `long:"pollinterval" description:"How often to scan the chain for force-close events (e.g. 5s)."`
+
+	// Listen is the address the tower accepts brontide backup uploads on
+	// (e.g. "0.0.0.0:9912"). Empty disables the networked listener (the
+	// tower then only acts on backups placed in BackupDir locally).
+	Listen string `long:"listen" description:"Address to accept networked watchtower backup uploads on (host:port)."`
 }
 
 // DefaultEvmWatchtower returns the default (disabled) EVM watchtower config.

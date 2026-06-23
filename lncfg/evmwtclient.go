@@ -17,6 +17,11 @@ type EvmWtClient struct {
 	// Interval is how often to snapshot, e.g. "30s". Empty uses the
 	// package default.
 	Interval string `long:"interval" description:"How often to snapshot channel state for backup (e.g. 30s)."`
+
+	// Tower is the remote tower to ship backups to, as <pubkey>@<host:port>.
+	// Empty keeps backups local (written to BackupDir); set it to upload
+	// over brontide to a networked tower instead.
+	Tower string `long:"tower" description:"Remote EVM watchtower to upload backups to, as <pubkey>@<host:port>."`
 }
 
 // DefaultEvmWtClient returns the default (disabled) EVM watchtower client config.

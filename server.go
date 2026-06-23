@@ -389,6 +389,10 @@ type server struct {
 	// only when --evmwtclient.active is set on an EVM-backend node.
 	evmBackupAgent *evmtower.BackupAgent
 
+	// evmTowerServer accepts networked backup uploads; non-nil only when
+	// --evmwatchtower.listen is set.
+	evmTowerServer *evmtower.Server
+
 	connMgr *connmgr.ConnManager
 
 	sigPool *lnwallet.SigPool
@@ -1863,14 +1867,14 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
-	// Construct the EVM watchtower lookout + backup agent when enabled
-	// (no-ops otherwise).
-	s.evmLookout, err = newEvmLookout(cfg, cc)
+	// Construct the EVM watchtower lookout + (optional) backup server and
+	// the client backup agent when enabled (no-ops otherwise).
+	s.evmLookout, s.evmTowerServer, err = newEvmLookout(cfg, cc, nodeKeyECDH)
 	if err != nil {
 		return nil, err
 	}
 	s.evmBackupAgent, err = newEvmBackupAgent(
-		cfg, s.chanStateDB.FetchAllOpenChannels,
+		cfg, nodeKeyECDH, s.chanStateDB.FetchAllOpenChannels,
 	)
 	if err != nil {
 		return nil, err
@@ -2274,6 +2278,14 @@ func (s *server) Start(ctx context.Context) error {
 				startErr = err
 				return
 			}
+		}
+
+		if s.evmTowerServer != nil {
+			cleanup = cleanup.add(func() error {
+				s.evmTowerServer.Stop()
+				return nil
+			})
+			s.evmTowerServer.Start()
 		}
 
 		if s.evmLookout != nil {
@@ -2782,6 +2794,10 @@ func (s *server) Stop() error {
 
 		if s.evmBackupAgent != nil {
 			s.evmBackupAgent.Stop()
+		}
+
+		if s.evmTowerServer != nil {
+			s.evmTowerServer.Stop()
 		}
 
 		if s.hostAnn != nil {
