@@ -35,6 +35,12 @@ type EvmWatchtower struct {
 	// ChannelManager's deploy block to catch closes that predate startup.
 	// 0 starts one ScanWindow back from the chain tip.
 	FromBlock uint64 `long:"fromblock" description:"Block to start scanning from (e.g. the contract deploy block); 0 = one window back from tip."`
+
+	// AllowedClients is the set of client node identity pubkeys (33-byte
+	// compressed hex) the tower accepts backup uploads from. Empty means
+	// accept any client (open/altruistic tower — DoS-prone); set it to
+	// restrict the tower to the nodes you agreed to serve. Repeatable.
+	AllowedClients []string `long:"allowedclient" description:"Client identity pubkey (hex) allowed to upload backups; repeatable; empty = accept all."`
 }
 
 // DefaultEvmWatchtower returns the default (disabled) EVM watchtower config.

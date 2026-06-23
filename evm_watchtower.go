@@ -1,11 +1,13 @@
 package lnd
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"path/filepath"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/lightningnetwork/lnd/chainntnfs/evmnotify"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -16,6 +18,39 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/evmwallet"
 	"github.com/lightningnetwork/lnd/watchtower/evmtower"
 )
+
+// evmClientAllowlist turns a list of hex client identity pubkeys into a
+// brontide shouldAccept callback. An empty list returns nil, which NewServer
+// treats as "accept any client" (open/altruistic tower); a non-empty list
+// restricts uploads to those pubkeys (DoS hardening — audit A-1).
+func evmClientAllowlist(hexKeys []string) (
+	func(*btcec.PublicKey) (bool, error), error) {
+
+	if len(hexKeys) == 0 {
+		return nil, nil
+	}
+
+	allowed := make(map[string]struct{}, len(hexKeys))
+	for _, h := range hexKeys {
+		raw, err := hex.DecodeString(h)
+		if err != nil {
+			return nil, fmt.Errorf("evmwatchtower: bad allowed "+
+				"client pubkey %q: %w", h, err)
+		}
+		pk, err := btcec.ParsePubKey(raw)
+		if err != nil {
+			return nil, fmt.Errorf("evmwatchtower: bad allowed "+
+				"client pubkey %q: %w", h, err)
+		}
+		allowed[string(pk.SerializeCompressed())] = struct{}{}
+	}
+
+	return func(pub *btcec.PublicKey) (bool, error) {
+		_, ok := allowed[string(pub.SerializeCompressed())]
+
+		return ok, nil
+	}, nil
+}
 
 // newEvmLookout constructs the EVM watchtower Lookout when --evmwatchtower.active
 // is set on an EVM-backend node. It returns (nil, nil) when the tower is
@@ -100,14 +135,22 @@ func newEvmLookout(cfg *Config, cc *chainreg.ChainControl,
 	// into the same store the lookout acts on.
 	var server *evmtower.Server
 	if cfg.EvmWatchtower.Listen != "" {
-		server, err = evmtower.NewServer(
-			nodeKey, cfg.EvmWatchtower.Listen, store, nil,
+		shouldAccept, err := evmClientAllowlist(
+			cfg.EvmWatchtower.AllowedClients,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
-		ltndLog.Infof("EVM watchtower listening for backups on %s",
-			cfg.EvmWatchtower.Listen)
+		server, err = evmtower.NewServer(
+			nodeKey, cfg.EvmWatchtower.Listen, store, shouldAccept,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		ltndLog.Infof("EVM watchtower listening for backups on %s "+
+			"(allowed clients: %d, 0=open)",
+			cfg.EvmWatchtower.Listen,
+			len(cfg.EvmWatchtower.AllowedClients))
 	}
 
 	return lookout, server, nil

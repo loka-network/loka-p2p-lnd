@@ -58,6 +58,58 @@ func TestNetworkedBackup(t *testing.T) {
 	}, 3*time.Second, 20*time.Millisecond)
 }
 
+// TestServerAllowlist checks the tower accepts an allowed client and rejects
+// others at the brontide handshake (audit A-1 DoS hardening).
+func TestServerAllowlist(t *testing.T) {
+	t.Parallel()
+
+	towerPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	towerKey := &keychain.PrivKeyECDH{PrivKey: towerPriv}
+
+	allowedPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	strangerPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Only the allowed client's identity pubkey may connect.
+	allowedComp := string(allowedPriv.PubKey().SerializeCompressed())
+	shouldAccept := func(p *btcec.PublicKey) (bool, error) {
+		return string(p.SerializeCompressed()) == allowedComp, nil
+	}
+
+	store := NewMemStore()
+	srv, err := NewServer(towerKey, "127.0.0.1:0", store, shouldAccept)
+	require.NoError(t, err)
+	srv.Start()
+	defer srv.Stop()
+
+	tower := &lnwire.NetAddress{
+		IdentityKey: towerPriv.PubKey(),
+		Address:     srv.Addr().(*net.TCPAddr),
+	}
+
+	// Allowed client: upload succeeds and is stored.
+	ok := NewRemoteStore(
+		&keychain.PrivKeyECDH{PrivKey: allowedPriv}, tower,
+		3*time.Second, nil,
+	)
+	require.NoError(t, ok.Put(testBackup(5)))
+	require.Eventually(t, func() bool {
+		b, found := store.Get([32]byte{0xab, 0xcd})
+
+		return found && b.Nonce == 5
+	}, 3*time.Second, 20*time.Millisecond)
+
+	// Stranger: the handshake is rejected, so the upload errors.
+	bad := NewRemoteStore(
+		&keychain.PrivKeyECDH{PrivKey: strangerPriv}, tower,
+		3*time.Second, nil,
+	)
+	require.Error(t, bad.Put(testBackup(9)),
+		"a non-allowlisted client must be rejected")
+}
+
 // TestBackupAgentOverNetwork wires the existing BackupAgent to a RemoteStore,
 // proving the client agent ships snapshots to a remote tower unchanged.
 func TestBackupAgentOverNetwork(t *testing.T) {
