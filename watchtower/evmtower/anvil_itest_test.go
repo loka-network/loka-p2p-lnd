@@ -62,10 +62,17 @@ func TestAnvilWatchtowerBreach(t *testing.T) {
 	bAddr := gethcrypto.PubkeyToAddress(bKey.PublicKey)
 	towerAddr := gethcrypto.PubkeyToAddress(towerKey.PublicKey)
 
-	oneEth := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 	// Gas for A (open/forceClose) and the tower (penalize). B stays offline.
-	sendValue(ctx, t, client, deployer, aAddr, oneEth)
-	sendValue(ctx, t, client, deployer, towerAddr, oneEth)
+	// Default 1 ETH (anvil); a public testnet sets EVMTOWER_GAS_WEI small so
+	// the modestly-funded deployer can afford it.
+	gasFund := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	if v := os.Getenv("EVMTOWER_GAS_WEI"); v != "" {
+		g, ok := new(big.Int).SetString(v, 10)
+		require.True(t, ok, "bad EVMTOWER_GAS_WEI")
+		gasFund = g
+	}
+	sendValue(ctx, t, client, deployer, aAddr, gasFund)
+	sendValue(ctx, t, client, deployer, towerAddr, gasFund)
 
 	// Fund A with 100 USDC (6-dec) from the deployer's minted supply.
 	const deposit = uint64(100_000_000) // 100 USDC
@@ -137,17 +144,21 @@ func TestAnvilWatchtowerBreach(t *testing.T) {
 		Penalizer: &EvmPenalizer{
 			Client: client, Contract: contract, Key: towerKey,
 		},
+		// Poll quickly; the close may land in the very tip block, caught
+		// on the next pass. Run the real loop, not a single scan, so this
+		// works against a live chain too.
+		PollInterval: 2 * time.Second,
 	})
+	lo.Start()
+	defer lo.Stop()
 
-	// One scan detects the stale-nonce close and submits penalize.
-	lo.scan()
-
-	// The victim B (offline throughout) must receive the entire deposit.
+	// The victim B (offline throughout) must receive the entire deposit
+	// before the challenge window closes (60s on the test deployment).
 	require.Eventually(t, func() bool {
 		bal := balanceOf(ctx, t, client, token, bAddr)
 
 		return bal.Uint64() == deposit
-	}, 20*time.Second, 500*time.Millisecond,
+	}, 55*time.Second, 2*time.Second,
 		"victim should be swept the full escrow by the tower's penalize")
 }
 
