@@ -8,6 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/lightningnetwork/lnd/chainntnfs/evmnotify"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/evmwallet"
 	"github.com/lightningnetwork/lnd/watchtower/evmtower"
 )
@@ -87,4 +89,83 @@ func newEvmLookout(cfg *Config, cc *chainreg.ChainControl) (*evmtower.Lookout,
 		// RPC doesn't reject the query.
 		FromBlock: 0,
 	}), nil
+}
+
+// evmChannelSource builds JusticeBackups from this node's open channels. It
+// implements evmtower.ChannelSource. Because a node runs a single chain
+// backend, when EVM is active every open channel is an EVM channel.
+type evmChannelSource struct {
+	fetchOpen func() ([]*channeldb.OpenChannel, error)
+}
+
+// EvmBackups implements evmtower.ChannelSource.
+func (s *evmChannelSource) EvmBackups() ([]*evmtower.JusticeBackup, error) {
+	chans, err := s.fetchOpen()
+	if err != nil {
+		return nil, err
+	}
+
+	backups := make([]*evmtower.JusticeBackup, 0, len(chans))
+	for _, c := range chans {
+		id, nonce, balA, balB, htlcsHash, sig, err :=
+			lnwallet.EvmJusticeBackupFields(c)
+		if err != nil {
+			// A channel with no retained counterparty signature yet
+			// (e.g. freshly funded, no state updates) can't be
+			// defended; skip it until it has a co-signed state.
+			ltndLog.Debugf("EVM watchtower: skip backup for %v: %v",
+				c.FundingOutpoint, err)
+
+			continue
+		}
+		backups = append(backups, &evmtower.JusticeBackup{
+			ChannelID:       id,
+			Nonce:           nonce,
+			BalanceA:        balA,
+			BalanceB:        balB,
+			HtlcsHash:       htlcsHash,
+			CounterpartySig: sig,
+		})
+	}
+
+	return backups, nil
+}
+
+// newEvmBackupAgent constructs the client-side backup agent when
+// --evmwtclient.active is set on an EVM-backend node, else (nil, nil).
+func newEvmBackupAgent(cfg *Config,
+	fetchOpen func() ([]*channeldb.OpenChannel, error)) (
+	*evmtower.BackupAgent, error) {
+
+	if cfg.EvmWtClient == nil || !cfg.EvmWtClient.Active {
+		return nil, nil
+	}
+	if cfg.EvmMode == nil || !cfg.EvmMode.Active {
+		return nil, fmt.Errorf("evmwtclient requires the EVM chain " +
+			"backend (--evm.active)")
+	}
+
+	backupDir := cfg.EvmWtClient.BackupDir
+	if backupDir == "" {
+		backupDir = filepath.Join(cfg.LndDir, "evm-justice")
+	}
+	store, err := evmtower.NewFileStore(backupDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var interval time.Duration
+	if cfg.EvmWtClient.Interval != "" {
+		interval, err = time.ParseDuration(cfg.EvmWtClient.Interval)
+		if err != nil {
+			return nil, fmt.Errorf("evmwtclient: bad interval %q: %w",
+				cfg.EvmWtClient.Interval, err)
+		}
+	}
+
+	ltndLog.Infof("Starting EVM watchtower client: backupdir=%s", backupDir)
+
+	source := &evmChannelSource{fetchOpen: fetchOpen}
+
+	return evmtower.NewBackupAgent(source, store, interval), nil
 }

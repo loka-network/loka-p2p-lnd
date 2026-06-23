@@ -385,6 +385,10 @@ type server struct {
 	// --evmwatchtower.active is set on an EVM-backend node.
 	evmLookout *evmtower.Lookout
 
+	// evmBackupAgent snapshots channel state for watchtower backup; non-nil
+	// only when --evmwtclient.active is set on an EVM-backend node.
+	evmBackupAgent *evmtower.BackupAgent
+
 	connMgr *connmgr.ConnManager
 
 	sigPool *lnwallet.SigPool
@@ -1859,8 +1863,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
-	// Construct the EVM watchtower lookout when enabled (no-op otherwise).
+	// Construct the EVM watchtower lookout + backup agent when enabled
+	// (no-ops otherwise).
 	s.evmLookout, err = newEvmLookout(cfg, cc)
+	if err != nil {
+		return nil, err
+	}
+	s.evmBackupAgent, err = newEvmBackupAgent(
+		cfg, s.chanStateDB.FetchAllOpenChannels,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2271,6 +2282,14 @@ func (s *server) Start(ctx context.Context) error {
 				return nil
 			})
 			s.evmLookout.Start()
+		}
+
+		if s.evmBackupAgent != nil {
+			cleanup = cleanup.add(func() error {
+				s.evmBackupAgent.Stop()
+				return nil
+			})
+			s.evmBackupAgent.Start()
 		}
 
 		beat, err := s.getStartingBeat()
@@ -2759,6 +2778,10 @@ func (s *server) Stop() error {
 
 		if s.evmLookout != nil {
 			s.evmLookout.Stop()
+		}
+
+		if s.evmBackupAgent != nil {
+			s.evmBackupAgent.Stop()
 		}
 
 		if s.hostAnn != nil {
