@@ -81,6 +81,7 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
+	"github.com/lightningnetwork/lnd/watchtower/evmtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -379,6 +380,10 @@ type server struct {
 	sphinx *hop.OnionProcessor
 
 	towerClientMgr *wtclient.Manager
+
+	// evmLookout is the EVM watchtower's chain watcher; non-nil only when
+	// --evmwatchtower.active is set on an EVM-backend node.
+	evmLookout *evmtower.Lookout
 
 	connMgr *connmgr.ConnManager
 
@@ -1298,16 +1303,16 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				broadcastHeight, deadlineHeight,
 			)
 		},
-		PreimageDB:   s.witnessBeacon,
+		PreimageDB: s.witnessBeacon,
 		// EVM-only: lets the post-close settler read on-chain channel
 		// status and stop re-broadcasting distributeFunds once CLOSED.
 		// nil on Bitcoin/Sui.
 		EvmChannelStatus: evmChannelStatusFunc(cc),
 		Notifier:         cc.ChainNotifier,
 		Mempool:          cc.MempoolNotifier,
-		Signer:       cc.Wallet.Cfg.Signer,
-		FeeEstimator: cc.FeeEstimator,
-		ChainIO:      cc.ChainIO,
+		Signer:           cc.Wallet.Cfg.Signer,
+		FeeEstimator:     cc.FeeEstimator,
+		ChainIO:          cc.ChainIO,
 		MarkLinkInactive: func(chanPoint wire.OutPoint) error {
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			s.htlcSwitch.RemoveLink(chanID)
@@ -1854,6 +1859,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
+	// Construct the EVM watchtower lookout when enabled (no-op otherwise).
+	s.evmLookout, err = newEvmLookout(cfg, cc)
+	if err != nil {
+		return nil, err
+	}
+
 	// Finally, register the subsystems in blockbeat.
 	s.registerBlockConsumers()
 
@@ -2252,6 +2263,14 @@ func (s *server) Start(ctx context.Context) error {
 				startErr = err
 				return
 			}
+		}
+
+		if s.evmLookout != nil {
+			cleanup = cleanup.add(func() error {
+				s.evmLookout.Stop()
+				return nil
+			})
+			s.evmLookout.Start()
 		}
 
 		beat, err := s.getStartingBeat()
@@ -2736,6 +2755,10 @@ func (s *server) Stop() error {
 				srvrLog.Warnf("Unable to shut down tower "+
 					"client manager: %v", err)
 			}
+		}
+
+		if s.evmLookout != nil {
+			s.evmLookout.Stop()
 		}
 
 		if s.hostAnn != nil {

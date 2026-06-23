@@ -139,6 +139,13 @@ func (w *Wallet) nodeECDSAKey() (*ecdsa.PrivateKey, common.Address, error) {
 	return ecdsaKey, addr, nil
 }
 
+// NodeECDSAKey exposes the node's EVM signing key (and address), for callers
+// outside the wallet that must sign EVM transactions with the node identity —
+// e.g. the EVM watchtower's penalize relayer (watchtower/evmtower).
+func (w *Wallet) NodeECDSAKey() (*ecdsa.PrivateKey, common.Address, error) {
+	return w.nodeECDSAKey()
+}
+
 // broadcastCall builds a legacy EIP-155 transaction for the given EVM call,
 // signs it with the node key, and broadcasts it. It returns the transaction
 // hash mapped into LND's chainhash.Hash type.

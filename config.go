@@ -402,6 +402,9 @@ type Config struct {
 	// EvmMode holds the EVM node connection parameters.
 	EvmMode *lncfg.EvmNode `group:"evm" namespace:"evm"`
 
+	// EvmWatchtower configures the EVM watchtower (H-1 breach delegation).
+	EvmWatchtower *lncfg.EvmWatchtower `group:"evmwatchtower" namespace:"evmwatchtower"`
+
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
 	Autopilot *lncfg.AutoPilot `group:"Autopilot" namespace:"autopilot"`
@@ -645,7 +648,8 @@ func DefaultConfig() Config {
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
 			Node:          "evm",
 		},
-		EvmMode: lncfg.DefaultEvmNode(),
+		EvmMode:       lncfg.DefaultEvmNode(),
+		EvmWatchtower: lncfg.DefaultEvmWatchtower(),
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
