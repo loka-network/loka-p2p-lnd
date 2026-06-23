@@ -19,18 +19,15 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/evmtower"
 )
 
-// evmClientAllowlist turns a list of hex client identity pubkeys into a
-// brontide shouldAccept callback. An empty list returns nil, which NewServer
-// treats as "accept any client" (open/altruistic tower); a non-empty list
-// restricts uploads to those pubkeys (DoS hardening — audit A-1).
-func evmClientAllowlist(hexKeys []string) (
-	func(*btcec.PublicKey) (bool, error), error) {
-
+// evmClientAllowlist parses a list of hex client identity pubkeys into the
+// public keys the tower's Server allowlist is seeded with. An empty list yields
+// nil → an open tower; a non-empty list restricts uploads (audit A-1).
+func evmClientAllowlist(hexKeys []string) ([]*btcec.PublicKey, error) {
 	if len(hexKeys) == 0 {
 		return nil, nil
 	}
 
-	allowed := make(map[string]struct{}, len(hexKeys))
+	keys := make([]*btcec.PublicKey, 0, len(hexKeys))
 	for _, h := range hexKeys {
 		raw, err := hex.DecodeString(h)
 		if err != nil {
@@ -42,14 +39,10 @@ func evmClientAllowlist(hexKeys []string) (
 			return nil, fmt.Errorf("evmwatchtower: bad allowed "+
 				"client pubkey %q: %w", h, err)
 		}
-		allowed[string(pk.SerializeCompressed())] = struct{}{}
+		keys = append(keys, pk)
 	}
 
-	return func(pub *btcec.PublicKey) (bool, error) {
-		_, ok := allowed[string(pub.SerializeCompressed())]
-
-		return ok, nil
-	}, nil
+	return keys, nil
 }
 
 // newEvmLookout constructs the EVM watchtower Lookout when --evmwatchtower.active
@@ -135,14 +128,14 @@ func newEvmLookout(cfg *Config, cc *chainreg.ChainControl,
 	// into the same store the lookout acts on.
 	var server *evmtower.Server
 	if cfg.EvmWatchtower.Listen != "" {
-		shouldAccept, err := evmClientAllowlist(
+		allowed, err := evmClientAllowlist(
 			cfg.EvmWatchtower.AllowedClients,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
 		server, err = evmtower.NewServer(
-			nodeKey, cfg.EvmWatchtower.Listen, store, shouldAccept,
+			nodeKey, cfg.EvmWatchtower.Listen, store, allowed,
 		)
 		if err != nil {
 			return nil, nil, err

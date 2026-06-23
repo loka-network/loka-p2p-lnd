@@ -1,6 +1,7 @@
 package evmtower
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
@@ -28,31 +29,102 @@ type Server struct {
 	listener *brontide.Listener
 	store    BackupStore
 
+	// allowed is the live set of client identity pubkeys (compressed bytes
+	// as map keys) permitted to upload. An empty set means "open" (accept
+	// any client). It is mutable at runtime — SetAllowed/Allow/Disallow take
+	// effect on the next handshake without restarting the listener, because
+	// shouldAccept reads it live under allowMu (audit A-1; runtime reload).
+	allowMu sync.RWMutex
+	allowed map[string]struct{}
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
 
 // NewServer starts a brontide listener on listenAddr identified by localKey.
-// shouldAccept gates which client identity keys may connect (nil accepts all).
+// allowed is the initial client identity-pubkey allowlist; empty/nil means
+// accept any client (open tower). The set can be changed at runtime via
+// SetAllowed/Allow/Disallow.
 func NewServer(localKey keychain.SingleKeyECDH, listenAddr string,
-	store BackupStore,
-	shouldAccept func(*btcec.PublicKey) (bool, error)) (*Server, error) {
+	store BackupStore, allowed []*btcec.PublicKey) (*Server, error) {
 
-	if shouldAccept == nil {
-		shouldAccept = func(*btcec.PublicKey) (bool, error) {
-			return true, nil
-		}
+	s := &Server{
+		store:   store,
+		allowed: make(map[string]struct{}),
+		quit:    make(chan struct{}),
 	}
-	l, err := brontide.NewListener(localKey, listenAddr, shouldAccept)
+	s.SetAllowed(allowed)
+
+	// shouldAccept reads the live allowlist on every handshake, so runtime
+	// changes apply without recreating the listener.
+	l, err := brontide.NewListener(localKey, listenAddr, s.shouldAccept)
 	if err != nil {
 		return nil, fmt.Errorf("evmtower: listen: %w", err)
 	}
+	s.listener = l
 
-	return &Server{
-		listener: l,
-		store:    store,
-		quit:     make(chan struct{}),
-	}, nil
+	return s, nil
+}
+
+// shouldAccept is the brontide accept gate: open when the allowlist is empty,
+// else membership. Read live so runtime mutations take effect immediately.
+func (s *Server) shouldAccept(pub *btcec.PublicKey) (bool, error) {
+	s.allowMu.RLock()
+	defer s.allowMu.RUnlock()
+
+	if len(s.allowed) == 0 {
+		return true, nil
+	}
+	_, ok := s.allowed[string(pub.SerializeCompressed())]
+
+	return ok, nil
+}
+
+// SetAllowed replaces the allowlist. An empty list reopens the tower to all
+// clients (logged, since that is a notable posture change).
+func (s *Server) SetAllowed(pubs []*btcec.PublicKey) {
+	s.allowMu.Lock()
+	defer s.allowMu.Unlock()
+
+	s.allowed = make(map[string]struct{}, len(pubs))
+	for _, p := range pubs {
+		s.allowed[string(p.SerializeCompressed())] = struct{}{}
+	}
+	if len(s.allowed) == 0 {
+		log.Warnf("evmtower: allowlist empty — accepting ALL clients")
+	}
+}
+
+// Allow adds one client to the allowlist (switching from open to restricted if
+// the list was empty).
+func (s *Server) Allow(pub *btcec.PublicKey) {
+	s.allowMu.Lock()
+	defer s.allowMu.Unlock()
+	s.allowed[string(pub.SerializeCompressed())] = struct{}{}
+}
+
+// Disallow removes one client. If it was the last entry the tower reopens to
+// all (empty == open); that transition is logged.
+func (s *Server) Disallow(pub *btcec.PublicKey) {
+	s.allowMu.Lock()
+	defer s.allowMu.Unlock()
+	delete(s.allowed, string(pub.SerializeCompressed()))
+	if len(s.allowed) == 0 {
+		log.Warnf("evmtower: allowlist now empty — accepting ALL clients")
+	}
+}
+
+// Allowed returns the current allowlist as compressed-pubkey hex strings.
+func (s *Server) Allowed() []string {
+	s.allowMu.RLock()
+	defer s.allowMu.RUnlock()
+
+	out := make([]string, 0, len(s.allowed))
+	for k := range s.allowed {
+		out = append(out, hex.EncodeToString([]byte(k)))
+	}
+
+	return out
 }
 
 // Addr returns the listener's network address (useful when listening on :0).
@@ -79,11 +151,16 @@ func (s *Server) accept() {
 		if err != nil {
 			select {
 			case <-s.quit:
+				return
 			default:
+				// A per-connection handshake failure (e.g. a
+				// rejected/non-allowlisted client) is surfaced
+				// here as an error; log it and keep accepting
+				// rather than killing the listener.
 				log.Warnf("evmtower: accept: %v", err)
-			}
 
-			return
+				continue
+			}
 		}
 
 		s.wg.Add(1)

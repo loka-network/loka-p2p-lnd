@@ -72,14 +72,10 @@ func TestServerAllowlist(t *testing.T) {
 	strangerPriv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	// Only the allowed client's identity pubkey may connect.
-	allowedComp := string(allowedPriv.PubKey().SerializeCompressed())
-	shouldAccept := func(p *btcec.PublicKey) (bool, error) {
-		return string(p.SerializeCompressed()) == allowedComp, nil
-	}
-
 	store := NewMemStore()
-	srv, err := NewServer(towerKey, "127.0.0.1:0", store, shouldAccept)
+	// Seed the allowlist with only the allowed client's identity pubkey.
+	srv, err := NewServer(towerKey, "127.0.0.1:0", store,
+		[]*btcec.PublicKey{allowedPriv.PubKey()})
 	require.NoError(t, err)
 	srv.Start()
 	defer srv.Stop()
@@ -89,12 +85,17 @@ func TestServerAllowlist(t *testing.T) {
 		Address:     srv.Addr().(*net.TCPAddr),
 	}
 
-	// Allowed client: upload succeeds and is stored.
-	ok := NewRemoteStore(
+	allowedClient := NewRemoteStore(
 		&keychain.PrivKeyECDH{PrivKey: allowedPriv}, tower,
 		3*time.Second, nil,
 	)
-	require.NoError(t, ok.Put(testBackup(5)))
+	stranger := NewRemoteStore(
+		&keychain.PrivKeyECDH{PrivKey: strangerPriv}, tower,
+		3*time.Second, nil,
+	)
+
+	// Allowed client: upload succeeds and is stored.
+	require.NoError(t, allowedClient.Put(testBackup(5)))
 	require.Eventually(t, func() bool {
 		b, found := store.Get([32]byte{0xab, 0xcd})
 
@@ -102,12 +103,16 @@ func TestServerAllowlist(t *testing.T) {
 	}, 3*time.Second, 20*time.Millisecond)
 
 	// Stranger: the handshake is rejected, so the upload errors.
-	bad := NewRemoteStore(
-		&keychain.PrivKeyECDH{PrivKey: strangerPriv}, tower,
-		3*time.Second, nil,
-	)
-	require.Error(t, bad.Put(testBackup(9)),
+	require.Error(t, stranger.Put(testBackup(9)),
 		"a non-allowlisted client must be rejected")
+
+	// Runtime reload: add the stranger without restarting the listener; it
+	// must now be accepted (proves SetAllowed/Allow take effect live).
+	srv.Allow(strangerPriv.PubKey())
+	require.Eventually(t, func() bool {
+		return stranger.Put(testBackup(11)) == nil
+	}, 3*time.Second, 50*time.Millisecond,
+		"a newly-allowed client must be accepted without a restart")
 }
 
 // TestBackupAgentOverNetwork wires the existing BackupAgent to a RemoteStore,
