@@ -37,10 +37,22 @@ type Config struct {
 	// PollInterval is how often the chain is scanned for close events.
 	PollInterval time.Duration
 
-	// FromBlock bounds the historical log scan (e.g. the contract's deploy
-	// block); 0 scans from genesis where the RPC allows it.
+	// FromBlock is where the scan starts (e.g. the contract's deploy block).
+	// 0 starts a recent window back from the tip rather than trawling from
+	// genesis on a long chain — set it to the deploy block to catch closes
+	// that occurred before the tower started.
 	FromBlock uint64
+
+	// WindowSize bounds the block span of each eth_getLogs query so a
+	// range-capped public RPC (e.g. sepolia.base.org caps at 2000) doesn't
+	// reject it. The scan advances a cursor forward in WindowSize chunks,
+	// catching up any backlog over successive polls. 0 uses defaultScanWindow.
+	WindowSize uint64
 }
+
+// defaultScanWindow is the per-query block span when Config.WindowSize is 0.
+// Kept well under common public-RPC eth_getLogs caps (sepolia.base.org: 2000).
+const defaultScanWindow = 1800
 
 // Lookout watches the ChannelManager for UnilateralCloseInitiated events and,
 // when a force-close broadcasts a state older than the backup it holds for that
@@ -48,6 +60,11 @@ type Config struct {
 // of the Bitcoin lookout's breach-hint match → justice broadcast.
 type Lookout struct {
 	cfg Config
+
+	// cursor is the next block to scan from; advanced forward in
+	// WindowSize chunks. cursorSet guards lazy init on the first scan.
+	cursor    uint64
+	cursorSet bool
 
 	doneMu sync.Mutex
 	done   map[[32]byte]bool // channels already penalized this run
@@ -105,26 +122,64 @@ func (l *Lookout) watch() {
 	}
 }
 
-// scan does one pass over recent close events.
+// scan does one pass over the next chunk of unscanned blocks. It advances a
+// cursor forward in WindowSize-bounded chunks so each eth_getLogs query stays
+// under the RPC's range cap, and a backlog (e.g. after downtime, or starting
+// from a deploy block far behind the tip) is caught up over successive polls.
 func (l *Lookout) scan() {
 	ctx, cancel := context.WithTimeout(
 		context.Background(), l.cfg.PollInterval,
 	)
 	defer cancel()
 
-	q := ethereum.FilterQuery{
+	tip, err := l.cfg.Client.BlockNumber(ctx)
+	if err != nil {
+		log.Warnf("evmtower: block number: %v", err)
+
+		return
+	}
+
+	window := l.cfg.WindowSize
+	if window == 0 {
+		window = defaultScanWindow
+	}
+
+	// Lazily anchor the cursor on the first scan. A configured FromBlock
+	// (e.g. the deploy block) is honoured verbatim and chunked forward, so
+	// closes since deployment are caught even far behind the tip. With no
+	// FromBlock set, start one window back from the tip rather than trawling
+	// a long chain from genesis.
+	if !l.cursorSet {
+		l.cursor = l.cfg.FromBlock
+		if l.cfg.FromBlock == 0 && tip > window {
+			l.cursor = tip - window
+		}
+		l.cursorSet = true
+	}
+
+	from := l.cursor
+	if from > tip {
+		// Caught up; nothing new since the last scan.
+		return
+	}
+	// Span [from, to] is at most `window` blocks (inclusive), staying under
+	// the RPC's range cap.
+	to := from + window - 1
+	if to > tip {
+		to = tip
+	}
+
+	logs, err := l.cfg.Client.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(from),
+		ToBlock:   new(big.Int).SetUint64(to),
 		Addresses: []common.Address{l.cfg.Contract},
 		Topics: [][]common.Hash{
 			{evmnotify.TopicUnilateralCloseInitiated},
 		},
-	}
-	if l.cfg.FromBlock != 0 {
-		q.FromBlock = new(big.Int).SetUint64(l.cfg.FromBlock)
-	}
-
-	logs, err := l.cfg.Client.FilterLogs(ctx, q)
+	})
 	if err != nil {
-		log.Warnf("evmtower: filter logs: %v", err)
+		// Leave the cursor put so the same range is retried next poll.
+		log.Warnf("evmtower: filter logs [%d,%d]: %v", from, to, err)
 
 		return
 	}
@@ -132,6 +187,9 @@ func (l *Lookout) scan() {
 	for _, lg := range logs {
 		l.handleClose(ctx, lg)
 	}
+
+	// Advance past the scanned range only on success.
+	l.cursor = to + 1
 }
 
 // handleClose evaluates one UnilateralCloseInitiated log and penalizes if it is

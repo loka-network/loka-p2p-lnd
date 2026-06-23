@@ -89,11 +89,11 @@ func newEvmLookout(cfg *Config, cc *chainreg.ChainControl,
 			Key:      relayKey,
 		},
 		PollInterval: pollInterval,
-		// FromBlock 0 scans from genesis; fine on anvil/short chains.
-		// Production hardening (Phase 2): bound the scan to a sliding
-		// window like evmnotify.logFromBlock so a range-capped public
-		// RPC doesn't reject the query.
-		FromBlock: 0,
+		// Bounded sliding-window scan so a range-capped public RPC
+		// doesn't reject the eth_getLogs query; FromBlock (e.g. the
+		// deploy block) lets the tower catch closes predating startup.
+		WindowSize: cfg.EvmWatchtower.ScanWindow,
+		FromBlock:  cfg.EvmWatchtower.FromBlock,
 	})
 
 	// Optionally accept networked backup uploads (phase 2), persisting them
