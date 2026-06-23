@@ -140,10 +140,17 @@ func newEvmLookout(cfg *Config, cc *chainreg.ChainControl,
 		if err != nil {
 			return nil, nil, err
 		}
+		// Optional: hot-reload the allowlist from a file (no restart).
+		if cfg.EvmWatchtower.AllowlistFile != "" {
+			server.WatchAllowlistFile(
+				cfg.EvmWatchtower.AllowlistFile, 0,
+			)
+		}
 		ltndLog.Infof("EVM watchtower listening for backups on %s "+
-			"(allowed clients: %d, 0=open)",
+			"(allowed clients: %d, 0=open; allowlistfile=%q)",
 			cfg.EvmWatchtower.Listen,
-			len(cfg.EvmWatchtower.AllowedClients))
+			len(cfg.EvmWatchtower.AllowedClients),
+			cfg.EvmWatchtower.AllowlistFile)
 	}
 
 	return lookout, server, nil

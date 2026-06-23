@@ -41,6 +41,12 @@ type EvmWatchtower struct {
 	// accept any client (open/altruistic tower — DoS-prone); set it to
 	// restrict the tower to the nodes you agreed to serve. Repeatable.
 	AllowedClients []string `long:"allowedclient" description:"Client identity pubkey (hex) allowed to upload backups; repeatable; empty = accept all."`
+
+	// AllowlistFile, if set, is a file of client identity pubkeys (one hex
+	// per line, '#' comments) the tower loads at startup and HOT-RELOADS on
+	// change — edit the file to add/remove clients without restarting lnd.
+	// It overrides the flag set once present.
+	AllowlistFile string `long:"allowlistfile" description:"File of allowed client pubkeys (one hex/line); hot-reloaded on change (no restart)."`
 }
 
 // DefaultEvmWatchtower returns the default (disabled) EVM watchtower config.

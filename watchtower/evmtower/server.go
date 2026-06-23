@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -36,6 +37,13 @@ type Server struct {
 	// shouldAccept reads it live under allowMu (audit A-1; runtime reload).
 	allowMu sync.RWMutex
 	allowed map[string]struct{}
+
+	// allowlistPath, if set via WatchAllowlistFile, is a file the tower
+	// hot-reloads the allowlist from; allowlistInterval is the poll period
+	// and allowlistMod the last-applied file mtime.
+	allowlistPath     string
+	allowlistInterval time.Duration
+	allowlistMod      time.Time
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -130,10 +138,16 @@ func (s *Server) Allowed() []string {
 // Addr returns the listener's network address (useful when listening on :0).
 func (s *Server) Addr() net.Addr { return s.listener.Addr() }
 
-// Start begins accepting connections.
+// Start begins accepting connections (and hot-reloading the allowlist file if
+// one was configured via WatchAllowlistFile).
 func (s *Server) Start() {
 	s.wg.Add(1)
 	go s.accept()
+
+	if s.allowlistPath != "" {
+		s.wg.Add(1)
+		go s.watchAllowlist()
+	}
 }
 
 // Stop closes the listener and waits for handlers to drain.
