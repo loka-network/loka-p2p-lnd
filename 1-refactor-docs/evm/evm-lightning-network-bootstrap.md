@@ -94,6 +94,8 @@ nohup lnd --evm.active \
 - `--evm.active`: switches the node off the Bitcoin path and onto the EVM `ChainControl` (zero-intrusion adapter). When false, every other `--evm.*` flag is ignored.
 - `--evm.chain` / `--evm.chainid`: the sub-network name and chain id. The chain id is **bound into the EIP-712 domain**, so a signed `StateUpdate` is valid on exactly one chain — this is the cross-chain replay defence.
 - `--evm.tokenaddress` / `--evm.contractaddress`: the ERC-20 asset and the `ChannelManager` from §0. **All peers must share the same pair** or they cannot transact.
+- `--evm.tokensymbol` (optional): the asset label folded into the `network` field of `lncli getinfo` (e.g. `network: "base-sepolia (USDC)"`). Left unset it is auto-queried from the token's `symbol()` at startup. This is the human-facing differentiator for two sub-networks on the **same chain** settling **different ERC-20s** (USDC vs USDT): they are already cryptographically segregated by the synthesized genesis hash, but otherwise show the same `chain`/`network`, so the symbol disambiguates them in `getinfo` without a wire-schema change.
+- **Per-asset isolation (important).** The on-disk data directory is `data/chain/evm/<--evm.chain>/` — keyed by the **chain label only, not the token address**. So two sub-networks that share the same `--evm.chain` (e.g. both `base`) for **different ERC-20s would collide in one directory and mix channel state**. Give each asset its own label — `--evm.chain=base-usdc` vs `--evm.chain=base-usdt` — or a separate `--lnddir`. Using distinct labels has the bonus that the `network` field already distinguishes them even before the symbol is folded in.
 - `--evm.rpchost`: the JSON-RPC endpoint. The node and watchtower now **bound every `eth_getLogs` query to a sliding window**, so a range-capped public endpoint (e.g. `sepolia.base.org`'s 2000-block cap) works fine — the full itest passes against it. The one remaining hard requirement: the endpoint must serve the **genesis block (block 0)**, which the node reads once at startup to anchor HTLC timelocks. Aggressively pruned endpoints (e.g. some `publicnode` hosts) reject that read and the node won't start. See `security-audit.md` M-1 on the single-RPC trust surface; production seeds should still front several endpoints.
 - `--evm.numconfs` (default 3): confirmations before an event/receipt is treated as final, absorbing L2 sequencer reorgs.
 - `--listen=0.0.0.0:9735` / `--externalip=<Public_IP>`: bind all interfaces and encode the public IP into Gossip broadcasts. Without `--externalip`, peers hear the seed exists but cannot route TCP to it.
@@ -116,7 +118,7 @@ On a fresh install LND halts waiting for a wallet password until you create the 
    lncli --lnddir=~/.lnd-seed \
      --macaroonpath=~/.lnd-seed/data/chain/evm/base-sepolia/admin.macaroon newaddress p2wkh
    ```
-   The command is `p2wkh` (Bitcoin standard) but the Loka Zero-Intrusion Adapter translates the result into a valid **EVM address (`0x…`)**.
+   The command is `p2wkh` (Bitcoin standard) but the Loka Zero-Intrusion Adapter translates the result into a valid **EVM address (`0x…`)**. Unlike Bitcoin's HD address tree, the EVM (and Sui) adapter is account-model: `newaddress` always returns the **same single account address**, derived from `KeyFamilyNodeKey` index 0. To rotate that on-chain settlement address to a fresh key — independently of the Lightning node identity (which stays at index 0) — bump `--evm.keyindex` (default 0) and move funds/gas to the new address. Note this does **not** mitigate a leaked wallet seed (every index derives from the same seed); true key rotation requires recovering from a new seed.
 
 3. **Fund _both_ balances** — this is the EVM-specific gotcha. A Loka EVM node holds two independent balances:
    - **Native gas (ETH)** — pays for every `ChannelManager` call (`openChannel`, `forceClose`, `distributeFunds`, …). Without it the node can observe but never act on-chain; a node that runs out of gas during a challenge window **cannot defend itself**. Check it via `lncli getinfo` (the EVM build surfaces native-gas balance at startup) or on-chain. On a public testnet, top it up from a faucet — the repo ships a loop-claim helper:
@@ -145,6 +147,9 @@ This makes the Lightning URI elegant for edge agents:
 ### 2. DNS Round-Robin (Load Balancing)
 Create a generic subdomain (`seeds.loka.network`) with multiple A-Records pointing at different seeds. An agent resolving it at startup gets a random healthy seed, giving basic load balancing for free.
 
+### 3. Reusing one host (or domain) across chains
+DNS resolves by host, not path — there is no `/evm` vs `/sui` discriminator. To run EVM, Sui, and Bitcoin nodes on the **same box / same domain** (handy for test fleets), give each chain its own `lnd` instance with a distinct `--lnddir`, P2P `--listen` port, and `--rpclisten` (data dirs are already chain-segregated under `data/chain/{bitcoin,evm,sui}/…`). Then differentiate either by **port** (`seed.loka.cash:9735` EVM, `:9745` Sui, …) — the port is part of the Lightning URI — or by **subdomain** (`evm-seed…`, `sui-seed…`) pointing at the same IP. An existing **nginx** in front works, but only as an **L4 TCP stream** proxy (`stream {}` / `proxy_pass`): the P2P protocol is brontide (Noise), not HTTP, so an L7 `http {}` server block cannot terminate or route it.
+
 ---
 
 ## 4. Building the Backbone & Liquidity (Large vs. Small Channels), and the Approval Step
@@ -158,7 +163,7 @@ Starting 3 independent seeds doesn't automatically route payments between them. 
 ### The EVM approval step
 `ChannelManager.openChannel` pulls the deposit via ERC-20 `transferFrom`, so the funding key **must approve the ChannelManager** for at least the deposit before opening. LND issues this approval automatically in the open-channel carrier flow.
 
-**Single-funded is the operational path** (the initiator funds the whole channel; the counterparty deposits nothing). The M-3 fix made `openChannel` require the counterparty's EIP-712 `OpenChannel` **consent signature** whenever `remoteFundingAmount > 0` — so a stale allowance can't be swept into a channel the counterparty never agreed to. The Go funding flow does not yet produce that consent signature, so **dual-funded opens currently fail closed at the contract** (single-funded is unaffected); dual-funding is a future enhancement.
+**Single-funded is the operational path** (the initiator funds the whole channel; the counterparty deposits nothing). The M-3 fix made `openChannel` require the counterparty's EIP-712 `OpenChannel` **consent signature** whenever `remoteFundingAmount > 0` — so a stale allowance can't be swept into a channel the counterparty never agreed to. The Go consent machinery now exists (`input.EvmSigner.SignOpenChannel` / `VerifyOpenChannelSig`, pinned to the contract by a golden vector, and a `CounterpartySig` field threaded through the open carrier; the initiator verifies the consent locally and fails fast before spending gas). What remains for **end-to-end dual funding** is exchanging that signature over the wire and letting the responder contribute funds — both touch the core funding manager / `lnwire`, so until they land **dual-funded opens still fail closed at the contract** (single-funded is unaffected).
 
 > **Security note (see `security-audit.md` M-3):** still approve **exact, just-in-time amounts**, never an unbounded allowance.
 
@@ -217,13 +222,18 @@ The EVM breach remedy is `penalize` — present a higher-nonce co-signed `StateU
 
 It has two roles, each just an `lnd` flag (mirroring Bitcoin's `--watchtower.active`/`--wtclient.active`):
 
-**Tower** — a separate, always-on `lnd` (different machine from the protected node, so it stays up when that node is down). It runs its own chain watcher and submits `penalize` on a client's behalf:
+**Tower** — `--evmwatchtower.active` is a *role* of an ordinary `lnd` process, not a separate binary; one `lnd` runs the tower alongside (or instead of) being a seed. The tower **reuses the node's EVM `ChainControl`**: it scans and submits `penalize` through the very same `--evm.*` settlement config, so those flags are a hard prerequisite — `--evmwatchtower.active` without `--evm.active` (and `--evm.rpchost` / `--evm.contractaddress` / …) fails at startup, and without the contract address it cannot scan or submit at all. Run it as its **own `lnd` instance** (separate `--lnddir`, ideally a different machine from the protected node, so it stays up when that node is down):
 ```bash
-lnd --evm.active --evm.chain=base-sepolia ... \
+lnd --evm.active \
+    --evm.chain=base-sepolia --evm.chainid=84532 \
+    --evm.rpchost=https://sepolia.base.org \
+    --evm.tokenaddress=0x<USDC_or_MockERC20_address> \
+    --evm.contractaddress=0x<ChannelManager_address> \
+    --lnddir=~/.lnd-tower \
     --evmwatchtower.active \
     --evmwatchtower.listen=0.0.0.0:9912 \
     --evmwatchtower.fromblock=<ChannelManager deploy_block> \
-    --evmwatchtower.allowlistfile=~/.lnd/evm-allowlist.txt
+    --evmwatchtower.allowlistfile=~/.lnd-tower/evm-allowlist.txt
 ```
 - `--evmwatchtower.listen`: accepts brontide (encrypted+authenticated) backup uploads.
 - `--evmwatchtower.fromblock`: where the chain scan starts — set it to the contract's `deploy_block` (from `deploy_state`) so the tower catches closes that predate its startup. Unset starts one window back from the tip.
