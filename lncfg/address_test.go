@@ -3,12 +3,38 @@ package lncfg
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/stretchr/testify/require"
 )
+
+// ipOnlyResolver is a TCP resolver that consults NO DNS: it resolves only
+// literal IP host:port pairs and errors on anything that would require a name
+// lookup. The negative address tests use it so they don't depend on the
+// ambient DNS resolver — some networks (captive portals, wildcard ISP/corp
+// resolvers) resolve bogus names like "some string" or "21.21.21.21.21" to a
+// real IP, which previously made those "expected error" cases flaky.
+func ipOnlyResolver(_, addr string) (*net.TCPAddr, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil, fmt.Errorf("ipOnlyResolver: %q is not a literal IP",
+			host)
+	}
+	// LookupPort on a numeric port string does not touch the network.
+	port, err := net.LookupPort("tcp", portStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &net.TCPAddr{IP: ip, Port: port}, nil
+}
 
 // addressTest defines a test vector for an address that contains the non-
 // normalized input and the expected normalized output.
@@ -120,7 +146,7 @@ func testAddress(t *testing.T, test addressTest) {
 func testInvalidAddress(t *testing.T, invalidAddr string) {
 	addr := []string{invalidAddr}
 	_, err := NormalizeAddresses(
-		addr, defaultTestPort, net.ResolveTCPAddr,
+		addr, defaultTestPort, ipOnlyResolver,
 	)
 	if err == nil {
 		t.Fatalf("expected error when parsing %v", invalidAddr)
@@ -217,7 +243,7 @@ func testLNAddress(t *testing.T, test lnAddressCase) {
 // in an error when parsed with ParseLNAddressString.
 func testInvalidLNAddress(t *testing.T, invalidAddr string) {
 	_, err := ParseLNAddressString(
-		invalidAddr, defaultTestPort, net.ResolveTCPAddr,
+		invalidAddr, defaultTestPort, ipOnlyResolver,
 	)
 	if err == nil {
 		t.Fatalf("expected error when parsing invalid lnaddress: %v",
