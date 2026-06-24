@@ -35,7 +35,8 @@ contract StateUpdateHtlcsVectorsTest is Test {
 
     function test_EmitStateUpdateWithHtlcsVector() public {
         vm.chainId(31337);
-        ChannelManager mgr = new ChannelManager(address(uint160(1)), 86_400);
+        ChannelManager mgr =
+            new ChannelManager(address(uint160(1)), 86_400, 0, 0);
 
         // Two HTLCs (even tree: root = commit(l1, l2)). Recipients are the two
         // channel parties — exactly what the channel bridge fills in per HTLC

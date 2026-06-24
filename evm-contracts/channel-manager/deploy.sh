@@ -17,8 +17,13 @@
 #                   local/testnet only.
 #
 # Env:
-#   PRIVATE_KEY       deployer key (required, needs gas on the target chain)
-#   CHALLENGE_PERIOD  force-close challenge window in seconds (default 86400)
+#   PRIVATE_KEY         deployer key (required, needs gas on the target chain)
+#   CHALLENGE_PERIOD    force-close challenge window in seconds (default 86400).
+#                       The floor when deposit-scaling is enabled.
+#   MAX_CHALLENGE_PERIOD  cap of the scaled window in seconds (default 0).
+#   FULL_SCALE_DEPOSIT  deposit (token base units) at which the window reaches
+#                       the cap (default 0). 0 in either of the two vars above
+#                       disables scaling → fixed CHALLENGE_PERIOD per channel.
 set -euo pipefail
 
 NETWORK=${1:?usage: PRIVATE_KEY=0x… ./deploy.sh <network> <rpc-url> [token-address]}
@@ -26,6 +31,8 @@ RPC=${2:?missing rpc-url}
 TOKEN=${3:-}
 : "${PRIVATE_KEY:?set PRIVATE_KEY to the deployer key}"
 CHALLENGE_PERIOD=${CHALLENGE_PERIOD:-86400}
+MAX_CHALLENGE_PERIOD=${MAX_CHALLENGE_PERIOD:-0}
+FULL_SCALE_DEPOSIT=${FULL_SCALE_DEPOSIT:-0}
 
 cd "$(dirname "$0")"
 
@@ -38,7 +45,9 @@ if [ -z "$TOKEN" ]; then
 fi
 
 OUT=$(PRIVATE_KEY=$PRIVATE_KEY TOKEN_ADDRESS=$TOKEN \
-    CHALLENGE_PERIOD=$CHALLENGE_PERIOD forge script script/Deploy.s.sol \
+    CHALLENGE_PERIOD=$CHALLENGE_PERIOD \
+    MAX_CHALLENGE_PERIOD=$MAX_CHALLENGE_PERIOD \
+    FULL_SCALE_DEPOSIT=$FULL_SCALE_DEPOSIT forge script script/Deploy.s.sol \
     --rpc-url "$RPC" --broadcast 2>/dev/null)
 CM=$(echo "$OUT" | grep -o 'Deployed ChannelManager to: 0x[0-9a-fA-F]*' \
     | grep -o '0x[0-9a-fA-F]*')
@@ -57,6 +66,8 @@ cat > "$STATE_FILE" <<JSON
   "channel_manager": "${CM}",
   "token": "${TOKEN}",
   "challenge_period": ${CHALLENGE_PERIOD},
+  "max_challenge_period": ${MAX_CHALLENGE_PERIOD},
+  "full_scale_deposit": ${FULL_SCALE_DEPOSIT},
   "deployer": "${DEPLOYER}",
   "deploy_block": ${BLOCK}
 }

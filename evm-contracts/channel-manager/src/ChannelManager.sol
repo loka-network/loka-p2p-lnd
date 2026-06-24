@@ -77,9 +77,25 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
     /// the decimals-scaling assumption (spec §5) is fixed at deploy time.
     IERC20 public immutable token;
 
-    /// @notice Seconds the unilateral-close challenge window stays open. Uses
-    /// `block.timestamp`, not block height, because L2 block intervals vary.
+    /// @notice The unilateral-close challenge window, in seconds — the floor
+    /// when deposit-scaling is enabled. Uses `block.timestamp`, not block
+    /// height, because L2 block intervals vary.
     uint256 public immutable challengePeriod;
+
+    /// @notice The cap on the challenge window when deposit-scaling is enabled
+    /// (the window grows with the escrowed amount, bounded by this). Ignored
+    /// when `fullScaleDeposit == 0`.
+    uint256 public immutable maxChallengePeriod;
+
+    /// @notice The total deposit (token base-units) at or above which the
+    /// challenge window reaches `maxChallengePeriod`; below it the window is
+    /// linearly interpolated from `challengePeriod`. **0 disables scaling** —
+    /// every channel then gets the fixed `challengePeriod`. Mirrors Bitcoin
+    /// LN's size-scaled `to_self_delay` (more at stake → longer dispute
+    /// window, capped), but derived deterministically on-chain from the
+    /// deposit (a ChannelManager settles one token, so base-units are a
+    /// meaningful scale unit set at deploy).
+    uint256 public immutable fullScaleDeposit;
 
     /// @notice Emergency grace beyond the challenge window after which a
     /// channel carrying an HTLC that can never be resolved — a malformed but
@@ -107,6 +123,7 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
 
     error ChannelAlreadyExists();
     error ChannelNotOpen();
+    error InvalidChallengeConfig();
     error NotUnilateralClose();
     error InvalidParticipants();
     error ZeroDeposit();
@@ -125,12 +142,51 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
 
     /// @param token_ the ERC20 asset escrowed by every channel in this contract.
     /// @param challengePeriod_ seconds the force-close challenge window stays open.
-    constructor(address token_, uint256 challengePeriod_)
-        EIP712("LokaChannelManager", "1")
-    {
+    /// @param token_ the ERC20 asset escrowed by every channel.
+    /// @param challengePeriod_ the challenge window in seconds (the floor when
+    /// scaling is enabled).
+    /// @param maxChallengePeriod_ the cap on the scaled window (ignored when
+    /// fullScaleDeposit_ is 0).
+    /// @param fullScaleDeposit_ deposit (base-units) at which the window hits
+    /// the cap; 0 disables scaling (fixed challengePeriod_ for every channel).
+    constructor(
+        address token_,
+        uint256 challengePeriod_,
+        uint256 maxChallengePeriod_,
+        uint256 fullScaleDeposit_
+    ) EIP712("LokaChannelManager", "1") {
         if (token_ == address(0)) revert InvalidParticipants();
+        // When scaling is on, the cap must not be below the floor.
+        if (fullScaleDeposit_ != 0 && maxChallengePeriod_ < challengePeriod_) {
+            revert InvalidChallengeConfig();
+        }
         token = IERC20(token_);
         challengePeriod = challengePeriod_;
+        maxChallengePeriod = maxChallengePeriod_;
+        fullScaleDeposit = fullScaleDeposit_;
+    }
+
+    /// @notice The challenge window (seconds) a force-close of a channel with
+    /// `deposit` base-units escrowed will open. With scaling disabled
+    /// (`fullScaleDeposit == 0`) this is always `challengePeriod`; otherwise it
+    /// rises linearly from `challengePeriod` (deposit→0) to `maxChallengePeriod`
+    /// (deposit ≥ `fullScaleDeposit`). Exposed so peers/operators can preview it.
+    function challengeWindowFor(uint256 deposit)
+        public
+        view
+        returns (uint256)
+    {
+        if (fullScaleDeposit == 0) {
+            return challengePeriod;
+        }
+        if (deposit >= fullScaleDeposit) {
+            return maxChallengePeriod;
+        }
+
+        // floor + (cap - floor) * deposit / fullScaleDeposit.
+        return challengePeriod
+            + (maxChallengePeriod - challengePeriod) * deposit
+                / fullScaleDeposit;
     }
 
     // ---------------------------------------------------------------------
@@ -304,7 +360,8 @@ contract ChannelManager is IChannelManager, EIP712, ReentrancyGuard {
         ch.payoutA = balanceA;
         ch.payoutB = balanceB;
         ch.htlcPool = ch.totalDeposited - balanceA - balanceB;
-        ch.challengeExpiry = block.timestamp + challengePeriod;
+        ch.challengeExpiry =
+            block.timestamp + challengeWindowFor(ch.totalDeposited);
 
         emit UnilateralCloseInitiated(
             channelId,

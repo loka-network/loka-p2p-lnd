@@ -24,7 +24,7 @@ contract Eip712VectorsTest is Test {
     function test_EmitVectors() public {
         vm.chainId(31337);
         ChannelManager mgr =
-            new ChannelManager(address(uint160(1)), 86_400);
+            new ChannelManager(address(uint160(1)), 86_400, 0, 0);
 
         // Fixed StateUpdate inputs.
         bytes32 channelId = keccak256("loka-evm-test-channel");

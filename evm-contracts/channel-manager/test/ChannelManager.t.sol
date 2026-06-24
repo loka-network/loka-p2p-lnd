@@ -41,7 +41,7 @@ contract ChannelManagerTest is Test {
         bob = vm.addr(bobPk);
 
         token = new MockERC20("Mock USD Coin", "USDC", 6);
-        mgr = new ChannelManager(address(token), CHALLENGE_PERIOD);
+        mgr = new ChannelManager(address(token), CHALLENGE_PERIOD, 0, 0);
 
         token.mint(alice, 1_000e6);
         token.mint(bob, 1_000e6);
@@ -236,6 +236,38 @@ contract ChannelManagerTest is Test {
         assertEq(token.balanceOf(address(mgr)), FUND_A + FUND_B);
         (,, uint256 totalDeposited,,,,,,,,) = mgr.channels(channelId);
         assertEq(totalDeposited, FUND_A + FUND_B);
+    }
+
+    // ---------------------------------------------------------------------
+    // Deposit-scaled challenge window
+    // ---------------------------------------------------------------------
+
+    function test_ChallengeWindow_ScalingDisabledByDefault() public {
+        // The suite's mgr is deployed with fullScaleDeposit 0 → fixed window.
+        assertEq(mgr.challengeWindowFor(0), CHALLENGE_PERIOD);
+        assertEq(mgr.challengeWindowFor(1_000_000e6), CHALLENGE_PERIOD);
+    }
+
+    function test_ChallengeWindow_ScalesWithDeposit() public {
+        uint256 floor = 1 hours;
+        uint256 cap = 14 days;
+        uint256 full = 1000e6; // 1000 USDC reaches the cap
+        ChannelManager s =
+            new ChannelManager(address(token), floor, cap, full);
+
+        assertEq(s.challengeWindowFor(0), floor, "deposit 0 -> floor");
+        assertEq(s.challengeWindowFor(full), cap, "full -> cap");
+        assertEq(s.challengeWindowFor(2 * full), cap, "above full -> capped");
+        // Midpoint: floor + (cap-floor)/2.
+        assertEq(
+            s.challengeWindowFor(full / 2), floor + (cap - floor) / 2,
+            "half -> midpoint"
+        );
+    }
+
+    function test_Constructor_RejectsCapBelowFloor() public {
+        vm.expectRevert(ChannelManager.InvalidChallengeConfig.selector);
+        new ChannelManager(address(token), 1000, 500, 1); // cap < floor
     }
 
     // ---------------------------------------------------------------------
