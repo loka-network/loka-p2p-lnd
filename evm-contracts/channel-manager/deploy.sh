@@ -27,7 +27,7 @@
 #
 # Mainnet recommended preset (USDC, 6 decimals) — deposit-scaled window:
 #   floor 1 day → cap 7 days, hitting the cap at 100,000 USDC. Small channels
-#   get ~1 day, a 50k channel ~3.6 days, a 100k+ channel the full 7 days. Bump
+#   get ~1 day, a 50k channel 4 days, a 100k+ channel the full 7 days. Bump
 #   the cap to 1209600 (14 days) for a very-high-value deployment.
 #       PRIVATE_KEY=0x<key> \
 #         CHALLENGE_PERIOD=86400 \

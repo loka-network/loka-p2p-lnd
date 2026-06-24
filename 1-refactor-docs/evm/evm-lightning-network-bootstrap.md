@@ -16,13 +16,35 @@ Deploy once (or reuse an existing deployment), recording the result in `evm-cont
 
 ```bash
 # Deploys MockERC20 (omit on mainnet; pass a real token instead) + ChannelManager,
-# and writes deploy_state_<network>.json {token, channel_manager, challenge_period, deploy_block}.
+# and writes deploy_state_<network>.json {token, channel_manager, challenge_period,
+# max_challenge_period, full_scale_deposit, deploy_block}.
 PRIVATE_KEY=0x<deployer-key> CHALLENGE_PERIOD=86400 \
   evm-contracts/channel-manager/deploy.sh base-sepolia https://sepolia.base.org
 ```
 
 - `CHALLENGE_PERIOD` is the force-close challenge window **in seconds**, fixed at deploy time. The default is `86400` (24 h) — the correct production value. The integration tests override it to 12 s / 60 s purely so the suite finishes in minutes; **never deploy a short challenge period to mainnet** (it shrinks the breach-remedy window — see `security-audit.md` H-1/M-1).
 - **Optional deposit-scaling** (mirrors Bitcoin's value-scaled CSV delay): set `MAX_CHALLENGE_PERIOD` (the cap) and `FULL_SCALE_DEPOSIT` (the deposit at which the window reaches the cap, in token base units) to make the per-channel window scale linearly between `CHALLENGE_PERIOD` (the floor) and the cap. Both default to `0`, which disables scaling → a fixed `CHALLENGE_PERIOD` for every channel. The contract exposes `challengeWindowFor(deposit)` so operators can preview the window a given deposit will get, and `forceClose` stamps `challengeExpiry = block.timestamp + challengeWindowFor(totalDeposited)`. Rationale: a larger escrow is worth more to steal, so it deserves a longer window for the victim/watchtower to react.
+
+  **Recommended mainnet preset** (USDC, 6 decimals) — floor 1 day, cap 7 days, full scale at 100,000 USDC:
+
+  ```bash
+  PRIVATE_KEY=0x<deployer-key> \
+    CHALLENGE_PERIOD=86400 \            # floor  = 1 day
+    MAX_CHALLENGE_PERIOD=604800 \       # cap    = 7 days
+    FULL_SCALE_DEPOSIT=100000000000 \   # 100,000 USDC reaches the cap
+    evm-contracts/channel-manager/deploy.sh base <rpc-url> 0x<USDC>
+  ```
+
+  Resulting windows: `challengeWindowFor(deposit) = 86400 + (604800 - 86400) * deposit / 100000000000`, capped at 7 days.
+
+  | Deposit | Challenge window |
+  | --- | --- |
+  | ≤ ~1,900 USDC | ~1 day (floor) |
+  | 10,000 USDC | ~1.6 days |
+  | 50,000 USDC | 4 days |
+  | ≥ 100,000 USDC | 7 days (cap) |
+
+  For a very-high-value deployment, raise the cap to `1209600` (14 days). The same preset lives as a copy-pasteable comment in `deploy.sh`.
 - On a public testnet the deployer key must hold native gas. The deployer address is **not** privileged by the contract afterwards — `ChannelManager` is permissionless, so seed operators and agents need not be the deployer.
 
 Distribute `{token, channel_manager}` to every operator; they become `--evm.tokenaddress` and `--evm.contractaddress`.
@@ -224,7 +246,7 @@ The backup carries no spend authority (it only lets the holder call `penalize`, 
 ## 8. Operational Checklist (EVM-specific)
 
 - [ ] `ChannelManager` + token addresses are identical across every node on the sub-network.
-- [ ] Challenge period is the production value (≥ 24 h); short test values never reach mainnet.
+- [ ] Challenge period floor is the production value (≥ 24 h); short test values never reach mainnet. If deposit-scaling is enabled, the cap (`MAX_CHALLENGE_PERIOD`) and `FULL_SCALE_DEPOSIT` are set and `challengeWindowFor(<typical deposit>)` was previewed.
 - [ ] Each node holds **native gas** *and* **ERC-20 asset** — gas is monitored and auto-/manually topped up so a node can always act within a challenge window.
 - [ ] RPC endpoint serves genesis + wide `eth_getLogs`; production seeds front multiple endpoints (mitigates the single-RPC trust surface, `security-audit.md` M-1).
 - [ ] No public/well-known private keys on any reachable network.
