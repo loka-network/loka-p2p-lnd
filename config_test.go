@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
@@ -170,6 +171,38 @@ func TestValidateConfigTrickleDelay(t *testing.T) {
 				t, tc.expectedDelay, cfg.TrickleDelay,
 				"TrickleDelay mismatch",
 			)
+		})
+	}
+}
+
+// TestEvmAssetDirSegment checks the (chain, asset) data-dir segment: the
+// sanitized --evm.tokensymbol when set, else the token address, always reduced
+// to a filesystem-safe [a-z0-9-] token.
+func TestEvmAssetDirSegment(t *testing.T) {
+	t.Parallel()
+
+	const tokenAddr = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+	tests := []struct {
+		name   string
+		symbol string
+		want   string
+	}{
+		{"symbol lowercased", "USDC", "usdc"},
+		{"internal space to dash", "US DC", "us-dc"},
+		{"trailing non-ascii trimmed", "USD₮", "usd"},
+		{"empty falls back to address", "", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"},
+		{"surrounding spaces trimmed", "  DAI  ", "dai"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := evmAssetDirSegment(&lncfg.EvmNode{
+				TokenSymbol:  tc.symbol,
+				TokenAddress: tokenAddr,
+			})
+			require.Equal(t, tc.want, got)
 		})
 	}
 }

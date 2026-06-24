@@ -40,6 +40,9 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR=$(mktemp -d /tmp/lnd-evm-itest.XXXXXX)
 
 NETWORK="${1:-anvil}"
+# Asset label for the (chain, asset) data dir: data/chain/evm/<network>/<asset>/.
+# Passed as --evm.tokensymbol so the dir segment is deterministic ("mock").
+ASSET="mock"
 case "$NETWORK" in
 anvil)
     RPC_PORT=18545
@@ -151,7 +154,7 @@ lncli_n() {
     local n=$1; shift
     "$LNCLI_BIN" --rpcserver=127.0.0.1:1180$n --lnddir="$WORKDIR/node$n" \
         --tlscertpath="$WORKDIR/node$n/tls.cert" \
-        --macaroonpath="$WORKDIR/node$n/data/chain/evm/$NETWORK/admin.macaroon" \
+        --macaroonpath="$WORKDIR/node$n/data/chain/evm/$NETWORK/$ASSET/admin.macaroon" \
         "$@"
 }
 
@@ -336,6 +339,7 @@ for N in 1 2; do
         --evm.active --evm.chain="$NETWORK" --evm.chainid=$CHAIN_ID \
         --evm.rpchost="$RPC" \
         --evm.tokenaddress="$TOKEN" --evm.contractaddress="$CM" \
+        --evm.tokensymbol="$ASSET" \
         --listen=127.0.0.1:1190$N --rpclisten=127.0.0.1:1180$N \
         --restlisten=127.0.0.1:1280$N --no-rest-tls \
         --allow-circular-route --protocol.no-anchors --debuglevel=info \
@@ -674,13 +678,13 @@ if [ "${ITEST_EVM_SUSPEND:-1}" = "1" ]; then
     echo ""
     echo " -> $NETWORK RPC:     $RPC  (token=$TOKEN manager=$CM)"
     echo " -> node1 gRPC:       127.0.0.1:11801   REST: http://127.0.0.1:12801"
-    echo "    macaroon:         $WORKDIR/node1/data/chain/evm/$NETWORK/admin.macaroon"
+    echo "    macaroon:         $WORKDIR/node1/data/chain/evm/$NETWORK/$ASSET/admin.macaroon"
     echo " -> node2 gRPC:       127.0.0.1:11802   REST: http://127.0.0.1:12802"
-    echo "    macaroon:         $WORKDIR/node2/data/chain/evm/$NETWORK/admin.macaroon"
+    echo "    macaroon:         $WORKDIR/node2/data/chain/evm/$NETWORK/$ASSET/admin.macaroon"
     echo ""
     echo "    lncli example:"
     echo "    lncli --rpcserver=127.0.0.1:11801 --lnddir=$WORKDIR/node1 \\"
-    echo "          --macaroonpath=$WORKDIR/node1/data/chain/evm/$NETWORK/admin.macaroon getinfo"
+    echo "          --macaroonpath=$WORKDIR/node1/data/chain/evm/$NETWORK/$ASSET/admin.macaroon getinfo"
     echo ""
     echo "=================================================================================="
     if [ -t 0 ]; then

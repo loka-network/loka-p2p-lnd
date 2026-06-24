@@ -94,8 +94,8 @@ nohup lnd --evm.active \
 - `--evm.active`: switches the node off the Bitcoin path and onto the EVM `ChainControl` (zero-intrusion adapter). When false, every other `--evm.*` flag is ignored.
 - `--evm.chain` / `--evm.chainid`: the sub-network name and chain id. The chain id is **bound into the EIP-712 domain**, so a signed `StateUpdate` is valid on exactly one chain — this is the cross-chain replay defence.
 - `--evm.tokenaddress` / `--evm.contractaddress`: the ERC-20 asset and the `ChannelManager` from §0. **All peers must share the same pair** or they cannot transact.
-- `--evm.tokensymbol` (optional): the asset label folded into the `network` field of `lncli getinfo` (e.g. `network: "base-sepolia (USDC)"`). Left unset it is auto-queried from the token's `symbol()` at startup. This is the human-facing differentiator for two sub-networks on the **same chain** settling **different ERC-20s** (USDC vs USDT): they are already cryptographically segregated by the synthesized genesis hash, but otherwise show the same `chain`/`network`, so the symbol disambiguates them in `getinfo` without a wire-schema change.
-- **Per-asset isolation (important).** The on-disk data directory is `data/chain/evm/<--evm.chain>/` — keyed by the **chain label only, not the token address**. So two sub-networks that share the same `--evm.chain` (e.g. both `base`) for **different ERC-20s would collide in one directory and mix channel state**. Give each asset its own label — `--evm.chain=base-usdc` vs `--evm.chain=base-usdt` — or a separate `--lnddir`. Using distinct labels has the bonus that the `network` field already distinguishes them even before the symbol is folded in.
+- `--evm.tokensymbol` (optional): the asset label. It serves two purposes — (1) it is folded into the `network` field of `lncli getinfo` (e.g. `network: "base-sepolia (USDC)"`), the human-facing differentiator for two sub-networks on the **same chain** settling **different ERC-20s** (they are already cryptographically segregated by the synthesized genesis hash but otherwise show the same `chain`/`network`); and (2) it becomes the **asset segment of the data directory** (see below). Left unset, the `getinfo` label is auto-queried from the token's `symbol()` at startup, and the data-dir segment falls back to the token address.
+- **Per-asset data isolation (automatic).** A single chain can host several assets, so the on-disk sub-network identity is `(chain, asset)`: the data directory is **`data/chain/evm/<--evm.chain>/<asset>/`**, where `<asset>` is the sanitized `--evm.tokensymbol` when set (e.g. `usdc`) or otherwise the token contract address. Two ERC-20s on the same `--evm.chain` therefore land in **separate directories automatically** and never mix channel state — no need to invent distinct chain labels. (Set `--evm.tokensymbol` if you want a readable `…/usdc/` path instead of `…/0xabc…/`.)
 - `--evm.rpchost`: the JSON-RPC endpoint. The node and watchtower now **bound every `eth_getLogs` query to a sliding window**, so a range-capped public endpoint (e.g. `sepolia.base.org`'s 2000-block cap) works fine — the full itest passes against it. The one remaining hard requirement: the endpoint must serve the **genesis block (block 0)**, which the node reads once at startup to anchor HTLC timelocks. Aggressively pruned endpoints (e.g. some `publicnode` hosts) reject that read and the node won't start. See `security-audit.md` M-1 on the single-RPC trust surface; production seeds should still front several endpoints.
 - `--evm.numconfs` (default 3): confirmations before an event/receipt is treated as final, absorbing L2 sequencer reorgs.
 - `--listen=0.0.0.0:9735` / `--externalip=<Public_IP>`: bind all interfaces and encode the public IP into Gossip broadcasts. Without `--externalip`, peers hear the seed exists but cannot route TCP to it.
@@ -106,17 +106,17 @@ nohup lnd --evm.active \
 
 On a fresh install LND halts waiting for a wallet password until you create the wallet.
 
-1. **Create the wallet** (note the EVM macaroon path):
+1. **Create the wallet** (note the EVM macaroon path — it includes the asset segment, here `usdc` from `--evm.tokensymbol=USDC`; without it the segment is the token address):
    ```bash
    lncli --lnddir=~/.lnd-seed --rpcserver=127.0.0.1:10009 \
-     --macaroonpath=~/.lnd-seed/data/chain/evm/base-sepolia/admin.macaroon create
+     --macaroonpath=~/.lnd-seed/data/chain/evm/base-sepolia/usdc/admin.macaroon create
    ```
    Follow the prompts; back up the 24-word seed. On reboot the node boots locked — run `lncli unlock`.
 
 2. **Generate an EVM address**:
    ```bash
    lncli --lnddir=~/.lnd-seed \
-     --macaroonpath=~/.lnd-seed/data/chain/evm/base-sepolia/admin.macaroon newaddress p2wkh
+     --macaroonpath=~/.lnd-seed/data/chain/evm/base-sepolia/usdc/admin.macaroon newaddress p2wkh
    ```
    The command is `p2wkh` (Bitcoin standard) but the Loka Zero-Intrusion Adapter translates the result into a valid **EVM address (`0x…`)**. Unlike Bitcoin's HD address tree, the EVM (and Sui) adapter is account-model: `newaddress` always returns the **same single account address**, derived from `KeyFamilyNodeKey` index 0. To rotate that on-chain settlement address to a fresh key — independently of the Lightning node identity (which stays at index 0) — bump `--evm.keyindex` (default 0) and move funds/gas to the new address. Note this does **not** mitigate a leaked wallet seed (every index derives from the same seed); true key rotation requires recovering from a new seed.
 

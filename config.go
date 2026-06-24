@@ -1348,8 +1348,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			cfg.DataDir, defaultChainSubDirname, EvmChainName,
 		)
 
+		// A single chain can host several assets, so the on-disk
+		// sub-network identity is (chain, asset), not chain alone:
+		// data/chain/evm/<chain>/<asset>/. Without the asset segment two
+		// ERC20s sharing one --evm.chain would collide in one directory
+		// and mix channel state. The segment is the operator's
+		// --evm.tokensymbol when set, else the token address (the auto
+		// symbol() query needs RPC, which is unavailable this early).
 		activeChainName = EvmChainName
-		activeNetworkName = lncfg.NormalizeNetwork(evmParams.Name)
+		activeNetworkName = filepath.Join(
+			lncfg.NormalizeNetwork(evmParams.Name),
+			evmAssetDirSegment(cfg.EvmMode),
+		)
 	} else {
 		// --- Bitcoin chain validation ---
 		numNets := 0
@@ -2573,4 +2583,35 @@ func logWarningsForDeprecation(cfg Config) {
 	for k := range deprecated {
 		ltndLog.Warnf("Config '%s' is deprecated, please remove it", k)
 	}
+}
+
+// evmAssetDirSegment returns the filesystem-safe path segment identifying the
+// channel asset within an EVM chain, so a single chain can host multiple assets
+// in isolated directories: data/chain/evm/<chain>/<asset>/. It prefers the
+// operator-provided --evm.tokensymbol (e.g. "usdc") and falls back to the token
+// contract address, which uniquely identifies the asset and is always known at
+// config-validation time (the auto symbol() query requires RPC, which is not
+// available this early). The result is lowercased and reduced to [a-z0-9-].
+func evmAssetDirSegment(evm *lncfg.EvmNode) string {
+	seg := strings.TrimSpace(evm.TokenSymbol)
+	if seg == "" {
+		seg = evm.TokenAddress
+	}
+
+	seg = strings.ToLower(seg)
+	var b strings.Builder
+	for _, r := range seg {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "asset"
+	}
+
+	return out
 }
