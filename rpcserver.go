@@ -3523,10 +3523,18 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	} else if r.cfg.EvmMode != nil && r.cfg.EvmMode.Active {
 		// An EVM sub-network is identified by its configured name
 		// (e.g. "anvil", "base", "base-sepolia") — the per-(chainID,
-		// token) tuple is already baked into the synthesized
-		// GenesisHash, so the name is the human-facing network label.
+		// token) tuple is already baked into the synthesized GenesisHash.
+		// Two sub-networks on the same chain settling different ERC20s are
+		// already segregated cryptographically, but otherwise look alike
+		// here, so fold the asset symbol (auto-queried at startup, or set
+		// via --evm.tokensymbol) into the network label — e.g.
+		// "base-sepolia (USDC)" — to make them distinguishable in getinfo
+		// without a wire-schema change.
 		chainName = EvmChainName
 		network = lncfg.NormalizeNetwork(r.cfg.EvmMode.Chain)
+		if sym := r.cfg.EvmMode.TokenSymbol; sym != "" {
+			network = fmt.Sprintf("%s (%s)", network, sym)
+		}
 	}
 
 	activeChains := []*lnrpc.Chain{

@@ -112,6 +112,21 @@ func buildEvmChainControl(
 			"for %s: %w", evmParams.TokenAddress, err)
 	}
 
+	// Resolve the channel asset's display symbol for getinfo. An explicit
+	// --evm.tokensymbol wins; otherwise best-effort query the ERC20's
+	// symbol() (optional in the standard, so a failure is non-fatal — the
+	// node still operates, getinfo just omits the label).
+	if cfg.EvmMode.TokenSymbol == "" {
+		if sym, err := queryEvmTokenSymbol(
+			evmClient, evmParams.TokenAddress,
+		); err != nil {
+			ltndLog.Warnf("EVM: unable to read token symbol for "+
+				"%s: %v", evmParams.TokenAddress, err)
+		} else {
+			cfg.EvmMode.TokenSymbol = sym
+		}
+	}
+
 	// Record the EIP-712 domain and token precision for the commitment
 	// bridge (lnwallet/evm_commitment.go). This must happen before any
 	// channel state machine starts; SetEvmChainActive was already called
@@ -218,6 +233,34 @@ func queryEvmTokenDecimals(client evmnotify.EvmClient, tokenAddr string) (
 	}
 
 	return evmnotify.UnpackDecimals(out)
+}
+
+// queryEvmTokenSymbol reads the ERC20 symbol() of the sub-network's token once
+// at startup. symbol() is optional in the ERC20 standard, so callers treat a
+// failure as non-fatal (getinfo simply omits the asset label).
+func queryEvmTokenSymbol(client evmnotify.EvmClient, tokenAddr string) (string,
+	error) {
+
+	data, err := evmnotify.PackSymbol()
+	if err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), evmDecimalsTimeout,
+	)
+	defer cancel()
+
+	token := common.HexToAddress(tokenAddr)
+	out, err := client.CallContract(ctx, ethereum.CallMsg{
+		To:   &token,
+		Data: data,
+	}, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return evmnotify.UnpackSymbol(out)
 }
 
 // queryEvmGenesisTimestamp reads the timestamp of block 0 — an immutable,

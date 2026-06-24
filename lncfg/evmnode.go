@@ -54,6 +54,13 @@ type EvmNode struct {
 	// host when available.
 	RPCHost string `long:"rpchost" description:"The EVM node JSON-RPC endpoint URL (http(s):// or ws(s)://)"`
 
+	// TokenSymbol labels the channel asset (e.g. "USDC") in getinfo so two
+	// sub-networks on the same chain but different ERC20 tokens are
+	// distinguishable. Left empty it is auto-filled at startup from the
+	// token's on-chain symbol(); set it to override (or for tokens that
+	// don't implement symbol()).
+	TokenSymbol string `long:"tokensymbol" description:"Channel asset symbol shown in getinfo (default: auto-queried from the ERC20's symbol())"`
+
 	// TokenAddress is the ERC20 asset (USDC/USDT) this sub-network settles
 	// in. 20-byte hex address.
 	TokenAddress string `long:"tokenaddress" description:"ERC20 token contract address escrowed by channels on this sub-network"`

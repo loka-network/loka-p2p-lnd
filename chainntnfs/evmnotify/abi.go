@@ -30,6 +30,8 @@ const erc20BalanceABI = `[{"constant":true,"inputs":[{"name":"account",` +
 	`"type":"uint256"}],"stateMutability":"view","type":"function"},` +
 	`{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"",` +
 	`"type":"uint8"}],"stateMutability":"view","type":"function"},` +
+	`{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"",` +
+	`"type":"string"}],"stateMutability":"view","type":"function"},` +
 	`{"constant":false,"inputs":[{"name":"spender","type":"address"},` +
 	`{"name":"amount","type":"uint256"}],"name":"approve","outputs":` +
 	`[{"name":"","type":"bool"}],"stateMutability":"nonpayable",` +
@@ -286,6 +288,28 @@ func PackBalanceOf(account common.Address) ([]byte, error) {
 // PackDecimals ABI-encodes an ERC20 decimals() call.
 func PackDecimals() ([]byte, error) {
 	return ERC20ABI.Pack("decimals")
+}
+
+// PackSymbol ABI-encodes an ERC20 symbol() call.
+func PackSymbol() ([]byte, error) {
+	return ERC20ABI.Pack("symbol")
+}
+
+// UnpackSymbol decodes the string result of an ERC20 symbol() call.
+func UnpackSymbol(data []byte) (string, error) {
+	vals, err := ERC20ABI.Unpack("symbol", data)
+	if err != nil {
+		return "", err
+	}
+	if len(vals) != 1 {
+		return "", fmt.Errorf("evmnotify: unexpected symbol return")
+	}
+	sym, ok := vals[0].(string)
+	if !ok {
+		return "", fmt.Errorf("evmnotify: symbol not a string")
+	}
+
+	return sym, nil
 }
 
 // UnpackDecimals decodes the uint8 result of an ERC20 decimals call.
