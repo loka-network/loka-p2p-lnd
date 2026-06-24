@@ -328,3 +328,79 @@ func TestEvmSignDigestRecovers(t *testing.T) {
 		t.Fatal("recovered pubkey does not match signer")
 	}
 }
+
+// Golden vector emitted by OpenChannelVectors.t.sol — the dual-funding consent
+// digest the counterparty signs (audit M-3). Same domain as the other vectors.
+const (
+	goldenOpenSalt   = "2bf8bb0de83f893366b040d2a0f2c5c2e6c391b6ec2ca331de50eaf00fada40e"
+	goldenOpenDigest = "dda400f78b4f8e67fc26f2df4ff53f8e466011669d6068d77061f3f78c642f09"
+)
+
+// openChannelGoldenVector returns the EvmOpenChannel matching the Solidity
+// vector: salt = keccak256("loka-evm-open-salt"), A = 0xA11CE, B = 0xB0B,
+// 600e6 / 400e6.
+func openChannelGoldenVector(t *testing.T) EvmOpenChannel {
+	t.Helper()
+	var a, b [20]byte
+	a[17], a[18], a[19] = 0x0A, 0x11, 0xCE
+	b[18], b[19] = 0x0B, 0x0B
+
+	return EvmOpenChannel{
+		Salt:                hexToBytes32(t, goldenOpenSalt),
+		ParticipantA:        a,
+		ParticipantB:        b,
+		LocalFundingAmount:  big.NewInt(600_000_000),
+		RemoteFundingAmount: big.NewInt(400_000_000),
+	}
+}
+
+// TestEvmOpenChannelDigest pins the Go OpenChannel consent digest to the value
+// the contract computes, so a signature produced here is accepted by
+// ChannelManager.openChannel byte-for-byte.
+func TestEvmOpenChannelDigest(t *testing.T) {
+	t.Parallel()
+	got := openChannelGoldenVector(t).Digest(goldenDomain(t))
+	want := hexToBytes32(t, goldenOpenDigest)
+	if got != want {
+		t.Fatalf("OpenChannel digest mismatch\n got %x\nwant %x", got, want)
+	}
+}
+
+// TestSignVerifyOpenChannel proves the full consent round-trip: the counterparty
+// (participantB) signs the OpenChannel, and VerifyOpenChannelSig — the same
+// recovery the contract performs — accepts it for that party and rejects it for
+// anyone else.
+func TestSignVerifyOpenChannel(t *testing.T) {
+	t.Parallel()
+
+	const pkHex = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+	pkb, _ := hex.DecodeString(pkHex)
+	priv, _ := btcec.PrivKeyFromBytes(pkb)
+	signer := EvmAddressFromPubKey(priv.PubKey())
+
+	// The signer is the counterparty (participantB) consenting to its deposit.
+	oc := openChannelGoldenVector(t)
+	oc.ParticipantB = signer
+
+	digest := oc.Digest(goldenDomain(t))
+	sig, err := signDigestWithKey(priv, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := VerifyOpenChannelSig(
+		sig, goldenDomain(t), oc, signer,
+	); err != nil {
+		t.Fatalf("VerifyOpenChannelSig rejected a valid sig: %v", err)
+	}
+
+	// A different expected address must be rejected.
+	var wrong [20]byte
+	copy(wrong[:], signer[:])
+	wrong[0] ^= 0xff
+	if err := VerifyOpenChannelSig(
+		sig, goldenDomain(t), oc, wrong,
+	); err == nil {
+		t.Fatal("VerifyOpenChannelSig accepted a sig for the wrong party")
+	}
+}

@@ -91,6 +91,49 @@ func (s *EvmSigner) SignCooperativeClose(keyDesc keychain.KeyDescriptor,
 	return s.SignDigest(keyDesc, cc.Digest(domain))
 }
 
+// SignOpenChannel signs an EIP-712 OpenChannel consent for a dual-funded open,
+// returning the 65-byte (r ‖ s ‖ v) signature the initiator passes to
+// ChannelManager.openChannel as counterpartySig. Only the counterparty (the
+// party contributing remoteFundingAmount) produces this; single-funded opens
+// (remoteFundingAmount == 0) need no consent and pass an empty signature.
+func (s *EvmSigner) SignOpenChannel(keyDesc keychain.KeyDescriptor,
+	domain EvmDomain, oc EvmOpenChannel) ([]byte, error) {
+
+	return s.SignDigest(keyDesc, oc.Digest(domain))
+}
+
+// VerifyOpenChannelSig checks that sig is a valid 65-byte OpenChannel consent
+// signature by the expected counterparty over the given domain — the same check
+// ChannelManager.openChannel performs on-chain. The initiator uses it to fail
+// fast before broadcasting (and spending gas on) a dual-funded open the
+// contract would reject.
+func VerifyOpenChannelSig(sig []byte, domain EvmDomain, oc EvmOpenChannel,
+	expected [20]byte) error {
+
+	if len(sig) != 65 {
+		return fmt.Errorf("evm_signer: want 65-byte OpenChannel sig, "+
+			"got %d", len(sig))
+	}
+
+	digest := oc.Digest(domain)
+
+	// Reassemble btcec's compact layout [header ‖ r ‖ s]; header = v.
+	compact := make([]byte, 65)
+	compact[0] = sig[64]
+	copy(compact[1:], sig[:64])
+
+	pub, _, err := btcecdsa.RecoverCompact(compact, digest[:])
+	if err != nil {
+		return fmt.Errorf("evm_signer: OpenChannel sig recovery: %w", err)
+	}
+	if EvmAddressFromPubKey(pub) != expected {
+		return fmt.Errorf("evm_signer: OpenChannel sig does not recover "+
+			"counterparty %x", expected)
+	}
+
+	return nil
+}
+
 // SignStateUpdateWire signs the EIP-712 StateUpdate digest and returns it as an
 // input.Signature (a 64-byte ECDSA r,s), the form carried in the BOLT
 // commitment_signed message. This is the off-chain commitment signature the EVM

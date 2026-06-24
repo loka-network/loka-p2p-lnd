@@ -41,6 +41,10 @@ const (
 	coopCloseType = "CooperativeClose(bytes32 channelId,uint256 nonce," +
 		"uint256 finalBalanceA,uint256 finalBalanceB)"
 
+	openChannelType = "OpenChannel(bytes32 salt,address participantA," +
+		"address participantB,uint256 localFundingAmount," +
+		"uint256 remoteFundingAmount)"
+
 	// EvmDomainName / EvmDomainVersion are the EIP-712 domain identifiers
 	// the ChannelManager is deployed with.
 	EvmDomainName    = "LokaChannelManager"
@@ -52,6 +56,7 @@ var (
 	eip712DomainTypeHash = Keccak256([]byte(eip712DomainType))
 	stateUpdateTypeHash  = Keccak256([]byte(stateUpdateType))
 	coopCloseTypeHash    = Keccak256([]byte(coopCloseType))
+	openChannelTypeHash  = Keccak256([]byte(openChannelType))
 )
 
 // EvmDomain is the EIP-712 domain separator input. chainID and
@@ -149,6 +154,51 @@ func (c EvmCooperativeClose) hashStruct() [32]byte {
 // close.
 func (c EvmCooperativeClose) Digest(domain EvmDomain) [32]byte {
 	return eip712Digest(domain.Separator(), c.hashStruct())
+}
+
+// EvmOpenChannel is the dual-funding consent artifact. When a channel is
+// dual-funded (remoteFundingAmount > 0), the counterparty signs this so a stale
+// ERC20 allowance can't be swept into a channel it never agreed to: the
+// ChannelManager's openChannel recovers this signature and requires it to match
+// the counterparty address (audit M-3). The signed digest is bound to
+// participantA = the initiator (openChannel's msg.sender, i.e. its per-channel
+// funding address) and participantB = the counterparty (the signer's own
+// address), exactly as the contract reconstructs it.
+type EvmOpenChannel struct {
+	// Salt is the 32-byte channel salt the initiator parameterizes.
+	Salt [32]byte
+
+	// ParticipantA is the initiator's funding address (openChannel's
+	// msg.sender on-chain).
+	ParticipantA [20]byte
+
+	// ParticipantB is the counterparty's funding address — the party that
+	// must sign this consent.
+	ParticipantB [20]byte
+
+	// LocalFundingAmount / RemoteFundingAmount are the two deposits in token
+	// base-units, matching openChannel's arguments.
+	LocalFundingAmount  *big.Int
+	RemoteFundingAmount *big.Int
+}
+
+// hashStruct computes keccak256(abi.encode(OPEN_CHANNEL_TYPEHASH, fields...)).
+func (o EvmOpenChannel) hashStruct() [32]byte {
+	var buf []byte
+	buf = append(buf, openChannelTypeHash[:]...)
+	buf = append(buf, o.Salt[:]...)
+	buf = append(buf, encodeAddress(o.ParticipantA)...)
+	buf = append(buf, encodeAddress(o.ParticipantB)...)
+	buf = append(buf, encodeUint256(o.LocalFundingAmount)...)
+	buf = append(buf, encodeUint256(o.RemoteFundingAmount)...)
+
+	return Keccak256(buf)
+}
+
+// Digest returns the full EIP-712 digest the counterparty signs to consent to a
+// dual-funded open.
+func (o EvmOpenChannel) Digest(domain EvmDomain) [32]byte {
+	return eip712Digest(domain.Separator(), o.hashStruct())
 }
 
 // EvmHTLC mirrors the contract's HTLC struct, presented to claimHtlc /

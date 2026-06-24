@@ -307,15 +307,55 @@ func (w *Wallet) executeOpenChannel(ctx context.Context,
 		}
 	}
 
-	// counterpartySig is empty: the LND funding flow currently opens
-	// single-funded channels (remoteRaw == 0), for which the contract
-	// requires no counterparty consent signature. Dual-funded opens
-	// (remoteRaw > 0) would need the counterparty's EIP-712 OpenChannel
-	// signature exchanged during funding negotiation (audit M-3) — not yet
-	// wired, so a dual-funded open fails closed at the contract rather than
-	// silently pulling the counterparty's deposit without consent.
+	// Dual-funded opens (remoteRaw > 0) require the counterparty's EIP-712
+	// OpenChannel consent signature, so a stale ERC20 allowance can't be
+	// swept into a channel it never agreed to (audit M-3). Single-funded
+	// opens (remoteRaw == 0) put nothing of the counterparty's at stake, so
+	// the contract requires no signature and we pass an empty one.
+	var counterpartySig []byte
+	if p.CounterpartySig != "" {
+		counterpartySig, err = hex.DecodeString(p.CounterpartySig)
+		if err != nil {
+			return zero, fmt.Errorf("evmwallet: bad counterparty "+
+				"sig: %w", err)
+		}
+	}
+	if remoteRaw.Sign() > 0 {
+		if len(counterpartySig) == 0 {
+			return zero, fmt.Errorf("evmwallet: dual-funded open " +
+				"(remote deposit > 0) needs the counterparty's " +
+				"OpenChannel consent signature (audit M-3); none " +
+				"was provided by the funding flow")
+		}
+
+		// Fail fast before spending gas on a call the contract would
+		// revert: verify the consent locally with the same recovery the
+		// contract performs. participantA is this node's channel account
+		// (openChannel's msg.sender), participantB the counterparty.
+		var verifyContract, partA, partB [20]byte
+		copy(verifyContract[:], contract.Bytes())
+		copy(partA[:], chanAddr.Bytes())
+		copy(partB[:], counterparty.Bytes())
+		oc := input.EvmOpenChannel{
+			Salt:                saltBytes,
+			ParticipantA:        partA,
+			ParticipantB:        partB,
+			LocalFundingAmount:  localRaw,
+			RemoteFundingAmount: remoteRaw,
+		}
+		domain := input.EvmDomain{
+			ChainID:           w.cfg.Params.ChainID,
+			VerifyingContract: verifyContract,
+		}
+		if err := input.VerifyOpenChannelSig(
+			counterpartySig, domain, oc, partB,
+		); err != nil {
+			return zero, fmt.Errorf("evmwallet: counterparty "+
+				"OpenChannel consent invalid: %w", err)
+		}
+	}
 	openData, err := evmnotify.PackOpenChannel(
-		saltBytes, counterparty, localRaw, remoteRaw, nil,
+		saltBytes, counterparty, localRaw, remoteRaw, counterpartySig,
 	)
 	if err != nil {
 		return zero, err

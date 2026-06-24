@@ -53,6 +53,20 @@ type EvmIntent struct {
 	// salt is keccak256(localKey, remoteKey) — deterministic and unique per
 	// channel because the funding multisig key is freshly derived per channel.
 	salt [32]byte
+
+	// counterpartySig is the counterparty's EIP-712 OpenChannel consent
+	// signature (65-byte r‖s‖v), required by the contract only for
+	// dual-funded opens (remoteAmt > 0; audit M-3). Nil for single-funded
+	// opens. Set via SetCounterpartySig once the funding flow exchanges it.
+	counterpartySig []byte
+}
+
+// SetCounterpartySig records the counterparty's EIP-712 OpenChannel consent
+// signature so CompileFunds carries it into the openChannel call. The funding
+// flow invokes this on the initiator side for a dual-funded open, after the
+// responder returns its consent signature; single-funded opens never call it.
+func (e *EvmIntent) SetCounterpartySig(sig []byte) {
+	e.counterpartySig = sig
 }
 
 // BindKeys records both funding pubkeys and derives the provisional channelId.
@@ -166,13 +180,19 @@ func (e *EvmIntent) CompileFunds() (*wire.MsgTx, error) {
 		counterpartyHex = hex.EncodeToString(remoteAddr[:])
 	}
 
+	var counterpartySigHex string
+	if len(e.counterpartySig) > 0 {
+		counterpartySigHex = hex.EncodeToString(e.counterpartySig)
+	}
+
 	payload := input.EvmChannelOpenPayload{
-		Salt:          hex.EncodeToString(e.salt[:]),
-		Counterparty:  counterpartyHex,
-		LocalBalance:  uint64(e.localAmt),
-		RemoteBalance: uint64(e.remoteAmt),
-		LocalKey:      localKeyHex,
-		RemoteKey:     remoteKeyHex,
+		Salt:            hex.EncodeToString(e.salt[:]),
+		Counterparty:    counterpartyHex,
+		LocalBalance:    uint64(e.localAmt),
+		RemoteBalance:   uint64(e.remoteAmt),
+		LocalKey:        localKeyHex,
+		RemoteKey:       remoteKeyHex,
+		CounterpartySig: counterpartySigHex,
 	}
 
 	return input.BuildEvmChannelOpenTx(e.channelID, payload)

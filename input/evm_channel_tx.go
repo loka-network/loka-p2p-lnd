@@ -69,6 +69,14 @@ type EvmChannelOpenPayload struct {
 	// retained so the responder can reconstruct the same channelId.
 	LocalKey  string `json:"local_key"`
 	RemoteKey string `json:"remote_key"`
+
+	// CounterpartySig is the counterparty's EIP-712 OpenChannel consent
+	// signature (65-byte r‖s‖v, hex-encoded), required by the contract only
+	// for dual-funded opens (RemoteBalance > 0) so a stale ERC20 allowance
+	// can't be swept into a channel the counterparty never agreed to (audit
+	// M-3). Empty for single-funded opens. Populated by the funding flow
+	// once the responder's consent signature is exchanged.
+	CounterpartySig string `json:"counterparty_sig,omitempty"`
 }
 
 // evmCall is the JSON envelope spliced into TxIn[0].SignatureScript.
