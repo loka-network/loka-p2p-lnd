@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -112,19 +113,35 @@ func buildEvmChainControl(
 			"for %s: %w", evmParams.TokenAddress, err)
 	}
 
-	// Resolve the channel asset's display symbol for getinfo. An explicit
-	// --evm.tokensymbol wins; otherwise best-effort query the ERC20's
-	// symbol() (optional in the standard, so a failure is non-fatal — the
-	// node still operates, getinfo just omits the label).
-	if cfg.EvmMode.TokenSymbol == "" {
-		if sym, err := queryEvmTokenSymbol(
-			evmClient, evmParams.TokenAddress,
-		); err != nil {
-			ltndLog.Warnf("EVM: unable to read token symbol for "+
-				"%s: %v", evmParams.TokenAddress, err)
-		} else {
-			cfg.EvmMode.TokenSymbol = sym
-		}
+	// Resolve / validate the channel asset's display symbol for getinfo by
+	// querying the ERC20's symbol() on-chain. symbol() is optional in the
+	// standard, so a query failure is non-fatal (the node still operates).
+	//   - no --evm.tokensymbol: adopt the on-chain symbol as the label.
+	//   - --evm.tokensymbol set: VALIDATE it against the on-chain symbol and
+	//     warn loudly on a mismatch — a mislabel (e.g. "USDC" pointed at a
+	//     USDT contract) would otherwise silently mislabel getinfo and the
+	//     data directory. It is a warning, not a hard error, because the
+	//     operator may intentionally relabel and some tokens omit symbol().
+	onChainSym, symErr := queryEvmTokenSymbol(
+		evmClient, evmParams.TokenAddress,
+	)
+	switch {
+	case symErr != nil:
+		ltndLog.Warnf("EVM: unable to read token symbol() for %s: %v "+
+			"(getinfo asset label %q unvalidated)",
+			evmParams.TokenAddress, symErr, cfg.EvmMode.TokenSymbol)
+
+	case cfg.EvmMode.TokenSymbol == "":
+		cfg.EvmMode.TokenSymbol = onChainSym
+
+	case !strings.EqualFold(
+		strings.TrimSpace(cfg.EvmMode.TokenSymbol), onChainSym,
+	):
+		ltndLog.Warnf("EVM: configured --evm.tokensymbol %q does not "+
+			"match the token's on-chain symbol() %q — verify "+
+			"--evm.tokenaddress %s points at the intended asset",
+			cfg.EvmMode.TokenSymbol, onChainSym,
+			evmParams.TokenAddress)
 	}
 
 	// Record the EIP-712 domain and token precision for the commitment
