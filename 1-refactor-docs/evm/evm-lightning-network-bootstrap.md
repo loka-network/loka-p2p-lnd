@@ -4,7 +4,7 @@ Bootstrapping a brand new, isolated Loka EVM-Lightning network graph is like lig
 
 This guide details how to plan, bootstrap, and scale a completely new Agentic P2P payment network on top of an EVM chain (Base, an OP-stack L2, or a local Anvil devnet) where settlement is anchored by the `ChannelManager` escrow contract.
 
-> **What differs from the Sui bootstrap.** The topology, DNS, and Gossip mechanics are identical to `1-refactor-docs/sui/sui-lightning-network-bootstrap.md` and are reproduced here for completeness. The EVM-specific concerns are: (1) **two balances per node** — native gas (ETH) *and* the ERC-20 channel asset (USDC) — which both must be funded; (2) a **deployed `ChannelManager` contract** per (chain, asset) sub-network that every node must point at; and (3) an **ERC-20 approval** step before dual-funded channels. Sections 0, 2.5, and 4 below cover these.
+> **What differs from the Sui bootstrap.** The topology, DNS, and Gossip mechanics are identical to `1-refactor-docs/sui/sui-lightning-network-bootstrap.md` and are reproduced here for completeness. The EVM-specific concerns are: (1) **two balances per node** — native gas (ETH) *and* the ERC-20 channel asset (USDC) — which both must be funded; (2) a **deployed `ChannelManager` contract** per (chain, asset) sub-network that every node must point at; (3) an **ERC-20 approval** before opening; and (4) an optional **watchtower** to defend offline nodes against revoked-state force-closes. Sections 0, 2.5, 4, and 7 below cover these.
 
 ---
 
@@ -22,6 +22,7 @@ PRIVATE_KEY=0x<deployer-key> CHALLENGE_PERIOD=86400 \
 ```
 
 - `CHALLENGE_PERIOD` is the force-close challenge window **in seconds**, fixed at deploy time. The default is `86400` (24 h) — the correct production value. The integration tests override it to 12 s / 60 s purely so the suite finishes in minutes; **never deploy a short challenge period to mainnet** (it shrinks the breach-remedy window — see `security-audit.md` H-1/M-1).
+- **Optional deposit-scaling** (mirrors Bitcoin's value-scaled CSV delay): set `MAX_CHALLENGE_PERIOD` (the cap) and `FULL_SCALE_DEPOSIT` (the deposit at which the window reaches the cap, in token base units) to make the per-channel window scale linearly between `CHALLENGE_PERIOD` (the floor) and the cap. Both default to `0`, which disables scaling → a fixed `CHALLENGE_PERIOD` for every channel. The contract exposes `challengeWindowFor(deposit)` so operators can preview the window a given deposit will get, and `forceClose` stamps `challengeExpiry = block.timestamp + challengeWindowFor(totalDeposited)`. Rationale: a larger escrow is worth more to steal, so it deserves a longer window for the victim/watchtower to react.
 - On a public testnet the deployer key must hold native gas. The deployer address is **not** privileged by the contract afterwards — `ChannelManager` is permissionless, so seed operators and agents need not be the deployer.
 
 Distribute `{token, channel_manager}` to every operator; they become `--evm.tokenaddress` and `--evm.contractaddress`.
@@ -71,7 +72,7 @@ nohup lnd --evm.active \
 - `--evm.active`: switches the node off the Bitcoin path and onto the EVM `ChainControl` (zero-intrusion adapter). When false, every other `--evm.*` flag is ignored.
 - `--evm.chain` / `--evm.chainid`: the sub-network name and chain id. The chain id is **bound into the EIP-712 domain**, so a signed `StateUpdate` is valid on exactly one chain — this is the cross-chain replay defence.
 - `--evm.tokenaddress` / `--evm.contractaddress`: the ERC-20 asset and the `ChannelManager` from §0. **All peers must share the same pair** or they cannot transact.
-- `--evm.rpchost`: the JSON-RPC endpoint. **Use a full (archive-capable) endpoint that serves the genesis block and wide `eth_getLogs` ranges.** Aggressively pruned public endpoints (e.g. some `publicnode` hosts) reject the genesis read used to anchor HTLC timelocks and cap log ranges — the node will fail to start or miss close events. See `security-audit.md` M-1 on the single-RPC trust surface; production seeds should front several endpoints.
+- `--evm.rpchost`: the JSON-RPC endpoint. The node and watchtower now **bound every `eth_getLogs` query to a sliding window**, so a range-capped public endpoint (e.g. `sepolia.base.org`'s 2000-block cap) works fine — the full itest passes against it. The one remaining hard requirement: the endpoint must serve the **genesis block (block 0)**, which the node reads once at startup to anchor HTLC timelocks. Aggressively pruned endpoints (e.g. some `publicnode` hosts) reject that read and the node won't start. See `security-audit.md` M-1 on the single-RPC trust surface; production seeds should still front several endpoints.
 - `--evm.numconfs` (default 3): confirmations before an event/receipt is treated as final, absorbing L2 sequencer reorgs.
 - `--listen=0.0.0.0:9735` / `--externalip=<Public_IP>`: bind all interfaces and encode the public IP into Gossip broadcasts. Without `--externalip`, peers hear the seed exists but cannot route TCP to it.
 - `--protocol.wumbo-channels`: **critical.** With the Loka scaling factor `1 token = 1e8` internal units, the default Lightning channel cap (~16.7M base units ≈ 0.167 USDC) is uselessly small. Wumbo removes the cap so seeds can hold large USDC liquidity pools.
@@ -132,10 +133,12 @@ Starting 3 independent seeds doesn't automatically route payments between them. 
 - **Small Channels (Agent Channels)**: opened by edge agents to a seed; sized for that agent's micro-transactions.
 - **Large Channels (Wumbo / Backbone)**: inter-seed channels **must** be large. `--protocol.wumbo-channels` removes the default cap so big `--local_amt` values (denominated in the ERC-20 asset's base units) pass.
 
-### The EVM approval step (before dual-funded opens)
-`ChannelManager.openChannel` pulls deposits via ERC-20 `transferFrom`, so the funding key **must approve the ChannelManager** for at least the deposit before opening. For a single-funded channel only the initiator approves; for dual-funded, the counterparty must approve their side too.
+### The EVM approval step
+`ChannelManager.openChannel` pulls the deposit via ERC-20 `transferFrom`, so the funding key **must approve the ChannelManager** for at least the deposit before opening. LND issues this approval automatically in the open-channel carrier flow.
 
-> **Security note (see `security-audit.md` M-3):** approve **exact, just-in-time amounts**, never an unbounded allowance. A standing allowance lets a counterparty pull your approved tokens into a channel on terms you did not interactively agree to.
+**Single-funded is the operational path** (the initiator funds the whole channel; the counterparty deposits nothing). The M-3 fix made `openChannel` require the counterparty's EIP-712 `OpenChannel` **consent signature** whenever `remoteFundingAmount > 0` — so a stale allowance can't be swept into a channel the counterparty never agreed to. The Go funding flow does not yet produce that consent signature, so **dual-funded opens currently fail closed at the contract** (single-funded is unaffected); dual-funding is a future enhancement.
+
+> **Security note (see `security-audit.md` M-3):** still approve **exact, just-in-time amounts**, never an unbounded allowance.
 
 LND issues the approval as part of the open-channel carrier flow, but operators driving raw `cast` should approve explicitly:
 ```bash
@@ -186,7 +189,39 @@ When the network scales (e.g. 100,000 concurrent agents), Gossip bandwidth on 3 
 
 ---
 
-## 7. Operational Checklist (EVM-specific)
+## 7. Watchtower: defending offline nodes
+
+The EVM breach remedy is `penalize` — present a higher-nonce co-signed `StateUpdate` during the challenge window and the contract sweeps the whole escrow to the victim. The H-1 fix made `penalize` pay the **broadcaster-derived victim regardless of who submits the transaction**, so a third party can defend a victim that is offline. A watchtower is that third party; without one, a node that is offline when a counterparty broadcasts a revoked state cannot punish it.
+
+It has two roles, each just an `lnd` flag (mirroring Bitcoin's `--watchtower.active`/`--wtclient.active`):
+
+**Tower** — a separate, always-on `lnd` (different machine from the protected node, so it stays up when that node is down). It runs its own chain watcher and submits `penalize` on a client's behalf:
+```bash
+lnd --evm.active --evm.chain=base-sepolia ... \
+    --evmwatchtower.active \
+    --evmwatchtower.listen=0.0.0.0:9912 \
+    --evmwatchtower.fromblock=<ChannelManager deploy_block> \
+    --evmwatchtower.allowlistfile=~/.lnd/evm-allowlist.txt
+```
+- `--evmwatchtower.listen`: accepts brontide (encrypted+authenticated) backup uploads.
+- `--evmwatchtower.fromblock`: where the chain scan starts — set it to the contract's `deploy_block` (from `deploy_state`) so the tower catches closes that predate its startup. Unset starts one window back from the tip.
+- `--evmwatchtower.scanwindow` (default 1800): blocks per `eth_getLogs` query; keep it under the RPC's range cap.
+- **DoS allowlist** — `--evmwatchtower.allowedclient=<hex pubkey>` (repeatable, static) **or** `--evmwatchtower.allowlistfile=<path>` (one hex client pubkey per line, `#` comments). The file is **hot-reloaded**: edit it to add/remove clients and the tower applies the change within seconds — **no restart**. An empty list means accept any client (open/altruistic tower). The tower signs `penalize` with its own key (a gas-only relayer — the contract pays the victim, so a leaked backup can never steal).
+
+**Client** — the protected node periodically snapshots its latest co-signed channel state and ships it to a tower:
+```bash
+lnd --evm.active ... \
+    --evmwtclient.active \
+    --evmwtclient.tower=<tower_pubkey>@<tower_host>:9912 \
+    --evmwtclient.interval=30s
+```
+- `--evmwtclient.tower`: the remote tower as `<pubkey>@<host:port>` (the tower node's `lncli getinfo` identity pubkey). Omit it and set `--evmwtclient.backupdir` to write backups to a local directory instead (phase-1 local handover).
+
+The backup carries no spend authority (it only lets the holder call `penalize`, which always pays the victim), so it is shipped plaintext. Validated end to end on Anvil and Base Sepolia (`scripts/itest_evm_watchtower.sh`). Design: `1-refactor-docs/evm/evm-watchtower-design.md`.
+
+---
+
+## 8. Operational Checklist (EVM-specific)
 
 - [ ] `ChannelManager` + token addresses are identical across every node on the sub-network.
 - [ ] Challenge period is the production value (≥ 24 h); short test values never reach mainnet.
@@ -194,15 +229,16 @@ When the network scales (e.g. 100,000 concurrent agents), Gossip bandwidth on 3 
 - [ ] RPC endpoint serves genesis + wide `eth_getLogs`; production seeds front multiple endpoints (mitigates the single-RPC trust surface, `security-audit.md` M-1).
 - [ ] No public/well-known private keys on any reachable network.
 - [ ] Approvals are exact and just-in-time, never unbounded.
-- [ ] **Watchtower caveat:** the EVM breach remedy (`penalize`) currently requires the *participant* to be online (`security-audit.md` H-1). Until watchtower delegation lands, keep seed nodes highly available, or accept that an offline node cannot punish a counterparty's revoked-state broadcast.
+- [ ] **Breach defense:** either keep nodes highly available, **or** run a watchtower (§7). The H-1 fix + EVM watchtower let an offline node be defended by a third party; nodes that may go offline with funds at stake (edge agents) should back up to a tower (`--evmwtclient.tower=…`). Towers that accept the public should set an allowlist (`--evmwatchtower.allowlistfile`).
 
 ---
 
 ## References
 
 - Contract + deploy: `evm-contracts/channel-manager/src/ChannelManager.sol`, `evm-contracts/channel-manager/deploy.sh`
-- Config flags: `lncfg/evmnode.go`
-- E2E reference: `scripts/itest_evm.sh` (Anvil 19/19, Base Sepolia 15/15)
+- Config flags: `lncfg/evmnode.go` (node), `lncfg/evmwatchtower.go` + `lncfg/evmwtclient.go` (watchtower)
+- E2E reference: `scripts/itest_evm.sh` (Anvil 19/19, Base Sepolia 15/15) and `scripts/itest_evm_watchtower.sh` (Anvil + Base Sepolia breach loop)
 - Faucet helper: `scripts/evm_faucet_base_sepolia.sh`
-- Security: `1-refactor-docs/evm/security-audit.md`
+- Security: `1-refactor-docs/evm/security-audit.md` (H-1/H-2 + M-2…M-5 remediated)
+- Watchtower design: `1-refactor-docs/evm/evm-watchtower-design.md`
 - Companion (Sui): `1-refactor-docs/sui/sui-lightning-network-bootstrap.md`
