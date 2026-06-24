@@ -24,6 +24,18 @@
 #   FULL_SCALE_DEPOSIT  deposit (token base units) at which the window reaches
 #                       the cap (default 0). 0 in either of the two vars above
 #                       disables scaling → fixed CHALLENGE_PERIOD per channel.
+#
+# Mainnet recommended preset (USDC, 6 decimals) — deposit-scaled window:
+#   floor 1 day → cap 7 days, hitting the cap at 100,000 USDC. Small channels
+#   get ~1 day, a 50k channel ~3.6 days, a 100k+ channel the full 7 days. Bump
+#   the cap to 1209600 (14 days) for a very-high-value deployment.
+#       PRIVATE_KEY=0x<key> \
+#         CHALLENGE_PERIOD=86400 \
+#         MAX_CHALLENGE_PERIOD=604800 \
+#         FULL_SCALE_DEPOSIT=100000000000 \
+#         ./deploy.sh base <rpc-url> <usdc-token-address>
+# The defaults below keep scaling OFF (fixed CHALLENGE_PERIOD) so testnet /
+# itest deploys are unaffected unless the two vars are passed explicitly.
 set -euo pipefail
 
 NETWORK=${1:?usage: PRIVATE_KEY=0x… ./deploy.sh <network> <rpc-url> [token-address]}
