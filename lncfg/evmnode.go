@@ -68,6 +68,15 @@ type EvmNode struct {
 	// NumConfs is the number of confirmations required before treating an
 	// EVM event/receipt as final.
 	NumConfs uint32 `long:"numconfs" description:"EVM confirmations required for finality (default 3)"`
+
+	// KeyIndex selects the KeyFamilyNodeKey index from which the node's
+	// on-chain settlement account is derived (default 0). Bump it to rotate
+	// the settlement address to a fresh key, independently of the Lightning
+	// node identity. NOTE: a new index does NOT mitigate a leaked wallet
+	// seed (all indices derive from the same seed); true key rotation
+	// requires recovering from a new seed. Funds/gas must be moved to the
+	// new address after changing this.
+	KeyIndex uint32 `long:"keyindex" description:"KeyFamilyNodeKey index for the on-chain settlement account (default 0). Bump to rotate the settlement key independently of the node identity; does not help if the seed itself leaked."`
 }
 
 // DefaultEvmNode returns an EvmNode configuration populated with sensible

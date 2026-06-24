@@ -61,6 +61,14 @@ type Config struct {
 
 	// GasLimit is the gas ceiling applied to ChannelManager calls.
 	GasLimit uint64
+
+	// NodeKeyIndex is the KeyFamilyNodeKey index from which the node's
+	// on-chain settlement account is derived (default 0). It is exposed via
+	// --evm.keyindex so an operator can rotate the settlement address to a
+	// fresh key independently of the Lightning node identity (which stays at
+	// index 0). NOTE: this does not help if the wallet SEED leaks — every
+	// index derives from the same seed; true rotation requires a new seed.
+	NodeKeyIndex uint32
 }
 
 // Wallet adapts an EVM chain to lnwallet.WalletController.
@@ -81,7 +89,7 @@ func New(cfg Config) *Wallet {
 func (w *Wallet) nodeAddress() (common.Address, error) {
 	keyDesc, err := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
-		Index:  0,
+		Index:  w.cfg.NodeKeyIndex,
 	})
 	if err != nil {
 		return common.Address{}, err

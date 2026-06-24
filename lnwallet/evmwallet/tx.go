@@ -123,7 +123,7 @@ func unwrapEvmCall(tx *wire.MsgTx) (EvmCall, bool, error) {
 func (w *Wallet) nodeECDSAKey() (*ecdsa.PrivateKey, common.Address, error) {
 	keyDesc, err := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
-		Index:  0,
+		Index:  w.cfg.NodeKeyIndex,
 	})
 	if err != nil {
 		return nil, common.Address{}, err

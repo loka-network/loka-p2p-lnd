@@ -147,6 +147,7 @@ func buildEvmChainControl(
 		Params:        evmParams,
 		TokenDecimals: tokenDecimals,
 		GasLimit:      cfg.EvmMode.GasLimit,
+		NodeKeyIndex:  cfg.EvmMode.KeyIndex,
 	})
 
 	// Surface the node's native-coin (gas) balance at startup. Channel
