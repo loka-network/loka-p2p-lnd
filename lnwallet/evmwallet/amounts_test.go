@@ -140,3 +140,41 @@ func TestScale18Decimals(t *testing.T) {
 		t.Fatalf("round-trip created value: %s > %s", back, dusty)
 	}
 }
+
+// FuzzAmountScaling asserts the Decimals-Scaling-Factor invariants over random
+// inputs: no panic, non-negativity, conservation (an internal→base→internal
+// round trip never inflates the amount — the node can't credit itself dust it
+// can't settle), and exactness when the token has at least internal precision.
+func FuzzAmountScaling(f *testing.F) {
+	f.Add(int64(0), uint8(6))
+	f.Add(int64(500_000_000), uint8(6)) // 5 USDC
+	f.Add(int64(1), uint8(18))          // 1 unit at 18 decimals
+	f.Add(int64(1<<40), uint8(2))
+
+	f.Fuzz(func(t *testing.T, amtRaw int64, dec uint8) {
+		// Amounts are non-negative; map any negative (incl. MinInt64) safely.
+		if amtRaw < 0 {
+			amtRaw = -(amtRaw + 1)
+		}
+		d := dec % 31 // bound decimals to a realistic 0..30
+		amt := btcutil.Amount(amtRaw)
+
+		base := ScaleToBase(amt, d)
+		if base.Sign() < 0 {
+			t.Fatalf("ScaleToBase negative: %s", base)
+		}
+
+		back := ScaleToInternal(base, d)
+		if back < 0 {
+			t.Fatalf("ScaleToInternal negative: %d", back)
+		}
+		// Conservation: round-trip must never inflate.
+		if int64(back) > int64(amt) {
+			t.Fatalf("round-trip inflated: %d -> %d", amt, back)
+		}
+		// Lossless when token decimals >= internal scale.
+		if d >= internalDecimals && int64(back) != int64(amt) {
+			t.Fatalf("lossy at dec=%d: %d -> %d", d, amt, back)
+		}
+	})
+}

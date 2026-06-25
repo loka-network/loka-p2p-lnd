@@ -206,3 +206,30 @@ func TestEvmAssetDirSegment(t *testing.T) {
 		})
 	}
 }
+
+// FuzzEvmAssetDirSegment asserts the data-dir asset segment is ALWAYS a safe,
+// non-empty path component for any symbol/address input: only [a-z0-9-], never
+// empty, and no leading/trailing dash (so it can't escape or collide with the
+// parent dir).
+func FuzzEvmAssetDirSegment(f *testing.F) {
+	f.Add("USDC", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+	f.Add("", "0xdeadBEEF")
+	f.Add("US DC", "")
+	f.Add("///", "@@@")
+
+	f.Fuzz(func(t *testing.T, symbol, addr string) {
+		seg := evmAssetDirSegment(&lncfg.EvmNode{
+			TokenSymbol:  symbol,
+			TokenAddress: addr,
+		})
+
+		require.NotEmpty(t, seg, "segment must never be empty")
+		for _, r := range seg {
+			safe := (r >= 'a' && r <= 'z') ||
+				(r >= '0' && r <= '9') || r == '-'
+			require.Truef(t, safe, "unsafe char %q in %q", r, seg)
+		}
+		require.NotEqual(t, byte('-'), seg[0], "leading dash")
+		require.NotEqual(t, byte('-'), seg[len(seg)-1], "trailing dash")
+	})
+}
