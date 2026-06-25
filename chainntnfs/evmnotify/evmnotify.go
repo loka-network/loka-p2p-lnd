@@ -164,6 +164,14 @@ func (n *EvmChainNotifier) pollTip() {
 	epoch := &chainntnfs.BlockEpoch{
 		Hash:   &hash,
 		Height: int32(height),
+		// Carry the block timestamp so consumers can gate on CHAIN time
+		// (block.timestamp) rather than the node's wall-clock — e.g. the
+		// EVM settler's challenge-window deadline is a block.timestamp,
+		// which can drift from wall-clock (L2 sequencer skew, or a devnet
+		// fast-forwarded with anvil_mine).
+		BlockHeader: &wire.BlockHeader{
+			Timestamp: time.Unix(int64(hdr.Time), 0),
+		},
 	}
 
 	n.epochMu.Lock()

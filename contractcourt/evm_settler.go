@@ -86,6 +86,7 @@ func (c *chainWatcher) evmSettle(commit channeldb.ChannelCommitment,
 
 	var (
 		bestHeight          uint32
+		chainTime           int64
 		distributeAttempts  int
 		nextDistributeAfter time.Time
 	)
@@ -100,6 +101,12 @@ func (c *chainWatcher) evmSettle(commit channeldb.ChannelCommitment,
 				return
 			}
 			bestHeight = uint32(epoch.Height)
+			// Track chain time (block.timestamp) so the challenge
+			// window is gated on the same clock the contract uses,
+			// not the node's wall-clock.
+			if epoch.BlockHeader != nil {
+				chainTime = epoch.BlockHeader.Timestamp.Unix()
+			}
 
 			continue
 
@@ -169,10 +176,17 @@ func (c *chainWatcher) evmSettle(commit channeldb.ChannelCommitment,
 
 			continue
 		}
-		now := time.Now()
-		if now.Unix() < int64(challengeExpiry)+1 ||
-			now.Before(nextDistributeAfter) {
-
+		// Gate on CHAIN time vs the contract's block.timestamp deadline
+		// (chainTime is 0 until the first block epoch arrives). Wall-clock
+		// is only used for retry pacing below. This matches the contract's
+		// own check and tolerates wall-clock/chain-time skew (and survives
+		// a restart that resumes mid-window — the next epoch sets
+		// chainTime, and distributeFunds fires when the chain has passed
+		// the deadline).
+		if chainTime < int64(challengeExpiry)+1 {
+			continue
+		}
+		if time.Now().Before(nextDistributeAfter) {
 			continue
 		}
 
@@ -185,7 +199,7 @@ func (c *chainWatcher) evmSettle(commit channeldb.ChannelCommitment,
 		}
 
 		distributeAttempts++
-		nextDistributeAfter = now.Add(evmDistributeRetryDelay)
+		nextDistributeAfter = time.Now().Add(evmDistributeRetryDelay)
 		log.Infof("ChannelPoint(%v): EVM settler broadcasting "+
 			"distributeFunds (attempt %d/%d)", chanPoint,
 			distributeAttempts, evmDistributeAttempts)

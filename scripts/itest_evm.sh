@@ -20,6 +20,8 @@
 #                         drops by exactly that channel's deposit
 #   5. force close      — forceClose call (challenge window) + distributeFunds
 #                         after expiry
+#   8. crash recovery   — force close, kill node1 mid-window, restart; the
+#                         settler must resume and distributeFunds (anvil only)
 #
 # The ChannelManager is deployed with a deposit-scaled challenge window
 # (floor→cap); a dedicated step asserts challengeWindowFor() on-chain.
@@ -382,7 +384,11 @@ step "Boot two lnd --evm.active nodes"
 # sweeper would otherwise try to sweep one to an EVM account address).
 # REST stays on (no TLS) so the suspended nodes are usable from
 # Postman/curl after the run.
-for N in 1 2; do
+# boot_node <N> launches lnd node N (idempotent: also used to restart a node on
+# the same lnddir, e.g. the crash-recovery step). --noseedbackup auto-creates
+# and, on a subsequent boot over an existing wallet, auto-unlocks it.
+boot_node() {
+    local N=$1
     "$LND_BIN" --lnddir="$WORKDIR/node$N" --noseedbackup \
         --evm.active --evm.chain="$NETWORK" --evm.chainid=$CHAIN_ID \
         --evm.rpchost="$RPC" \
@@ -391,7 +397,10 @@ for N in 1 2; do
         --listen=127.0.0.1:1190$N --rpclisten=127.0.0.1:1180$N \
         --restlisten=127.0.0.1:1280$N --no-rest-tls \
         --allow-circular-route --protocol.no-anchors --debuglevel=info \
-        >"$WORKDIR/node$N.log" 2>&1 &
+        >>"$WORKDIR/node$N.log" 2>&1 &
+}
+for N in 1 2; do
+    boot_node "$N"
 done
 for N in 1 2; do
     wait_until 30 "node$N rpc" lncli_n "$N" getinfo
@@ -743,6 +752,70 @@ ok "in-flight HTLC reclaimed on-chain via timeoutHtlc (timelock deadline honored
 
 wait_until $WAIT_SETTLE "distributeFunds after HTLC timeout" fd_incremented
 ok "channel finalised after in-flight HTLC timeout"
+fi
+
+# Step 8 kills and restarts a node, fast-forwarding the challenge window with
+# anvil_mine — local Anvil only.
+if [ "$NETWORK" = "anvil" ]; then
+step "8. Crash recovery: force close → kill node1 mid-window → restart → distributeFunds"
+# The EVM settler runs OUTSIDE contractcourt's resolver state machine, so its
+# crash-recovery is the path most exposed by that design divergence: if a node
+# dies after a force close is on-chain but before distributeFunds, the escrow
+# must NOT be stranded — on restart the chain watcher has to re-detect the
+# close and the settler must resume and finalise. This step proves exactly
+# that on a fresh, HTLC-free channel.
+CHAN_OPEN=$(lncli_n 1 openchannel --node_key="$PK2" --local_amt=5000000000)
+FUNDING_TXID5=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_txid"])')
+wait_until $WAIT_CHAN "recovery test channel active on node1" chan_active 1 2
+wait_until $WAIT_CHAN "recovery test channel active on node2" chan_active 2 2
+
+# Advance the channel past its initial state with one payment, so node1 holds a
+# co-signed StateUpdate to present at forceClose (a never-used channel has no
+# higher-than-genesis co-signed state to force-close on).
+RC_PR=$(lncli_n 2 addinvoice --amt 100000000 --memo recovery \
+    | json 'print(json.load(sys.stdin)["payment_request"])')
+pay_with_retry 1 "$RC_PR"
+
+RC_FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' || echo 0)
+RC_FC_BEFORE=${RC_FC_BEFORE:-0}
+RC_FD_BEFORE=$(log_count 'FundsDistributed(bytes32,uint256,uint256)' || echo 0)
+RC_FD_BEFORE=${RC_FD_BEFORE:-0}
+RC_ESCROW=$(erc20_bal "$CM")
+
+# Force close, then kill node1 the instant the close is on-chain — well before
+# its settler's challenge-window timer (CHALLENGE_PERIOD s) would distribute.
+lncli_n 1 closechannel --force "$FUNDING_TXID5" >/dev/null 2>&1 &
+RC_FORCE_PID=$!
+rc_fc_inc() { log_gt 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' "$RC_FC_BEFORE"; }
+wait_until $WAIT_SETTLE "forceClose on-chain (recovery test)" rc_fc_inc
+kill $RC_FORCE_PID 2>/dev/null || true
+
+pkill -f "lnddir=$WORKDIR/node1" 2>/dev/null || true
+node1_down() { ! pgrep -f "lnddir=$WORKDIR/node1" >/dev/null 2>&1; }
+wait_until 15 "node1 process gone" node1_down
+ok "node1 killed after force close, before its settler distributed"
+
+# Elapse the whole challenge window WHILE node1 is down (mine blocks so
+# block.timestamp advances on the 1s devnet cadence), then confirm nothing
+# distributed the escrow in node1's absence.
+cast rpc anvil_mine "$(printf '0x%x' $((CHALLENGE_PERIOD + 20)))" 0x1 \
+    --rpc-url "$RPC" >/dev/null 2>&1
+sleep 2
+[ "$(erc20_bal "$CM")" = "$RC_ESCROW" ] \
+    || fail "escrow moved while node1 was down (precondition broken)"
+[ "$(log_count 'FundsDistributed(bytes32,uint256,uint256)')" = "$RC_FD_BEFORE" ] \
+    || fail "distributeFunds fired while node1 was down"
+ok "challenge window elapsed with node1 offline; escrow still held on-chain"
+
+# Restart node1 on the SAME lnddir. The watcher must re-detect the close from
+# the chain and the settler must resume → distributeFunds.
+boot_node 1
+wait_until 30 "node1 back online" lncli_n 1 getinfo
+ok "node1 restarted on its existing state"
+
+rc_fd_inc() { log_gt 'FundsDistributed(bytes32,uint256,uint256)' "$RC_FD_BEFORE"; }
+wait_until $WAIT_SETTLE "settler resumes after restart → distributeFunds" rc_fd_inc
+ok "EVM settler RESUMED after restart and finalised the escrow (no funds stranded)"
 fi
 
 # ---------------------------------------------------------------------------
