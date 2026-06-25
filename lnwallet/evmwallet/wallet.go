@@ -71,10 +71,38 @@ type Config struct {
 	NodeKeyIndex uint32
 }
 
+// maxTxJournal bounds the in-memory broadcast journal (newest kept).
+const maxTxJournal = 1024
+
+// journalTx records one transaction this node broadcast, so ListTransactionDetails
+// can report the node's own on-chain activity. EVM has no wallet-local tx index
+// (a full history needs an external indexer), so this is a best-effort,
+// process-lifetime journal of what this node itself sent.
+type journalTx struct {
+	hash chainhash.Hash
+	when time.Time
+}
+
 // Wallet adapts an EVM chain to lnwallet.WalletController.
 type Wallet struct {
 	cfg Config
 	mu  sync.Mutex
+
+	// txMu guards txJournal, the bounded in-memory record of the node's own
+	// broadcast transactions surfaced by ListTransactionDetails.
+	txMu      sync.Mutex
+	txJournal []journalTx
+}
+
+// recordTx appends a broadcast transaction to the bounded in-memory journal.
+func (w *Wallet) recordTx(hash chainhash.Hash) {
+	w.txMu.Lock()
+	defer w.txMu.Unlock()
+
+	w.txJournal = append(w.txJournal, journalTx{hash: hash, when: time.Now()})
+	if len(w.txJournal) > maxTxJournal {
+		w.txJournal = w.txJournal[len(w.txJournal)-maxTxJournal:]
+	}
 }
 
 // Compile-time assertion that Wallet satisfies the interface.
@@ -425,17 +453,38 @@ func (w *Wallet) ListAccounts(name string, _ *waddrmgr.KeyScope) (
 	}}, nil
 }
 
-// ListAddresses is unsupported on EVM.
-// ListAddresses is unsupported on EVM. The walletkit marshaler requires a
-// BIP32 account extended public key (it derefs AccountPubKey.ChildIndex), and
-// the EVM keyring exposes no account-level xpub, so there is nothing valid to
-// return. The node's single account address is available via newaddress,
-// listunspent (which renders it) and walletbalance instead. (Sui leaves this
-// unsupported for the same reason.)
+// ListAddresses reports the node's single EVM account address with its
+// confirmed balance. EVM is an account model (one address, no HD tree), so the
+// result always has exactly one entry under a single account.
+//
+// The account is reported under the "imported" account name on purpose: the
+// walletkit marshaler derefs AccountPubKey.ChildIndex for any other account
+// name (the EVM keyring exposes no account-level xpub, so that would panic),
+// but skips the xpub block for the imported account — which is the right
+// semantic anyway for a single externally-derived key with no derivation tree.
 func (w *Wallet) ListAddresses(string, bool) (lnwallet.AccountAddressMap,
 	error) {
 
-	return nil, ErrUnsupported
+	addr, err := w.nodeAddress()
+	if err != nil {
+		return nil, err
+	}
+	balance, err := w.ConfirmedBalance(0, "")
+	if err != nil {
+		return nil, err
+	}
+
+	account := &waddrmgr.AccountProperties{
+		AccountName: waddrmgr.ImportedAddrAccountName,
+		KeyScope:    waddrmgr.KeyScopeBIP0084,
+	}
+
+	return lnwallet.AccountAddressMap{
+		account: {{
+			Address: addr.Hex(),
+			Balance: balance,
+		}},
+	}, nil
 }
 
 // ImportAccount is unsupported on EVM.
@@ -515,16 +564,70 @@ func (w *Wallet) ListUnspentWitness(_, _ int32, _ string) ([]*lnwallet.Utxo,
 	}}, nil
 }
 
-// ListTransactionDetails is unsupported on EVM.
-// ListTransactionDetails returns an empty history. EVM has no wallet-local
-// transaction index; reconstructing the node account's on-chain tx history
-// requires an external indexer (eth_getLogs / a block explorer), which is out
-// of scope for the adapter. Returning empty (rather than an error) keeps
-// `listchaintxns` and wallet UIs that poll it working.
-func (w *Wallet) ListTransactionDetails(int32, int32, string, uint32,
-	uint32) ([]*lnwallet.TransactionDetail, uint64, uint64, error) {
+// ListTransactionDetails reports the transactions this node has broadcast this
+// process lifetime, enriched with their on-chain confirmation depth. EVM has no
+// wallet-local transaction index, so a full account history (including txs sent
+// by other tools or before this process started) needs an external indexer
+// (eth_getLogs / explorer) — out of scope for the adapter. This best-effort
+// session journal is still useful for `listchaintxns` and polling UIs; entries
+// not yet mined are reported with zero confirmations. startHeight/endHeight
+// filter by confirmation block; pagination args are ignored (the journal is
+// bounded and small).
+func (w *Wallet) ListTransactionDetails(startHeight, endHeight int32, _ string,
+	_, _ uint32) ([]*lnwallet.TransactionDetail, uint64, uint64, error) {
 
-	return nil, 0, 0, nil
+	w.txMu.Lock()
+	journal := make([]journalTx, len(w.txJournal))
+	copy(journal, w.txJournal)
+	w.txMu.Unlock()
+
+	if len(journal) == 0 {
+		return nil, 0, 0, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	tip, err := w.cfg.Client.BlockNumber(ctx)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("evmwallet: block number: %w", err)
+	}
+
+	details := make([]*lnwallet.TransactionDetail, 0, len(journal))
+	for _, jtx := range journal {
+		detail := &lnwallet.TransactionDetail{
+			Hash:      jtx.hash,
+			Timestamp: jtx.when.Unix(),
+			Label:     "evm-node-tx",
+		}
+
+		// A receipt gives the mined block; absence means still pending.
+		rcpt, err := w.cfg.Client.TransactionReceipt(
+			ctx, common.Hash(jtx.hash),
+		)
+		if err == nil && rcpt != nil && rcpt.BlockNumber != nil {
+			bn := rcpt.BlockNumber.Uint64()
+			detail.BlockHeight = int32(bn)
+			if tip >= bn {
+				detail.NumConfirmations = int32(tip-bn) + 1
+			}
+		}
+
+		// Height filter (0 bounds mean "unbounded"); pending txs
+		// (BlockHeight 0) are always included.
+		if startHeight > 0 && detail.BlockHeight != 0 &&
+			detail.BlockHeight < startHeight {
+
+			continue
+		}
+		if endHeight > 0 && detail.BlockHeight > endHeight {
+			continue
+		}
+
+		details = append(details, detail)
+	}
+
+	return details, tip, 0, nil
 }
 
 // LeaseOutput is unsupported on EVM.

@@ -229,7 +229,10 @@ func (w *Wallet) broadcastCallFrom(ctx context.Context, call EvmCall,
 
 		sendErr = w.cfg.Client.SendTransaction(ctx, signedTx)
 		if sendErr == nil {
-			return chainhash.Hash(signedTx.Hash()), nil
+			h := chainhash.Hash(signedTx.Hash())
+			w.recordTx(h)
+
+			return h, nil
 		}
 		if !isRetryableSendErr(sendErr) {
 			return zero, fmt.Errorf("evmwallet: send tx: %w",
