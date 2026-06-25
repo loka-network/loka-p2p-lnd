@@ -1,9 +1,11 @@
 {
   "network": "base-sepolia",
   "chain_id": 84532,
-  "channel_manager": "0x24e6BDc31979f3778ef7267Ff45f0Ac821979940",
-  "token": "0x805EdD09cED4214Bc7cdeEdA52A7f9e044e0a173",
+  "channel_manager": "0x8B9f20AB8A96f2502007ab20bB3593BC46c801AC",
+  "token": "0xB3854FfD9E86E614E7665DedB29D177ae5941d77",
   "challenge_period": 60,
+  "max_challenge_period": 1060,
+  "full_scale_deposit": 1000000000000,
   "deployer": "0x809d4774F4c1577e8f4366FA23163ef5dE520B03",
-  "deploy_block": 43216744
+  "deploy_block": 43300498
 }

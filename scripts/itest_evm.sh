@@ -13,10 +13,16 @@
 #   3c. self-payment    — node1 pays its own invoice node1→node2→node1 over
 #                         the circular route, N rounds (mirrors the Sui
 #                         itest's step 8; common L402/paywall pattern)
+#   3d. push_amt open   — single-funded open that credits the counterparty an
+#                         initial off-chain balance; escrow still holds the
+#                         full deposit (conservation), then coop-closed
 #   4. cooperative close— closeChannel call pays both participants; escrow
 #                         drops by exactly that channel's deposit
 #   5. force close      — forceClose call (challenge window) + distributeFunds
 #                         after expiry
+#
+# The ChannelManager is deployed with a deposit-scaled challenge window
+# (floor→cap); a dedicated step asserts challengeWindowFor() on-chain.
 #
 # After all checks pass the nodes stay up in suspended mode for manual
 # poking (RPC/REST); press Enter to tear down. Set ITEST_EVM_SUSPEND=0 to
@@ -84,6 +90,16 @@ base-sepolia)
     ;;
 esac
 DEPLOY_STATE="$REPO/evm-contracts/channel-manager/deploy_state_${NETWORK}.json"
+
+# Deposit-scaled challenge window (same for all networks): the per-channel
+# force-close window scales linearly from floor=CHALLENGE_PERIOD to
+# cap=CHALLENGE_PERIOD+SCALE_SPAN, reaching the cap at FULL_SCALE_DEPOSIT raw
+# token base-units. FULL_SCALE is set far above any itest channel (1M USDC @ 6
+# dec) so every channel here gets a window ≈ floor and the suite's timing is
+# unchanged; a dedicated step asserts the curve at 0 / mid / full / above.
+SCALE_SPAN=1000
+FULL_SCALE_DEPOSIT=1000000000000
+MAX_CHALLENGE_PERIOD=$((CHALLENGE_PERIOD + SCALE_SPAN))
 
 # The deployer/funder address — also where node gas is swept back on teardown.
 DEPLOYER_ADDR=$(cast wallet address --private-key "$DEVKEY" 2>/dev/null || true)
@@ -284,8 +300,18 @@ step "Deploy (or reuse) MockERC20 / ChannelManager"
 # deployed on a public testnet) instead of deploying a fresh MockERC20 — the
 # token must be mintable by the deployer key (the funding step mints to the
 # nodes). deploy.sh deploys only the ChannelManager when given a token.
-if [ ! -s "$DEPLOY_STATE" ]; then
+# Redeploy when there is no state, OR the recorded ChannelManager predates
+# deposit-scaling (no/zero full_scale_deposit) — the scaling test needs the
+# 4-arg contract (challengeWindowFor + the cap/full-scale getters). The new
+# constructor changes the CREATE2 address, so this records a fresh contract.
+RECORDED_FS=0
+if [ -s "$DEPLOY_STATE" ]; then
+    RECORDED_FS=$(json 'print(json.load(sys.stdin).get("full_scale_deposit",0))' <"$DEPLOY_STATE")
+fi
+if [ ! -s "$DEPLOY_STATE" ] || [ "$RECORDED_FS" = "0" ] || [ -z "$RECORDED_FS" ]; then
     PRIVATE_KEY=$DEVKEY CHALLENGE_PERIOD=$CHALLENGE_PERIOD \
+        MAX_CHALLENGE_PERIOD=$MAX_CHALLENGE_PERIOD \
+        FULL_SCALE_DEPOSIT=$FULL_SCALE_DEPOSIT \
         "$REPO/evm-contracts/channel-manager/deploy.sh" "$NETWORK" "$RPC" \
         ${EVM_TOKEN:+"$EVM_TOKEN"} \
         >/dev/null || fail "contract deployment"
@@ -293,6 +319,8 @@ fi
 TOKEN=$(json 'print(json.load(sys.stdin)["token"])' <"$DEPLOY_STATE")
 CM=$(json 'print(json.load(sys.stdin)["channel_manager"])' <"$DEPLOY_STATE")
 CHALLENGE_PERIOD=$(json 'print(json.load(sys.stdin)["challenge_period"])' <"$DEPLOY_STATE")
+MAX_CHALLENGE_PERIOD=$(json 'print(json.load(sys.stdin)["max_challenge_period"])' <"$DEPLOY_STATE")
+FULL_SCALE_DEPOSIT=$(json 'print(json.load(sys.stdin)["full_scale_deposit"])' <"$DEPLOY_STATE")
 FROM_BLOCK=$(json 'print(json.load(sys.stdin)["deploy_block"])' <"$DEPLOY_STATE")
 [ -n "$TOKEN" ] && [ -n "$CM" ] || fail "bad deploy state file: $DEPLOY_STATE"
 
@@ -323,7 +351,24 @@ escrow_is() {
         "$(python3 -c "print($ESCROW0 + $(usdc_base "$1"))")" ]
 }
 
-ok "token=$TOKEN (${TOKEN_DEC} dec) manager=$CM (escrow baseline $ESCROW0, challenge ${CHALLENGE_PERIOD}s, state: ${DEPLOY_STATE#$REPO/})"
+ok "token=$TOKEN (${TOKEN_DEC} dec) manager=$CM (escrow baseline $ESCROW0, challenge floor ${CHALLENGE_PERIOD}s / cap ${MAX_CHALLENGE_PERIOD}s @ ${FULL_SCALE_DEPOSIT}, state: ${DEPLOY_STATE#$REPO/})"
+
+step "Deposit-scaled challenge window (challengeWindowFor view)"
+# Assert the on-chain curve directly: floor at 0, cap at full-scale, the exact
+# linear midpoint, and a clamp above full-scale. Pure view calls — no waiting.
+cwf() { rcall call "$CM" "challengeWindowFor(uint256)(uint256)" "$1" | awk '{print $1}'; }
+MID_DEP=$(python3 -c "print($FULL_SCALE_DEPOSIT // 2)")
+MID_WIN=$(python3 -c "print($CHALLENGE_PERIOD + ($MAX_CHALLENGE_PERIOD - $CHALLENGE_PERIOD) * ($FULL_SCALE_DEPOSIT // 2) // $FULL_SCALE_DEPOSIT)")
+ABOVE_DEP=$(python3 -c "print($FULL_SCALE_DEPOSIT * 2)")
+[ "$(cwf 0)" = "$CHALLENGE_PERIOD" ] \
+    || fail "challengeWindowFor(0)=$(cwf 0) != floor $CHALLENGE_PERIOD"
+[ "$(cwf "$FULL_SCALE_DEPOSIT")" = "$MAX_CHALLENGE_PERIOD" ] \
+    || fail "challengeWindowFor(fullScale) != cap $MAX_CHALLENGE_PERIOD"
+[ "$(cwf "$MID_DEP")" = "$MID_WIN" ] \
+    || fail "challengeWindowFor(mid)=$(cwf "$MID_DEP") != expected $MID_WIN"
+[ "$(cwf "$ABOVE_DEP")" = "$MAX_CHALLENGE_PERIOD" ] \
+    || fail "challengeWindowFor(>fullScale) != cap (clamp)"
+ok "challengeWindowFor: ${CHALLENGE_PERIOD}s @0, ${MID_WIN}s @half, ${MAX_CHALLENGE_PERIOD}s @full + clamp"
 
 step "Boot two lnd --evm.active nodes"
 # --allow-circular-route is required for the self-payment step: the HTLC
@@ -501,6 +546,37 @@ done
 # Circular payments are value-neutral, so both escrows must be untouched.
 escrow_is 150 || fail "escrow changed after self-payments"
 ok "$SELF_PAY_ROUNDS self-payment rounds settled; channels and escrow intact"
+
+step "3d. Channel open with push_amt (off-chain initial balance to peer)"
+# push_amt credits the counterparty an initial balance from a SINGLE-funded
+# open: the escrow still holds only node1's full deposit, but the opening
+# commitment splits it node1 / node2. Proves the EVM commitment bridge carries
+# a non-zero counterparty balance from block one and conservation still holds.
+PUSH_LOCAL=1000000000 # 10 USDC channel (LND-internal 1e8/token units)
+PUSH_AMT=300000000    #  3 USDC pushed to node2
+CHAN_OPEN=$(lncli_n 1 openchannel --node_key="$PK2" \
+    --local_amt=$PUSH_LOCAL --push_amt=$PUSH_AMT)
+PUSH_TXID=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_txid"])')
+[ -n "$PUSH_TXID" ] || fail "push openchannel returned no funding txid"
+wait_until $WAIT_CHAN "push channel active on node1" chan_active 1 3
+wait_until $WAIT_CHAN "push channel active on node2" chan_active 2 3
+# Escrow rose by the FULL 10-USDC deposit — push is off-chain only.
+wait_until 15 "escrow holds the full push deposit" escrow_is 160
+
+# node2's local balance on the push channel must equal the pushed amount.
+push_local() { # push_local <node> -> local_balance on the push channel
+    lncli_n "$1" listchannels | json 'import sys; d=json.load(sys.stdin); ch=[c for c in d["channels"] if c["channel_point"].startswith("'"$PUSH_TXID"':")]; print(ch[0]["local_balance"] if ch else "none")'
+}
+push_bal2_is() { [ "$(push_local 2)" = "$1" ]; }
+wait_until 15 "node2 credited the pushed balance" push_bal2_is "$PUSH_AMT"
+ok "push_amt: node2 holds $PUSH_AMT at open while escrow held the full $PUSH_LOCAL"
+
+# Coop-close the push channel so escrow returns to its pre-push value before
+# the force-close steps (which assert exact escrow deltas).
+lncli_n 1 closechannel "$PUSH_TXID" >/dev/null 2>&1 &
+wait_until $WAIT_SETTLE "push-channel escrow released" escrow_is 150
+wait_until $WAIT_CHAN "back to 2 active channels on node1" chan_active 1 2
+ok "push channel coop-closed; escrow back to baseline+150"
 
 step "4. Cooperative close (channel 1)"
 CC_BEFORE=$(log_count 'ChannelClosed(bytes32,uint256,uint256)' || echo 0)
