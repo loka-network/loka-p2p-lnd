@@ -29,10 +29,10 @@
 # exit immediately (CI), ITEST_EVM_SELF_PAY_ROUNDS=N to tune the loop.
 #
 # Requirements: go, anvil/forge/cast (Foundry), python3.
-# Usage: ./scripts/itest_evm.sh [anvil|base-sepolia]
+# Usage: ./scripts/itest_evm.sh [anvil|localnet|base-sepolia]
 #
 #   anvil (default)  local Anvil devnet; everything is created from scratch
-#                    and torn down afterwards.
+#                    and torn down afterwards. `localnet` is an alias.
 #   base-sepolia     Base's public testnet (chain id 84532). Requires
 #                    PRIVATE_KEY env with Base-Sepolia ETH for gas (faucet:
 #                    https://portal.cdp.coinbase.com/products/faucet). The
@@ -46,6 +46,9 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR=$(mktemp -d /tmp/lnd-evm-itest.XXXXXX)
 
 NETWORK="${1:-anvil}"
+# `localnet` is an alias for `anvil` — the local EVM devnet IS anvil; the alias
+# matches the Sui itest's naming (./scripts/itest_sui.sh localnet).
+[ "$NETWORK" = "localnet" ] && NETWORK=anvil
 # Asset label for the (chain, asset) data dir: data/chain/evm/<network>/<asset>/.
 # Passed as --evm.tokensymbol so the dir segment is deterministic ("mock").
 ASSET="mock"
@@ -85,7 +88,7 @@ base-sepolia)
     NODE_FUND_USDC="${EVM_NODE_FUND_USDC:-250}"
     ;;
 *)
-    echo "Unknown network '$NETWORK'. Use 'anvil' or 'base-sepolia'." >&2
+    echo "Unknown network '$NETWORK'. Use 'anvil' (alias 'localnet') or 'base-sepolia'." >&2
     exit 1
     ;;
 esac
