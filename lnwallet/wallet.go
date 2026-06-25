@@ -1806,7 +1806,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		pendingReservation.fundingTx = fundingTx
 		pendingReservation.partialState.FundingOutpoint = *chanPoint
 		pendingReservation.ourFundingInputScripts = make([]*input.Script, 0)
-			
+
 	case *chanfunding.FullIntent:
 		// Now that we know their public key, we can bind theirs as
 		// well as ours to the funding intent.
@@ -1907,6 +1907,29 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 	// For regular channels, we can just send over a normal ECDSA signature
 	// w/o any extra steps.
 	case !pendingReservation.partialState.ChanType.IsTaproot():
+		// On an EVM chain a force-close presents the counterparty's
+		// EIP-712 StateUpdate signature, so the funding handshake must
+		// sign that digest for the INITIAL (height-0) state too — not a
+		// SegWit sighash. Otherwise a channel force-closed before its
+		// first payment has no valid retained signature to present
+		// (RecoverEvmSigV fails). Channel-absolute, so both parties sign
+		// the identical digest, matching evmRetainedSig65 at close time.
+		if evmChainActive {
+			evmSigner, ok := l.Cfg.Signer.(*input.EvmSigner)
+			if !ok {
+				return nil, fmt.Errorf("lnwallet: evm chain " +
+					"active but signer is not *input.EvmSigner")
+			}
+			su := evmInitialStateUpdate(
+				pendingReservation.partialState,
+			)
+
+			return evmSigner.SignStateUpdateWire(
+				ourContribution.MultiSigKey, evmCommitmentDomain,
+				su,
+			)
+		}
+
 		ourKey := ourContribution.MultiSigKey
 		signDesc := input.SignDescriptor{
 			WitnessScript: fundingWitnessScript,
@@ -1928,9 +1951,9 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 			h := sha256.Sum256(keyRing.RevocationKey.SerializeCompressed())
 
 			payload := input.ChannelForceClosePayload{
-				StateNum:      0,
-				LocalBalance:  uint64(pendingReservation.partialState.RemoteCommitment.RemoteBalance.ToSatoshis()),
-				RemoteBalance: uint64(pendingReservation.partialState.RemoteCommitment.LocalBalance.ToSatoshis()),
+				StateNum:       0,
+				LocalBalance:   uint64(pendingReservation.partialState.RemoteCommitment.RemoteBalance.ToSatoshis()),
+				RemoteBalance:  uint64(pendingReservation.partialState.RemoteCommitment.LocalBalance.ToSatoshis()),
 				RevocationHash: h,
 			}
 			payloadBytes, _ := json.Marshal(payload)
@@ -2323,6 +2346,21 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 	// If this isn't a taproot channel, then we'll construct a segwit v0
 	// p2wsh sighash.
 	case !res.partialState.ChanType.IsTaproot():
+		// EVM counterpart of the initial-commitment signing in
+		// signCommitTx: verify the counterparty's signature over the
+		// EIP-712 StateUpdate digest for the height-0 state (channel-
+		// absolute), not a SegWit sighash.
+		if evmChainActive {
+			su := evmInitialStateUpdate(res.partialState)
+			digest := su.Digest(evmCommitmentDomain)
+			if !commitSig.Verify(digest[:], remoteKey) {
+				return fmt.Errorf("counterparty's initial " +
+					"commitment signature is invalid (evm)")
+			}
+
+			return nil
+		}
+
 		hashCache := input.NewTxSigHashesV0Only(commitTx)
 		witnessScript, _, err := input.GenFundingPkScript(
 			localKey.SerializeCompressed(),
@@ -2342,9 +2380,9 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 			h := sha256.Sum256(keyRing.RevocationKey.SerializeCompressed())
 
 			payload := input.ChannelForceClosePayload{
-				StateNum:      0,
-				LocalBalance:  uint64(res.partialState.LocalCommitment.LocalBalance.ToSatoshis()),
-				RemoteBalance: uint64(res.partialState.LocalCommitment.RemoteBalance.ToSatoshis()),
+				StateNum:       0,
+				LocalBalance:   uint64(res.partialState.LocalCommitment.LocalBalance.ToSatoshis()),
+				RemoteBalance:  uint64(res.partialState.LocalCommitment.RemoteBalance.ToSatoshis()),
 				RevocationHash: h,
 			}
 			suiHash := input.GenerateSuiPayloadHash(payload)
@@ -2838,8 +2876,8 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	// validate that this channel is indeed what we expect, and can be
 	// used.
 	if fundingTx != nil {
-		// Native SUI Object Check: 
-		// SUI channels are bridged via `suinotify` mapping into 0-input Tx structures 
+		// Native SUI Object Check:
+		// SUI channels are bridged via `suinotify` mapping into 0-input Tx structures
 		// containing the remote Object capacity. Double-SHA256 `TxHash` verification
 		// is incompatible with SUI Object IDs, so we enforce the capacity bounds here directly.
 		if len(fundingTx.TxIn) == 0 && len(fundingTx.TxOut) == 1 {

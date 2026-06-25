@@ -769,13 +769,10 @@ FUNDING_TXID5=$(echo "$CHAN_OPEN" | json 'print(json.load(sys.stdin)["funding_tx
 wait_until $WAIT_CHAN "recovery test channel active on node1" chan_active 1 2
 wait_until $WAIT_CHAN "recovery test channel active on node2" chan_active 2 2
 
-# Advance the channel past its initial state with one payment, so node1 holds a
-# co-signed StateUpdate to present at forceClose (a never-used channel has no
-# higher-than-genesis co-signed state to force-close on).
-RC_PR=$(lncli_n 2 addinvoice --amt 100000000 --memo recovery \
-    | json 'print(json.load(sys.stdin)["payment_request"])')
-pay_with_retry 1 "$RC_PR"
-
+# Deliberately force-close at the INITIAL (zero-payment) state: the funding
+# handshake now signs the EIP-712 StateUpdate for height 0, so node1 holds a
+# valid co-signed state to present even on a never-used channel. (Before the
+# fix this reverted with "retained sig does not recover to counterparty".)
 RC_FC_BEFORE=$(log_count 'UnilateralCloseInitiated(bytes32,address,uint256,uint256,uint256,uint256)' || echo 0)
 RC_FC_BEFORE=${RC_FC_BEFORE:-0}
 RC_FD_BEFORE=$(log_count 'FundsDistributed(bytes32,uint256,uint256)' || echo 0)

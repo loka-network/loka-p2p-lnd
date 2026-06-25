@@ -586,6 +586,36 @@ func evmStateUpdateFromDiskCommit(chanState *channeldb.OpenChannel,
 	}
 }
 
+// evmInitialStateUpdate builds the canonical StateUpdate for a channel's INITIAL
+// (height-0) commitment, for the funding handshake's sign/verify. It must NOT
+// touch the funding multisig pubkeys: at reservation time those live in the
+// reservation's contributions, not yet copied into chanState.{Local,Remote}ChanCfg
+// (so evmPartyAddrs would nil-deref). It can avoid them because the initial
+// commitment has no HTLCs (the only thing party addresses are needed for) and
+// the channelId is the funding outpoint hash — so this reproduces exactly what
+// evmStateUpdateFromDiskCommit yields for the same height-0 state at force-close.
+func evmInitialStateUpdate(
+	chanState *channeldb.OpenChannel) input.EvmStateUpdate {
+
+	commit := chanState.LocalCommitment
+
+	// B = the non-funder, channel-absolute (same rule as the other builders).
+	bBalance := commit.RemoteBalance.ToSatoshis()
+	if !chanState.IsInitiator {
+		bBalance = commit.LocalBalance.ToSatoshis()
+	}
+
+	balanceA, balanceB := evmBalanceSplit(chanState.Capacity, bBalance, nil)
+
+	return input.EvmStateUpdate{
+		ChannelID: evmChannelID(chanState),
+		Nonce:     commit.CommitHeight,
+		BalanceA:  balanceA,
+		BalanceB:  balanceB,
+		HtlcsHash: input.HtlcsMerkleRoot(nil),
+	}
+}
+
 // evmAssertConservation verifies that a force-close state reconciles to the
 // escrowed total: balanceA + balanceB + Σhtlc must equal scale(capacity). The
 // split (evmBalanceSplit) builds A as the remainder, so this holds by
