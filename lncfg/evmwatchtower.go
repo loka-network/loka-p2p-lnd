@@ -36,6 +36,12 @@ type EvmWatchtower struct {
 	// 0 starts one ScanWindow back from the chain tip.
 	FromBlock uint64 `long:"fromblock" description:"Block to start scanning from (e.g. the contract deploy block); 0 = one window back from tip."`
 
+	// ReorgDepth holds the most recent blocks back before acting on a close,
+	// so a reorged-away close doesn't trigger a wasted (reverting) penalize.
+	// 0 uses a safe default; the added latency is a few blocks, negligible
+	// against any real challenge window.
+	ReorgDepth uint64 `long:"reorgdepth" description:"Blocks to hold back before acting on a close, to tolerate L2 reorgs (0 = default 2)."`
+
 	// AllowedClients is the set of client node identity pubkeys (33-byte
 	// compressed hex) the tower accepts backup uploads from. Empty means
 	// accept any client (open/altruistic tower — DoS-prone); set it to

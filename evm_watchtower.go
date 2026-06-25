@@ -122,6 +122,9 @@ func newEvmLookout(cfg *Config, cc *chainreg.ChainControl,
 		// deploy block) lets the tower catch closes predating startup.
 		WindowSize: cfg.EvmWatchtower.ScanWindow,
 		FromBlock:  cfg.EvmWatchtower.FromBlock,
+		// Hold recent blocks back so a reorged-away close never triggers
+		// a wasted penalize.
+		ReorgDepth: cfg.EvmWatchtower.ReorgDepth,
 	})
 
 	// Optionally accept networked backup uploads (phase 2), persisting them

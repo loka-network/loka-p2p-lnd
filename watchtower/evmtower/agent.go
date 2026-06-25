@@ -27,6 +27,12 @@ type BackupAgent struct {
 	store    BackupStore
 	interval time.Duration
 
+	// sent records the highest backup nonce already pushed per channel so a
+	// tick that finds no newer state is a no-op — avoiding redundant uploads
+	// (and, with a RemoteStore, redundant brontide round-trips) every tick.
+	// Accessed only from the single run goroutine, so it needs no lock.
+	sent map[[32]byte]uint64
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -43,6 +49,7 @@ func NewBackupAgent(source ChannelSource, store BackupStore,
 		source:   source,
 		store:    store,
 		interval: interval,
+		sent:     make(map[[32]byte]uint64),
 		quit:     make(chan struct{}),
 	}
 }
@@ -90,9 +97,18 @@ func (a *BackupAgent) snapshot() {
 	}
 
 	for _, b := range backups {
+		// Skip channels whose latest state hasn't advanced since the
+		// last push — the store is highest-nonce-wins, so re-sending the
+		// same nonce is a no-op (and a wasted upload over the network).
+		if last, ok := a.sent[b.ChannelID]; ok && b.Nonce <= last {
+			continue
+		}
 		if err := a.store.Put(b); err != nil {
 			log.Warnf("evmtower: store backup for %x: %v",
 				b.ChannelID, err)
+
+			continue
 		}
+		a.sent[b.ChannelID] = b.Nonce
 	}
 }

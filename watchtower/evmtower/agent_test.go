@@ -55,6 +55,36 @@ func TestBackupAgentSourceError(t *testing.T) {
 	require.False(t, ok)
 }
 
+// countingStore wraps a BackupStore and counts Put calls.
+type countingStore struct {
+	BackupStore
+	puts int
+}
+
+func (c *countingStore) Put(b *JusticeBackup) error {
+	c.puts++
+
+	return c.BackupStore.Put(b)
+}
+
+// TestBackupAgentSendOnChange checks the agent only uploads when a channel's
+// backup nonce advances — an unchanged backup on a later tick is a no-op.
+func TestBackupAgentSendOnChange(t *testing.T) {
+	t.Parallel()
+
+	src := &stubSource{backups: []*JusticeBackup{testBackup(5)}}
+	cs := &countingStore{BackupStore: NewMemStore()}
+	agent := NewBackupAgent(src, cs, 0)
+
+	agent.snapshot() // nonce 5: first push
+	agent.snapshot() // nonce 5 again: skipped
+	require.Equal(t, 1, cs.puts, "an unchanged backup must not be re-sent")
+
+	src.backups = []*JusticeBackup{testBackup(6)} // advanced
+	agent.snapshot()
+	require.Equal(t, 2, cs.puts, "an advanced backup is sent")
+}
+
 var errStub = stubErr("boom")
 
 type stubErr string

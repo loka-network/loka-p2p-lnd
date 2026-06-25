@@ -48,11 +48,22 @@ type Config struct {
 	// reject it. The scan advances a cursor forward in WindowSize chunks,
 	// catching up any backlog over successive polls. 0 uses defaultScanWindow.
 	WindowSize uint64
+
+	// ReorgDepth holds the most recent blocks back from the scan: a close is
+	// only acted on once it is this many blocks deep, so one that gets
+	// reorged away never triggers a wasted (reverting) penalize. 0 uses
+	// defaultReorgDepth. The added latency is a few blocks — negligible
+	// against any real challenge window (≥ 24h in production).
+	ReorgDepth uint64
 }
 
 // defaultScanWindow is the per-query block span when Config.WindowSize is 0.
 // Kept well under common public-RPC eth_getLogs caps (sepolia.base.org: 2000).
 const defaultScanWindow = 1800
+
+// defaultReorgDepth is the block hold-back when Config.ReorgDepth is 0,
+// matching the node's evmReorgSafetyDepth-class buffer for L2 reorgs.
+const defaultReorgDepth = 2
 
 // Lookout watches the ChannelManager for UnilateralCloseInitiated events and,
 // when a force-close broadcasts a state older than the backup it holds for that
@@ -157,16 +168,28 @@ func (l *Lookout) scan() {
 		l.cursorSet = true
 	}
 
+	// Hold the most recent ReorgDepth blocks back: only scan up to a
+	// reorg-safe tip, so the cursor re-scans the held-back range once it
+	// settles instead of acting on a close that might be reorged away.
+	depth := l.cfg.ReorgDepth
+	if depth == 0 {
+		depth = defaultReorgDepth
+	}
+	var safeTip uint64
+	if tip > depth {
+		safeTip = tip - depth
+	}
+
 	from := l.cursor
-	if from > tip {
-		// Caught up; nothing new since the last scan.
+	if from > safeTip {
+		// Nothing reorg-safe to scan yet.
 		return
 	}
 	// Span [from, to] is at most `window` blocks (inclusive), staying under
-	// the RPC's range cap.
+	// the RPC's range cap, and never past the reorg-safe tip.
 	to := from + window - 1
-	if to > tip {
-		to = tip
+	if to > safeTip {
+		to = safeTip
 	}
 
 	logs, err := l.cfg.Client.FilterLogs(ctx, ethereum.FilterQuery{

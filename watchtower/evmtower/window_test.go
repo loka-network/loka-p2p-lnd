@@ -161,3 +161,35 @@ func TestLookoutWindowFloorsToTip(t *testing.T) {
 		"a close older than the from-tip window is not scanned")
 	require.LessOrEqual(t, client.maxSpan, uint64(window))
 }
+
+// TestLookoutReorgBufferHoldsRecentClose proves a close within ReorgDepth of the
+// tip is held back (not acted on) until it is deep enough to be reorg-safe.
+func TestLookoutReorgBufferHoldsRecentClose(t *testing.T) {
+	t.Parallel()
+
+	chanID := [32]byte{0xab, 0xcd}
+	key, _ := gethcrypto.GenerateKey()
+	// Close at 4999; with ReorgDepth=2 and tip 5000 the safe tip is 4998.
+	client := &rangeClient{tip: 5000, logBlock: 4999, channelID: chanID}
+	store := NewMemStore()
+	require.NoError(t, store.Put(testBackup(9)))
+
+	lo := NewLookout(Config{
+		Client:     client,
+		Store:      store,
+		Penalizer:  &EvmPenalizer{Client: client, Key: key},
+		FromBlock:  4990,
+		WindowSize: 1000,
+		ReorgDepth: 2,
+	})
+
+	lo.scan()
+	require.Empty(t, client.sent,
+		"a close within ReorgDepth of the tip must be held back")
+
+	// Two more blocks mined: the close is now 2 deep → reorg-safe.
+	client.tip = 5001
+	lo.scan()
+	require.Len(t, client.sent, 1,
+		"the close is acted on once it is reorg-safe")
+}

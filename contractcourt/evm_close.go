@@ -105,7 +105,9 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 		// remedy is presenting that newer co-signed state to the
 		// contract's penalize, which awards the entire escrow to us.
 		if nonce < c.cfg.chanState.LocalCommitment.CommitHeight {
-			return c.dispatchEvmBreach(nonce)
+			return c.dispatchEvmBreach(
+				nonce, uint32(commitSpend.SpendingHeight),
+			)
 		}
 
 		log.Infof("Remote unilateral close of ChannelPoint(%v) "+
@@ -139,7 +141,9 @@ func (c *chainWatcher) handleEvmSpend(commitSpend *chainntnfs.SpendDetail,
 // at a strictly higher nonce — and marks the channel borked. The contract
 // awards the full escrow to this node; no Bitcoin-style justice transaction
 // machinery is involved.
-func (c *chainWatcher) dispatchEvmBreach(staleNonce uint64) error {
+func (c *chainWatcher) dispatchEvmBreach(staleNonce uint64,
+	closeHeight uint32) error {
+
 	chanPoint := c.cfg.chanState.FundingOutpoint
 
 	log.Warnf("Remote peer broadcast REVOKED state #%d for "+
@@ -165,7 +169,7 @@ func (c *chainWatcher) dispatchEvmBreach(staleNonce uint64) error {
 		log.Errorf("ChannelPoint(%v): unable to mark borked: %v",
 			chanPoint, err)
 	}
-	if err := c.recordEvmBreachClose(staleNonce); err != nil {
+	if err := c.recordEvmBreachClose(staleNonce, closeHeight); err != nil {
 		log.Errorf("ChannelPoint(%v): unable to record breach "+
 			"close: %v", chanPoint, err)
 	}
@@ -179,16 +183,25 @@ func (c *chainWatcher) dispatchEvmBreach(staleNonce uint64) error {
 // is the entire remedy and the contract awards us the full escrow — so we
 // write the summary directly rather than handing off to the BreachArbitrator
 // (whose Bitcoin sweep machinery has no EVM analogue).
-func (c *chainWatcher) recordEvmBreachClose(staleNonce uint64) error {
+func (c *chainWatcher) recordEvmBreachClose(staleNonce uint64,
+	closeHeight uint32) error {
+
 	chanState := c.cfg.chanState
 
 	// On a successful penalize the contract pays the entire channel
 	// balance to us, so the settled balance is the full capacity.
 	summary := &channeldb.ChannelCloseSummary{
-		ChanPoint:               chanState.FundingOutpoint,
-		ChainHash:               chanState.ChainHash,
-		ClosingTXID:             chanState.FundingOutpoint.Hash,
-		CloseHeight:             0,
+		ChanPoint: chanState.FundingOutpoint,
+		ChainHash: chanState.ChainHash,
+		// ClosingTXID is the channelId (== the EVM ChannelPoint hash):
+		// EVM has no separate close-tx outpoint, and the on-chain
+		// penalize tx hash isn't returned by publishTx, so the channelId
+		// is the stable on-chain identifier of the closed channel.
+		ClosingTXID: chanState.FundingOutpoint.Hash,
+		// CloseHeight is the block the revoked close was mined at (the
+		// penalize lands a block or two later, within the challenge
+		// window); this is the height the breach was observed/acted on.
+		CloseHeight:             closeHeight,
 		RemotePub:               chanState.IdentityPub,
 		Capacity:                chanState.Capacity,
 		SettledBalance:          chanState.Capacity,
